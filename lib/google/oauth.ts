@@ -11,7 +11,7 @@ export function authorizationUrl(state: string, verifier: string): string {
   const config = googleConfig();
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   for (const [name, value] of Object.entries({ client_id: config.clientId, redirect_uri: config.redirectUri,
-    response_type: "code", scope: GOOGLE_SCOPE, access_type: "offline", prompt: "consent",
+    response_type: "code", scope: GOOGLE_SCOPE, access_type: "offline", prompt: "select_account consent",
     include_granted_scopes: "false", state, code_challenge: challenge(verifier), code_challenge_method: "S256" })) {
     url.searchParams.set(name, value);
   }

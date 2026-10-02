@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { googleConfig, sameOrigin } from "@/lib/google/config";
-import { readSession } from "@/lib/google/session";
+import { readAllowedSession, readSession } from "@/lib/google/session";
 import { accessToken } from "@/lib/google/oauth";
 
 export class GoogleError extends Error {
@@ -19,7 +19,11 @@ export function requireOrigin(request: Request) {
 }
 export async function requireGoogle(request: Request): Promise<string> {
   const session = readSession(request);
-  if (!session) throw new GoogleError("Google connection expired. Reconnect to continue syncing.", 401, "authRequired");
+  if (!session) throw new GoogleError("Reconecte sua conta Google para continuar sincronizando.", 401, "authRequired");
+  let allowed;
+  try { allowed = readAllowedSession(request); }
+  catch { throw new GoogleError("Google account authorization is not configured on this server.", 503, "unconfigured"); }
+  if (!allowed) throw new GoogleError("Esta conta Google não está autorizada a usar a integração Google do Treino Local.", 403, "unauthorized");
   try { return await accessToken(session.refreshToken); }
   catch (cause) {
     if (cause instanceof Error && cause.message.includes("Reconnect")) throw new GoogleError(cause.message, 401, "authRequired");

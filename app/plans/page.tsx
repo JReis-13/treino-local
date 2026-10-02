@@ -35,11 +35,13 @@ export default function PlansPage() {
 
   useEffect(() => {
     setDirectAvailable(Boolean(window.isSecureContext && (window as PickerWindow).showOpenFilePicker));
-    googleStatus().then(setConnected).catch(() => setConnected(false));
+    googleStatus().then((status) => setConnected(status.connected)).catch(() => setConnected(false));
     const result = new URLSearchParams(window.location.search).get("google");
     if (result) {
       setMessage(result === "connected" ? "Google connected. Paste a Google Sheets URL to import training." :
-        result === "denied" ? "Google authorization was cancelled." : "Google connection failed. Try again.");
+        result === "denied" ? "Google authorization was cancelled." :
+        result === "unauthorized" ? "Esta conta Google não está autorizada a usar a integração Google do Treino Local." :
+        "Google connection failed. Try again.");
       window.history.replaceState({}, "", "/plans");
     }
   }, []);
@@ -145,7 +147,7 @@ export default function PlansPage() {
     {(message || error) && <div className={error ? "alert" : "context-note"} role="status">{error ?? message}</div>}
     <div className="source-choice"><div className="source-choice-card"><strong>Google Sheets</strong><span>Connect your Google account, then paste the URL of a Sheet you can access.</span></div><div className="source-choice-card"><strong>Excel file</strong><span>Choose a local .xlsx workbook. Direct updates are used when this browser supports them.</span><button type="button" className="inline-action" disabled={busy} onClick={() => void selectExcel()}>Choose workbook →</button>{directAvailable && <button type="button" className="inline-action" disabled={busy} onClick={() => { setTargetId(undefined); inputRef.current?.click(); }}>Import as safe copy</button>}</div></div>
     <section className="connection-card connector-form"><p className="eyebrow">GOOGLE SHEETS</p><h2>{connected ? "Google account connected" : "Connect Google"}</h2>
-      {!connected ? <button type="button" className="primary-button" onClick={() => connectGoogle("/plans")}>Connect Google →</button> : <>
+      {!connected ? <button type="button" className="primary-button" onClick={() => connectGoogle("/plans")}>{message.includes("não está autorizada") ? "Tentar outra conta Google →" : "Connect Google →"}</button> : <>
         {migrationId && <p className="context-note">Reconnect legacy plan: {data.plans.find((plan) => plan.id === migrationId)?.name}. Use its original Sheet URL.</p>}
         <label className="date-field"><span>PASTE GOOGLE SHEETS LINK</span><input type="url" value={sheetUrl} onChange={(event) => setSheetUrl(event.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…/edit" autoComplete="url" /></label>
         <button type="button" className="primary-button" disabled={busy || !sheetUrl.trim()} onClick={() => void importGoogle(migrationId)}>{busy ? "Reading spreadsheet…" : migrationId ? "Reconnect this training →" : "Import training →"}</button>

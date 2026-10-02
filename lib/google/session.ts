@@ -1,8 +1,9 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { FLOW_COOKIE, googleConfig, SESSION_COOKIE } from "@/lib/google/config";
+import { isAllowedGoogleEmail, normalizeEmail } from "@/lib/google/identity";
 
-export interface GoogleSession { refreshToken: string; createdAt: number; }
+export interface GoogleSession { refreshToken: string; createdAt: number; email: string; sub: string; identityVerified: true; }
 export interface GoogleFlow { state: string; verifier: string; returnTo: string; createdAt: number; }
 type CookieName = typeof SESSION_COOKIE | typeof FLOW_COOKIE;
 
@@ -31,7 +32,13 @@ export function cookieValue(request: Request, name: CookieName): string | undefi
 export function readSession(request: Request): GoogleSession | null {
   const session = unseal<GoogleSession>(cookieValue(request, SESSION_COOKIE), SESSION_COOKIE);
   return session && typeof session.refreshToken === "string" && session.refreshToken.length > 10 &&
-    Number.isFinite(session.createdAt) ? session : null;
+    Number.isFinite(session.createdAt) && session.identityVerified === true &&
+    typeof session.email === "string" && session.email === normalizeEmail(session.email) &&
+    typeof session.sub === "string" && session.sub.length > 0 ? session : null;
+}
+export function readAllowedSession(request: Request): GoogleSession | null {
+  const session = readSession(request);
+  return session && isAllowedGoogleEmail(session.email) ? session : null;
 }
 export function readFlow(request: Request): GoogleFlow | null {
   const flow = unseal<GoogleFlow>(cookieValue(request, FLOW_COOKIE), FLOW_COOKIE);

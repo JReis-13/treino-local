@@ -32,10 +32,14 @@ test("OAuth plan backup retains Sheet identity but removes signed write proof an
   const oauth: TrainingData = { ...data, plans: data.plans.map((plan) => ({ ...plan,
     source: { kind: "google" as const, filename: "Copy", template: "jonatha-v1", mappings: {},
       authMode: "oauth" as const, spreadsheetId: id, sourceProof: "a".repeat(43), syncEnabled: true,
-      refreshToken: "do-not-export" } as TrainingData["plans"][number]["source"] })) };
+      refreshToken: "do-not-export", email: "private@example.com", sub: "private-subject",
+      GOOGLE_ALLOWED_EMAILS: "never-export" } as TrainingData["plans"][number]["source"] })) };
   const raw = createBackup(oauth);
   assert(!raw.includes("sourceProof"));
   assert(!raw.includes("do-not-export"));
+  assert(!raw.includes("private@example.com"));
+  assert(!raw.includes("private-subject"));
+  assert(!raw.includes("never-export"));
   const restored = parseBackup(raw).data.plans[0];
   assert.equal(restored.version, data.plans[0].version);
   assert.equal(restored.source.kind, "google");

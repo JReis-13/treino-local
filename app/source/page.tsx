@@ -48,7 +48,13 @@ export default function SourcePage() {
 
   useEffect(() => {
     setDirectAvailable(Boolean(window.isSecureContext && (window as PickerWindow).showOpenFilePicker));
-    googleStatus().then(setGoogleConnected).catch(() => setGoogleConnected(false));
+    googleStatus().then((status) => setGoogleConnected(status.connected)).catch(() => setGoogleConnected(false));
+    const result = new URLSearchParams(window.location.search).get("google");
+    if (result) {
+      setMessage(result === "unauthorized" ? "Esta conta Google não está autorizada a usar a integração Google do Treino Local." :
+        result === "connected" ? "Google conectado." : result === "denied" ? "Autorização Google cancelada." : "Falha na conexão Google. Tente novamente.");
+      window.history.replaceState({}, "", "/source");
+    }
   }, []);
   useEffect(() => {
     if (!plan || plan.source.kind !== "excel") return;

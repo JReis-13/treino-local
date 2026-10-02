@@ -1,15 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { generateKeyPairSync, sign } from "node:crypto";
+import { OAuth2Client } from "google-auth-library";
 import { GOOGLE_SCOPE, sameOrigin } from "../lib/google/config";
 import { accessToken, authorizationUrl, challenge, equalState, randomUrlToken, tokenRequest } from "../lib/google/oauth";
 import { FLOW_COOKIE, SESSION_COOKIE } from "../lib/google/config";
-import { readFlow, readSession, seal, unseal } from "../lib/google/session";
+import { readFlow, readSession, seal, unseal, type GoogleSession } from "../lib/google/session";
 import { parseSheetUrl } from "../lib/google/sheet-url";
+import { allowedGoogleEmails, isAllowedGoogleEmail, verifyGoogleIdentity } from "../lib/google/identity";
+import { readAllowedSession } from "../lib/google/session";
 
 process.env.APP_BASE_URL = "http://localhost:3000";
 process.env.GOOGLE_OAUTH_CLIENT_ID = "test-client";
 process.env.GOOGLE_OAUTH_CLIENT_SECRET = "test-secret";
 process.env.GOOGLE_OAUTH_SESSION_SECRET = "a".repeat(64);
+process.env.GOOGLE_ALLOWED_EMAILS = " owner@example.com, friend@example.com,owner@example.com,,";
 
 test("OAuth start uses unique state, PKCE, exact callback and Sheets scope", () => {
   const a = randomUrlToken(), b = randomUrlToken();
@@ -21,7 +26,7 @@ test("OAuth start uses unique state, PKCE, exact callback and Sheets scope", () 
   assert.equal(url.searchParams.get("scope"), GOOGLE_SCOPE);
   assert.equal(url.searchParams.get("redirect_uri"), "http://localhost:3000/api/google/auth/callback");
   assert.equal(url.searchParams.get("access_type"), "offline");
-  assert.equal(url.searchParams.get("prompt"), "consent");
+  assert.equal(url.searchParams.get("prompt"), "select_account consent");
   assert(equalState(a, a)); assert(!equalState(a, b));
 });
 
@@ -37,12 +42,52 @@ test("authenticated flow cookie rejects tampering, expiry and wrong purpose", ()
 
 test("refresh token is only in encrypted session cookie and same-origin POST is required", () => {
   const token = "refresh-token-secret-123";
-  const value = seal({ refreshToken: token, createdAt: Date.now() }, SESSION_COOKIE);
+  const value = seal({ refreshToken: token, createdAt: Date.now(), email: "owner@example.com", sub: "subject-1", identityVerified: true }, SESSION_COOKIE);
   assert(!value.includes(token));
   const request = new Request("http://localhost:3000", { headers: { cookie: `${SESSION_COOKIE}=${value}`, origin: "http://localhost:3000" } });
   assert.equal(readSession(request)?.refreshToken, token);
+  assert.equal(readAllowedSession(request)?.email, "owner@example.com");
   assert(sameOrigin(request));
   assert(!sameOrigin(new Request("http://localhost:3000", { headers: { origin: "https://attacker.example" } })));
+});
+
+test("allowlist normalizes, deduplicates, fails closed, and rechecks existing sessions", () => {
+  const original = process.env.GOOGLE_ALLOWED_EMAILS;
+  try {
+    assert.deepEqual([...allowedGoogleEmails()], ["owner@example.com", "friend@example.com"]);
+    assert(isAllowedGoogleEmail(" OWNER@EXAMPLE.COM "));
+    assert(!isAllowedGoogleEmail("other@gmail.com"));
+    const value = seal({ refreshToken: "refresh-token-123456", createdAt: Date.now(), email: "owner@example.com", sub: "subject-1", identityVerified: true }, SESSION_COOKIE);
+    const request = new Request("http://localhost:3000", { headers: { cookie: `${SESSION_COOKIE}=${value}` } });
+    process.env.GOOGLE_ALLOWED_EMAILS = "friend@example.com";
+    assert.equal(readAllowedSession(request), null);
+    process.env.GOOGLE_ALLOWED_EMAILS = "";
+    assert.throws(allowedGoogleEmails);
+    process.env.GOOGLE_ALLOWED_EMAILS = "owner@example.com,not-an-email";
+    assert.throws(allowedGoogleEmails);
+    const old = seal({ refreshToken: "refresh-token-123456", createdAt: Date.now() } as GoogleSession, SESSION_COOKIE);
+    assert.equal(readSession(new Request("http://localhost:3000", { headers: { cookie: `${SESSION_COOKIE}=${old}` } })), null);
+  } finally { process.env.GOOGLE_ALLOWED_EMAILS = original; }
+});
+
+test("Google ID token signature, issuer, audience, expiry and verified email are checked", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const client = new OAuth2Client();
+  Object.defineProperty(client, "getFederatedSignonCertsAsync", { value: async () => ({ certs: { test: publicKey.export({ type: "spki", format: "pem" }) } }) });
+  const now = Math.floor(Date.now() / 1000);
+  const base = { iss: "https://accounts.google.com", aud: "test-client", sub: "subject-1", email: " OWNER@EXAMPLE.COM ",
+    email_verified: true, iat: now, exp: now + 600 };
+  const token = (claims: Record<string, unknown>, key = privateKey) => {
+    const signed = `${Buffer.from(JSON.stringify({ alg: "RS256", kid: "test" })).toString("base64url")}.${Buffer.from(JSON.stringify({ ...base, ...claims })).toString("base64url")}`;
+    return `${signed}.${sign("RSA-SHA256", Buffer.from(signed), key).toString("base64url")}`;
+  };
+  assert.deepEqual(await verifyGoogleIdentity(token({}), client), { email: "owner@example.com", sub: "subject-1" });
+  for (const claims of [{ aud: "another-client" }, { iss: "https://evil.example" }, { exp: now - 1000 },
+    { email: undefined }, { email_verified: false }]) {
+    await assert.rejects(() => verifyGoogleIdentity(token(claims), client));
+  }
+  const wrongKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey;
+  await assert.rejects(() => verifyGoogleIdentity(token({}, wrongKey), client));
 });
 
 test("only standard Google Sheets URLs produce validated IDs and gid", () => {

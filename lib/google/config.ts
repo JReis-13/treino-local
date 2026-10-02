@@ -1,4 +1,4 @@
-export const GOOGLE_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+export const GOOGLE_SCOPE = "openid email https://www.googleapis.com/auth/spreadsheets";
 export const SESSION_COOKIE = "treino_google_session";
 export const FLOW_COOKIE = "treino_google_flow";
 

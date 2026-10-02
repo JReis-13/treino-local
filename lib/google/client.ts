@@ -7,10 +7,10 @@ async function post<T>(path: string, payload: Record<string, unknown>): Promise<
   if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "Google request failed.");
   return body as T;
 }
-export async function googleStatus(): Promise<boolean> {
+export async function googleStatus(): Promise<{ connected: boolean; email?: string }> {
   const response = await fetch("/api/google/auth/status", { cache: "no-store" });
   const body = await response.json();
-  return body.connected === true;
+  return { connected: body.connected === true, email: typeof body.email === "string" ? body.email : undefined };
 }
 export function connectGoogle(returnTo: "/plans" | "/settings" | "/source" = "/plans") {
   // OAuth requires a top-level navigation through the server redirect, not an SPA transition.
