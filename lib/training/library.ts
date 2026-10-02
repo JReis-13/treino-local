@@ -23,6 +23,22 @@ export function refreshTraining(data: TrainingData, planId: string, imported: Im
   } : plan) };
 }
 
+export function migrateGoogleTraining(data: TrainingData, planId: string, imported: ImportedTraining): TrainingData {
+  const old = data.plans.find((plan) => plan.id === planId);
+  if (!old || old.source.kind !== "google" || old.source.authMode === "oauth" ||
+    imported.source.kind !== "google" || imported.source.authMode !== "oauth" || !imported.source.spreadsheetId) {
+    throw new Error("Legacy Google plan is unavailable for migration.");
+  }
+  if (old.source.spreadsheetId && old.source.spreadsheetId !== imported.source.spreadsheetId) {
+    throw new Error("Spreadsheet identity does not match the existing plan.");
+  }
+  if (old.sourceFingerprint && old.sourceFingerprint !== imported.sourceFingerprint) {
+    throw new Error("Source layout differs. Add this Sheet as a new plan or refresh it separately.");
+  }
+  if (imported.warnings.some((warning) => warning.severity === "activationBlocker")) throw new Error("Source layout is not safe to migrate.");
+  return { ...data, plans: data.plans.map((plan) => plan.id === planId ? { ...plan, source: imported.source } : plan) };
+}
+
 export function removeTraining(data: TrainingData, planId: string): TrainingData {
   const removed = data.plans.find((plan) => plan.id === planId);
   const plans = data.plans.filter((plan) => plan.id !== planId);

@@ -1,5 +1,9 @@
 # Workout app: architecture and workbook analysis
 
+## Current Google integration (October 2026)
+
+The preferred Google source is now **server-side Google OAuth + Sheets API**. The user connects Google once and pastes an existing accessible Sheet URL. The server reads only that spreadsheet ID, converts Sheets grid data to the existing `SourceSnapshot`, and uses the same Jonatha/Milena parser and local plan model as Excel. Completion remains local-first; the server re-reads the template, validates a signed source proof and fingerprint, chooses an empty parser-derived E5:E16 date cell, writes a numeric date, and reads it back. Refresh tokens are held only in an encrypted HttpOnly cookie. Old Apps Script sources and the sections below describing them are **legacy/deprecated historical architecture**, retained for migration and audit. See [developer setup](google-oauth-developer-setup.md) and [deployment](deployment.md).
+
 ## Current implementation (September 2026)
 
 The original analysis below is retained as a historical audit of the Jonatha workbook. Its sections labelled “proposed,” especially the single-plan model and copy-only export, describe the first design and are superseded by this implementation summary.

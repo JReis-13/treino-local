@@ -41,6 +41,9 @@ function validSource(value: unknown): boolean {
     record(value.mappings) && (value.connectorVersion === undefined || [1, 2].includes(Number(value.connectorVersion))) &&
     (value.sourceMode === undefined || ["bound", "standalone"].includes(String(value.sourceMode))) &&
     (value.spreadsheetId === undefined || (typeof value.spreadsheetId === "string" && /^[A-Za-z0-9_-]{20,128}$/.test(value.spreadsheetId))) &&
+    (value.authMode === undefined || value.authMode === "oauth") &&
+    (value.sourceProof === undefined || (typeof value.sourceProof === "string" && /^[A-Za-z0-9_-]{43}$/.test(value.sourceProof))) &&
+    (value.gid === undefined || (Number.isInteger(value.gid) && Number(value.gid) >= 0)) &&
     (value.connectorUrl === undefined || typeof value.connectorUrl === "string") &&
     (value.mappingId === undefined || typeof value.mappingId === "string");
   return false;

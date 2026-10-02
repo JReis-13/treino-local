@@ -28,6 +28,24 @@ test("backup restores plans and history without exporting connector endpoint", (
   }
 });
 
+test("OAuth plan backup retains Sheet identity but removes signed write proof and disables sync", () => {
+  const oauth: TrainingData = { ...data, plans: data.plans.map((plan) => ({ ...plan,
+    source: { kind: "google" as const, filename: "Copy", template: "jonatha-v1", mappings: {},
+      authMode: "oauth" as const, spreadsheetId: id, sourceProof: "a".repeat(43), syncEnabled: true,
+      refreshToken: "do-not-export" } as TrainingData["plans"][number]["source"] })) };
+  const raw = createBackup(oauth);
+  assert(!raw.includes("sourceProof"));
+  assert(!raw.includes("do-not-export"));
+  const restored = parseBackup(raw).data.plans[0];
+  assert.equal(restored.version, data.plans[0].version);
+  assert.equal(restored.source.kind, "google");
+  if (restored.source.kind === "google") {
+    assert.equal(restored.source.spreadsheetId, id);
+    assert.equal(restored.source.authMode, "oauth");
+    assert.equal(restored.source.syncEnabled, false);
+  }
+});
+
 test("malformed, oversized, and unsafe backups are rejected before restore", () => {
   assert.throws(() => parseBackup("{"), /valid JSON/);
   assert.throws(() => parseBackup("x".repeat(MAX_BACKUP_BYTES + 1)), /too large/);

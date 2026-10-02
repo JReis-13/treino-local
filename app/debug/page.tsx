@@ -22,7 +22,7 @@ export default function DebugPage() {
       "Secure context": String(window.isSecureContext), Online: String(navigator.onLine), "Local storage": storage,
       "Service worker": navigator.serviceWorker?.controller?.scriptURL ?? "not controlling this page",
       "Direct file access": String(Boolean(window.isSecureContext && "showOpenFilePicker" in window)),
-      "Web Share": String("share" in navigator), "Google connector": "available when a /exec URL and key are connected",
+      "Web Share": String("share" in navigator), "Google Sheets": "available after server-side Google OAuth connection",
       "PWA standalone": String(window.matchMedia("(display-mode: standalone)").matches),
     });
     loadDeviceConnector().then((connector) => setEnvironment((current) => ({ ...current,

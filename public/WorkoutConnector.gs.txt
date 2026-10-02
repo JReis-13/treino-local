@@ -1,3 +1,4 @@
+// LEGACY / DEPRECATED: historical bound Apps Script connector. New users connect Google through OAuth.
 // Workout Connector v1 — install as a container-bound script in a COPY of a training Sheet first.
 // Only TREINO worksheets are read. The browser never supplies a cell address for writes.
 var CONNECTOR_VERSION = 1;

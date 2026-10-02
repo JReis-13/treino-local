@@ -1,3 +1,4 @@
+// LEGACY / DEPRECATED: historical standalone Apps Script connector. New users connect Google through OAuth.
 // Workout Connector v2 — one standalone Apps Script project per Google account.
 // Only explicitly registered spreadsheet IDs and TREINO worksheets are read.
 // The browser never supplies a cell address for writes.

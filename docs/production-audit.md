@@ -1,5 +1,9 @@
 # Production stabilization audit — 2026-10-02
 
+**Historical audit of the previously deployed Apps Script build.** The current repository's preferred Google integration is OAuth + Sheets API; this document's connector findings describe the earlier baseline. The new OAuth build has not been deployed or tested on the public production URL. See [OAuth developer setup](google-oauth-developer-setup.md) and [current deployment checklist](production-deploy-checklist.md).
+
+Read-only production check on 2026-10-02: `/`, `/plans/`, and `/sw.js` each returned HTTP 200. These responses came from the **currently deployed older build**; they do not test the new OAuth build. No production data was changed.
+
 The public deployment at `https://treino-local.vercel.app` was checked **read-only** before this change was deployed. Its home, plans, history, source, workout, finish, debug, manifest, service worker, and setup page returned HTTP 200. An invalid connector target returned HTTP 400. Three Chrome mobile viewport smoke runs navigated the public site without client exceptions. Its service worker identified build `d7e80b8b-20261002T125902`; these checks describe the **currently deployed older build**, not the new v2 code in this commit. No canonical Sheet or workbook was modified.
 
 | Finding | Severity | Root cause | Fix and regression evidence |

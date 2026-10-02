@@ -20,12 +20,15 @@ function withoutConnector(source: TrainingSource): TrainingSource {
   return { kind: "google", filename: source.filename, template: source.template, mappings: source.mappings,
     mappingId: source.mappingId, sheetUrl: source.sheetUrl, lastRefreshedAt: source.lastRefreshedAt,
     connectorVersion: source.connectorVersion, sourceMode: source.sourceMode, spreadsheetId: source.spreadsheetId,
-    fileId: source.fileId, url: source.url, syncEnabled: false };
+    fileId: source.fileId, url: source.url, authMode: source.authMode, gid: source.gid, syncEnabled: false };
 }
+
+const credentialField = /^(?:access_?token|refresh_?token|client_?secret|session_?cookie|connector_?key|oauth_?cookie)$/i;
+function withoutCredentials(key: string, value: unknown) { return credentialField.test(key) ? undefined : value; }
 
 export function createBackup(data: TrainingData, createdAt = new Date().toISOString()): string {
   const sanitized: TrainingData = { ...data, plans: data.plans.map((plan) => ({ ...plan, source: withoutConnector(plan.source) })) };
-  return JSON.stringify({ format: "treino-local-backup", version: 1, createdAt, data: sanitized }, null, 2);
+  return JSON.stringify({ format: "treino-local-backup", version: 1, createdAt, data: sanitized }, withoutCredentials, 2);
 }
 
 export function parseBackup(raw: string): { data: TrainingData; createdAt: string } {
@@ -38,6 +41,6 @@ export function parseBackup(raw: string): { data: TrainingData; createdAt: strin
   if (envelope.format !== "treino-local-backup" || envelope.version !== 1 ||
       typeof envelope.createdAt !== "string" || !Number.isFinite(Date.parse(envelope.createdAt)))
     throw new Error("Backup format or version is unsupported.");
-  const data = parseTrainingData(JSON.stringify(envelope.data));
+  const data = parseTrainingData(JSON.stringify(envelope.data, withoutCredentials));
   return { data: { ...data, plans: data.plans.map((plan) => ({ ...plan, source: withoutConnector(plan.source) })) }, createdAt: envelope.createdAt };
 }

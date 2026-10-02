@@ -21,6 +21,7 @@ export type TrainingSource =
   | { kind: "google"; filename: string; template: string; mappings: Record<string, CompletionMapping>;
       connectorUrl?: string; mappingId?: string; sheetUrl?: string; lastRefreshedAt?: string; syncEnabled?: boolean;
       connectorVersion?: 1 | 2; sourceMode?: "bound" | "standalone"; spreadsheetId?: string;
+      authMode?: "oauth"; sourceProof?: string; gid?: number;
       // Older Picker-based plans remain loadable but require a new connector to sync.
       fileId?: string; url?: string };
 

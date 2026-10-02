@@ -3,6 +3,7 @@ import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { snapshotFromXlsx } from "../lib/import/snapshot";
+import { parseTrainingSnapshot } from "../lib/import/template-parser";
 import { fixturePath } from "../tests/fixture-path";
 
 let folder: string;
@@ -161,83 +162,53 @@ test("PWA update prompt cannot reload an in-progress workout", async ({ page }) 
   await expect(page.getByText(/IN PROGRESS/).first()).toBeVisible();
 });
 
-test("mobile Google connector import, validation and one verified completion use the same-origin route", async ({ page }) => {
-  const snapshot = await snapshotFromXlsx(new Uint8Array(await readFile(jonatha)));
-  const operations: string[] = [];
-  await page.route("**/api/google-connector", async (route) => {
-    const body = route.request().postDataJSON();
-    operations.push(body.operation);
-    const result = body.operation === "ping" ? { spreadsheetName: "Test copy", sheetUrl: "https://docs.google.com/spreadsheets/d/copy", workoutSheets: ["TREINO A", "TREINO B"] } :
-      body.operation === "getWorkbookSnapshot" ? { spreadsheetName: "Test copy", sheetUrl: "https://docs.google.com/spreadsheets/d/copy", mappingId: "abcdef12", snapshot } :
-      { status: "synced", workoutId: body.payload.workoutId, localDate: body.payload.localDate, sourceSlot: "E5" };
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, version: 1, result }) });
-  });
-  await page.goto("/plans/");
-  const legacy = page.getByText("Existing bound-sheet connector (v1)").locator("..");
-  await legacy.locator("summary").tap();
-  await legacy.getByLabel("APPS SCRIPT /EXEC URL").fill("https://script.google.com/macros/s/AKfycbx123/exec");
-  await legacy.getByLabel("CONNECTION KEY").fill("a".repeat(64));
-  await legacy.getByRole("button", { name: /Test connection/ }).tap();
-  await expect(page.getByText(/Connected: Test copy/)).toBeVisible();
-  await legacy.getByRole("button", { name: /Import training/ }).tap();
-  await expect(page.getByRole("heading", { name: "Training ready" })).toBeVisible();
-  await page.locator(".review-card").getByRole("button", { name: /Use this training/ }).tap();
-  await page.getByRole("link", { name: "Source", exact: true }).tap();
-  await page.getByRole("button", { name: /Validate source/ }).tap();
-  await expect(page.getByText(/Source validated/)).toBeVisible();
-  await page.getByRole("button", { name: "Enable sync" }).tap();
-  await page.getByRole("link", { name: "Home", exact: true }).tap();
-  await page.getByRole("button", { name: "Start workout" }).first().tap();
-  await page.getByRole("link", { name: /Finish workout/ }).tap();
-  await page.getByRole("button", { name: /Save workout/ }).tap();
-  await expect.poll(() => operations.filter((operation) => operation === "registerWorkoutCompletion").length).toBe(1);
-  await expect(page.getByText(/Synced/)).toBeVisible();
-  await page.getByRole("link", { name: /Workout A/ }).last().tap();
-  await expect(page.getByText(/Date verified in E5/)).toBeVisible();
-  await page.getByRole("link", { name: "Plans", exact: true }).tap();
-  await page.getByRole("article").filter({ hasText: "Test copy" }).getByRole("button", { name: "Refresh training" }).tap();
-  await expect(page.getByRole("heading", { name: "Training ready" })).toBeVisible();
-  await page.locator(".review-card").getByRole("button", { name: /Update this training/ }).tap();
-  await expect(page.getByText("2 WORKOUTS", { exact: true })).toBeVisible();
-  expect(operations.filter((operation) => operation === "getWorkbookSnapshot").length).toBe(3);
-});
-
-test("standalone connector imports a normal Sheet URL and preserves local history", async ({ page }) => {
+test("fresh mobile user connects, imports by Sheet URL, finishes locally and syncs", async ({ page }) => {
   const spreadsheetId = "a12345678901234567890123";
   const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+  const secondId = "b12345678901234567890123";
+  const secondUrl = `https://docs.google.com/spreadsheets/d/${secondId}/edit`;
   const snapshot = await snapshotFromXlsx(new Uint8Array(await readFile(jonatha)));
+  const imported = parseTrainingSnapshot(snapshot, { kind: "google", filename: "Friend copy", template: "", mappings: {},
+    authMode: "oauth", spreadsheetId, sheetUrl, sourceProof: "a".repeat(43), syncEnabled: true }, "Friend copy");
+  let connected = false;
   const operations: string[] = [];
-  await page.route("**/api/google-connector", async (route) => {
+  await page.route("**/api/google/auth/status", (route) => route.fulfill({ json: { connected } }));
+  await page.route("**/api/google/auth/start?**", async (route) => {
+    connected = true;
+    operations.push("connect");
+    await route.fulfill({ status: 302, headers: { location: "/plans/?google=connected" }, body: "" });
+  });
+  await page.route("**/api/google/sheets/import", async (route) => {
+    const url = route.request().postDataJSON().url;
+    expect([sheetUrl, secondUrl]).toContain(url);
+    operations.push("import");
+    await route.fulfill({ json: { imported: url === sheetUrl ? imported : { ...imported, name: "Second copy",
+      source: { ...imported.source, filename: "Second copy", spreadsheetId: secondId, sheetUrl: secondUrl } } } });
+  });
+  await page.route("**/api/google/sheets/register-completion", async (route) => {
     const body = route.request().postDataJSON();
-    operations.push(body.operation);
-    if (body.operation !== "ping") expect(body.spreadsheetId).toBe(spreadsheetId);
-    const result = body.operation === "ping" ? { connectorVersion: 2, registeredSheets: 0 } :
-      ["registerSpreadsheet", "getWorkbookSnapshot"].includes(body.operation) ? { spreadsheetName: "Test copy", sheetUrl, mappingId: "abcdef12", snapshot } :
-      { status: "synced", workoutId: body.payload.workoutId, localDate: body.payload.localDate, sourceSlot: "E5" };
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, version: 2, result }) });
+    expect(body.spreadsheetId).toBe(spreadsheetId);
+    expect(body).not.toHaveProperty("range");
+    operations.push("sync");
+    await route.fulfill({ json: { status: "synced", sourceSlot: "E5" } });
   });
   await page.goto("/plans/");
-  await page.getByLabel("STANDALONE APPS SCRIPT /EXEC URL").fill("https://script.google.com/macros/s/AKfycbx123/exec");
-  await page.getByLabel("CONNECTOR KEY", { exact: true }).fill("a".repeat(64));
-  await page.getByRole("button", { name: "Connect Google connector" }).tap();
-  await expect(page.getByText(/Google connector connected on this device/)).toBeVisible();
-  await page.getByLabel("GOOGLE SHEETS URL").fill(sheetUrl);
-  await page.getByRole("button", { name: "Import training" }).tap();
+  await page.getByRole("button", { name: /Connect Google/ }).tap();
+  await expect(page.getByRole("heading", { name: "Google account connected" })).toBeVisible();
+  await page.getByLabel("PASTE GOOGLE SHEETS LINK").fill(sheetUrl);
+  await page.getByRole("button", { name: /Import training/ }).tap();
   await expect(page.getByRole("heading", { name: "Training ready" })).toBeVisible();
   await page.locator(".review-card").getByRole("button", { name: /Use this training/ }).tap();
-  await page.getByRole("link", { name: "Source", exact: true }).tap();
-  await page.getByRole("button", { name: /Validate source/ }).tap();
-  await expect(page.getByText(/Source validated/)).toBeVisible();
-  await page.getByRole("button", { name: "Enable sync" }).tap();
-  await page.getByRole("link", { name: "Home", exact: true }).tap();
   await page.getByRole("button", { name: "Start workout" }).first().tap();
   await page.getByRole("link", { name: /Finish workout/ }).tap();
   await page.getByRole("button", { name: /Save workout/ }).tap();
-  await expect.poll(() => operations.filter((operation) => operation === "registerSpreadsheetCompletion").length).toBe(1);
+  await expect.poll(() => operations.filter((item) => item === "sync").length).toBe(1);
   await expect(page.getByText(/Synced/)).toBeVisible();
-  await page.getByRole("link", { name: "Settings", exact: true }).tap();
-  await expect(page.getByRole("heading", { name: /Settings/ })).toBeVisible();
-  expect(operations).toEqual(["ping", "registerSpreadsheet", "getWorkbookSnapshot", "registerSpreadsheetCompletion"]);
+  await page.getByRole("link", { name: "Plans", exact: true }).tap();
+  await page.getByLabel("PASTE GOOGLE SHEETS LINK").fill(secondUrl);
+  await page.getByRole("button", { name: /Import training/ }).tap();
+  await expect(page.getByRole("heading", { name: "Training ready" })).toBeVisible();
+  expect(operations).toEqual(["connect", "import", "sync", "import"]);
 });
 
 test("local backup rejects malformed JSON and restores a reviewed plan", async ({ page }) => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { addTraining, refreshTraining, removeTraining, renameTraining } from "@/lib/training/library";
+import { addTraining, migrateGoogleTraining, refreshTraining, removeTraining, renameTraining } from "@/lib/training/library";
 import { finishTrainingSession, startTrainingSession, updateTrainingBlock } from "@/lib/training/session";
 import { trainingStorage } from "@/lib/training/storage";
 import type { ImportedTraining, SourceSyncStatus, TrainingData, TrainingSession, TrainingSource } from "@/types/training";
@@ -14,6 +14,7 @@ interface AppContextValue {
   finish(sessionId: string, localDate: string): boolean;
   addPlan(imported: ImportedTraining, name?: string): string | null;
   refreshPlan(planId: string, imported: ImportedTraining): boolean;
+  migrateGooglePlan(planId: string, imported: ImportedTraining): boolean;
   setActivePlan(planId: string): boolean;
   renamePlan(planId: string, name: string): boolean;
   removePlan(planId: string): boolean;
@@ -77,21 +78,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const plan = dataRef.current?.plans.find((item) => item.id === session?.planId);
     const source = plan?.source;
     if (plan && session?.status === "completed" && source?.kind === "google" && source.syncEnabled &&
-        source.mappingId && navigator.onLine &&
+        (source.authMode === "oauth" ? Boolean(source.sourceProof && source.spreadsheetId) : Boolean(source.mappingId)) && navigator.onLine &&
         !plan.importWarnings.some((warning) => warning.severity === "syncBlocker")) {
       // The completed session has already been committed locally. Remote sync is best-effort.
       void (async () => {
         try {
-          const { loadPlanConnectorKey, loadDeviceConnector } = await import("@/lib/connector/credentials");
-          const { registerConnectorCompletion } = await import("@/lib/connector/client");
-          const device = source.connectorVersion === 2 ? await loadDeviceConnector() : undefined;
-          const url = device?.url ?? source.connectorUrl;
-          const key = await loadPlanConnectorKey(plan.id, source.connectorVersion);
-          if (!url) throw new Error("Google connector unavailable on this device. Reconnect in Training plans.");
-          if (!key) throw new Error("Connection key unavailable. Reconnect this Sheet in Training plans.");
-          if (source.connectorVersion === 2 && !source.spreadsheetId) throw new Error("Spreadsheet identity is missing. Refresh this training before syncing.");
-          const result = await registerConnectorCompletion(url, key, session.workoutId, localDate, source.mappingId!,
-            source.connectorVersion === 2 ? source.spreadsheetId : undefined);
+          let result: { status: "synced" | "duplicate" | "full"; sourceSlot?: string };
+          if (source.authMode === "oauth") {
+            const { syncGoogleDate } = await import("@/lib/google/client");
+            result = await syncGoogleDate(source.spreadsheetId!, plan.sourceFingerprint!, source.sourceProof!, session.workoutId, localDate);
+          } else {
+            const { loadPlanConnectorKey, loadDeviceConnector } = await import("@/lib/connector/credentials");
+            const { registerConnectorCompletion } = await import("@/lib/connector/client");
+            const device = source.connectorVersion === 2 ? await loadDeviceConnector() : undefined;
+            const url = device?.url ?? source.connectorUrl;
+            const key = await loadPlanConnectorKey(plan.id, source.connectorVersion);
+            if (!url || !key) throw new Error("Legacy Google connector unavailable. Reconnect with Google in Training plans.");
+            result = await registerConnectorCompletion(url, key, session.workoutId, localDate, source.mappingId!,
+              source.connectorVersion === 2 ? source.spreadsheetId : undefined);
+          }
           commit((current) => ({ ...current, sessions: current.sessions.map((item) => item.id !== sessionId ? item : {
             ...item, syncStatus: result.status === "synced" ? "synced" as const : "conflict" as const,
             syncMessage: result.status === "synced" ? `Date verified in ${result.sourceSlot}.` :
@@ -99,7 +104,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }) }));
         } catch (cause) {
           commit((current) => ({ ...current, sessions: current.sessions.map((item) => item.id !== sessionId ? item : {
-            ...item, syncStatus: "failed" as const, syncMessage: cause instanceof Error ? cause.message : "Connector sync failed. Retry from Source.",
+            ...item, syncStatus: cause instanceof Error && /reconnect|expired/i.test(cause.message) ? "authRequired" as const : "failed" as const,
+            syncMessage: cause instanceof Error ? cause.message : "Google sync failed. Retry from Source.",
           }) }));
         }
       })();
@@ -112,6 +118,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [commit]);
   const refreshPlan = useCallback((planId: string, imported: ImportedTraining) =>
     commit((current) => refreshTraining(current, planId, imported)), [commit]);
+  const migrateGooglePlan = useCallback((planId: string, imported: ImportedTraining) =>
+    commit((current) => migrateGoogleTraining(current, planId, imported)), [commit]);
   const setActivePlan = useCallback((planId: string) => commit((current) => {
     if (!current.plans.some((plan) => plan.id === planId)) throw new Error("Training plan not found.");
     return { ...current, activePlanId: planId };
@@ -139,7 +147,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not restore local data."); return false; }
   }, []);
 
-  return <AppContext.Provider value={{ data, error, start, updateBlock, finish, addPlan, refreshPlan,
+  return <AppContext.Provider value={{ data, error, start, updateBlock, finish, addPlan, refreshPlan, migrateGooglePlan,
     setActivePlan, renamePlan, removePlan, updateSource, setSyncStatus, restoreData, clearError: () => setError(null) }}>{children}</AppContext.Provider>;
 }
 

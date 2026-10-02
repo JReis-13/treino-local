@@ -25,3 +25,6 @@ This is a bearer-key design. Anyone with both the `/exec` URL and key could ask 
 Existing container-bound v1 plans continue using their saved per-plan key and bound `/exec` URL. **Plans → Existing bound-sheet connector (v1)** remains available. Migration is optional: configure v2 once, import the same Sheet URL as a separate plan, review it, and keep the old plan/history until satisfied. A copied Sheet no longer needs another connector deployment under v2; the standalone account must simply have access to the copy.
 
 Automated tests use mocks and disposable local workbook copies. They do not write a real Google Sheet. Any hosted end-to-end write test must use a disposable Sheet copy and verify that same copy received one date.
+# LEGACY / DEPRECATED — Apps Script connector
+
+This guide is retained for existing connector-based plans only. New users should use **Connect Google** in Plans, then paste their normal Google Sheets URL. See [the current developer-only OAuth setup](google-oauth-developer-setup.md).

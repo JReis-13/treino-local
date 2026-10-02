@@ -137,7 +137,8 @@ export interface GoogleCellData {
   formattedValue?: string;
   userEnteredValue?: { numberValue?: number; stringValue?: string; formulaValue?: string };
   effectiveValue?: { numberValue?: number; stringValue?: string };
-  effectiveFormat?: { numberFormat?: { pattern?: string } };
+  effectiveFormat?: { numberFormat?: { pattern?: string; type?: string } };
+  userEnteredFormat?: { numberFormat?: { pattern?: string; type?: string } };
   hyperlink?: string;
   textFormatRuns?: Array<{ format?: { link?: { uri?: string } } }>;
 }
@@ -163,9 +164,11 @@ export function snapshotFromGoogle(grid: GoogleGrid): SourceSnapshot {
         const raw = effective.numberValue === undefined ? (effective.stringValue ?? "") : String(effective.numberValue);
         const displayed = value.formattedValue ?? raw;
         const hyperlink = value.hyperlink ?? value.textFormatRuns?.find((run) => run.format?.link?.uri)?.format?.link?.uri;
-        if (raw || displayed || hyperlink || value.userEnteredValue?.formulaValue) cells[ref] = {
+        const format = value.effectiveFormat?.numberFormat ?? value.userEnteredFormat?.numberFormat;
+        const numberFormat = format?.pattern ?? (format?.type === "DATE" || format?.type === "DATE_TIME" ? "dd/mm" : undefined);
+        if (raw || displayed || hyperlink || value.userEnteredValue?.formulaValue || numberFormat) cells[ref] = {
           ref, raw, displayed, rawType: effective.numberValue === undefined ? "s" : "n",
-          numberFormat: value.effectiveFormat?.numberFormat?.pattern,
+          numberFormat,
           formula: value.userEnteredValue?.formulaValue, hyperlink,
         };
       }));
