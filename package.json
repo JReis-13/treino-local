@@ -1,0 +1,35 @@
+{
+  "name": "treino-local",
+  "version": "0.2.0",
+  "private": true,
+  "packageManager": "pnpm@10.34.6",
+  "engines": { "node": "24.x" },
+  "scripts": {
+    "dev": "next dev",
+    "dev:lan": "node scripts/dev-lan.mjs",
+    "build": "node scripts/build.mjs",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/run-tests.mjs",
+    "test:excel": "node scripts/run-tests.mjs --excel",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.2.5",
+    "jszip": "^3.10.1",
+    "next": "^16.3.7",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.35.0",
+    "eslint-config-next": "^16.3.7",
+    "typescript": "^5.9.3"
+  }
+}

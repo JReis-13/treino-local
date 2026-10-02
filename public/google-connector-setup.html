@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connect a Google Sheet · Treino Local</title>
+<style>body{font:17px/1.55 system-ui,sans-serif;background:#f6f7f3;color:#162321;margin:0}main{max-width:720px;margin:auto;padding:28px 20px 64px}h1{font-size:2rem;line-height:1.1}h2{font-size:1.3rem;margin-top:2rem}li{margin:.8rem 0}a{color:#08655c}aside{background:#fff4df;border-left:4px solid #b7802f;padding:14px 18px;border-radius:10px}code{background:#e9ede8;padding:.1rem .25rem;border-radius:4px}nav{margin-bottom:2rem}</style></head><body><main>
+<nav><a href="/plans/">← Training plans</a></nav><h1>Connect your Google Sheet</h1>
+<p>Install a small Apps Script in a <strong>copy</strong> of your workout Sheet first. You do not need a Google Cloud project, OAuth consent screen, or Picker API.</p>
+<ol><li>In the Sheet copy, open <strong>Extensions → Apps Script</strong>. Replace the starter code with the complete <a href="/WorkoutConnector.gs.txt" download="WorkoutConnector.gs">WorkoutConnector.gs source</a> and save.</li>
+<li>Run <code>initializeConnector</code> in the Apps Script editor and approve Google’s prompt for your own script. In <strong>Project Settings → Script Properties</strong>, copy the <code>WORKOUT_CONNECTOR_KEY</code> value privately.</li>
+<li>Choose <strong>Deploy → New deployment → Web app</strong>. Select <strong>Execute as: Me</strong> and <strong>Who has access: Anyone</strong>. Copy the deployment URL ending in <code>/exec</code>.</li>
+<li>Back in <a href="/plans/">Training plans</a>, paste the URL and key. Choose <strong>Test connection</strong>, then <strong>Import training</strong>. Review the summary before using the plan.</li>
+<li>On <strong>Source</strong>, choose <strong>Validate source</strong> and <strong>Enable sync</strong> to allow date updates. Your workout is saved on this device before any sync attempt.</li></ol>
+<aside>The URL alone does not authorize access; keep the connection key private. The connector can write only one available date cell in E5:E16 on a named TREINO workout tab. Test writes with a disposable Sheet copy.</aside>
+<h2>Reconnect or revoke</h2><p>If you lose the key on this device, paste it again in Training plans. Run <code>rotateConnectorKey</code> in Apps Script to invalidate the old key, then reconnect each device. Remove the web app deployment to stop access entirely. Offline workouts remain in local History and can be retried later.</p>
+<h2>Using another Sheet</h2><p>A new independent Sheet needs its own bound script and deployment. Copying a Sheet also copies its bound script code, but set up the copy as a new connection: run <code>rotateConnectorKey</code> in the copy’s Apps Script project to ensure a fresh key, deploy its own Web App, and use that copy’s new URL and key. Do not reuse the old Sheet’s deployment details.</p>
+</main></body></html>
