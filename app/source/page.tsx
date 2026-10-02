@@ -6,7 +6,7 @@ import { useApp } from "@/components/app-provider";
 import { formatLocalDate } from "@/lib/dates";
 import { inspectWorkbook } from "@/lib/excel/adapter";
 import { connectorWorkbook, registerConnectorCompletion } from "@/lib/connector/client";
-import { loadConnectorKey } from "@/lib/connector/credentials";
+import { loadDeviceConnector, loadPlanConnectorKey } from "@/lib/connector/credentials";
 import { loadFileHandle, saveFileHandle } from "@/lib/import/file-handles";
 import { snapshotFromXlsx } from "@/lib/import/snapshot";
 import { parseTrainingSnapshot } from "@/lib/import/template-parser";
@@ -144,10 +144,13 @@ export default function SourcePage() {
     if (plan!.source.kind !== "google") return;
     setBusy(true); setMessage("Validating Google Sheet…");
     try {
-      if (!plan!.source.connectorUrl) throw new Error("This older Google plan needs an Apps Script connector. Reconnect it in Training plans.");
-      const key = await loadConnectorKey(plan!.id);
+      const device = plan!.source.connectorVersion === 2 ? await loadDeviceConnector() : undefined;
+      const url = device?.url ?? plan!.source.connectorUrl;
+      if (!url) throw new Error("This Google plan needs an Apps Script connector. Reconnect it in Training plans.");
+      const key = await loadPlanConnectorKey(plan!.id, plan!.source.connectorVersion);
       if (!key) throw new Error("Connection key is unavailable on this device. Reconnect in Training plans.");
-      const result = await connectorWorkbook(plan!.source.connectorUrl, key);
+      if (plan!.source.connectorVersion === 2 && !plan!.source.spreadsheetId) throw new Error("Spreadsheet identity is missing. Refresh this plan.");
+      const result = await connectorWorkbook(url, key, plan!.source.connectorVersion === 2 ? plan!.source.spreadsheetId : undefined);
       const parsed = parseTrainingSnapshot(result.snapshot, plan!.source, plan!.name);
       if (parsed.sourceFingerprint !== plan!.sourceFingerprint) throw new Error("Google Sheet changed. Refresh the training before enabling sync.");
       if (result.mappingId !== plan!.source.mappingId || syncBlocked || parsed.warnings.some((warning) => warning.severity === "syncBlocker"))
@@ -158,16 +161,21 @@ export default function SourcePage() {
   }
 
   async function syncGoogle() {
-    if (plan!.source.kind !== "google" || !plan!.source.connectorUrl || !plan!.source.mappingId || syncBlocked) return;
+    if (plan!.source.kind !== "google" || !plan!.source.mappingId || syncBlocked) return;
     setBusy(true); setMessage("Checking Google Sheet and syncing pending dates…");
     const processed = new Set<string>();
     try {
-      const key = await loadConnectorKey(plan!.id);
+      const device = plan!.source.connectorVersion === 2 ? await loadDeviceConnector() : undefined;
+      const url = device?.url ?? plan!.source.connectorUrl;
+      if (!url) throw new Error("Google connector unavailable. Reconnect in Training plans.");
+      const key = await loadPlanConnectorKey(plan!.id, plan!.source.connectorVersion);
       if (!key) throw new Error("Connection key unavailable. Reconnect this Sheet in Training plans.");
+      if (plan!.source.connectorVersion === 2 && !plan!.source.spreadsheetId) throw new Error("Spreadsheet identity is missing. Refresh this plan.");
       let synced = 0;
       for (const session of pending) {
         if (!session.localDate) continue;
-        const result = await registerConnectorCompletion(plan!.source.connectorUrl, key, session.workoutId, session.localDate, plan!.source.mappingId);
+        const result = await registerConnectorCompletion(url, key, session.workoutId, session.localDate, plan!.source.mappingId,
+          plan!.source.connectorVersion === 2 ? plan!.source.spreadsheetId : undefined);
         processed.add(session.id);
         if (result.status === "synced") { synced++; setSyncStatus([session.id], "synced", `Date written and verified in ${result.sourceSlot}.`); }
         else setSyncStatus([session.id], "conflict", result.status === "duplicate" ? "This workout/date already exists in the Sheet; review it before retrying." : "Source completion slots are full. Local history remains saved.");
@@ -185,7 +193,7 @@ export default function SourcePage() {
     <section className="connection-card"><p className="eyebrow">CONNECTED SOURCE</p><h2>{plan.source.kind === "builtin" ? "Local plan" : plan.source.filename}</h2><p>{plan.source.kind === "google" ? "Google Sheet · Apps Script connector" : plan.source.kind === "excel" ? `${selected?.mode === "direct" ? "Direct connected file" : selected ? "Safe-copy mode" : "Reconnect when ready"} · ${plan.source.template}` : "No external sync source is attached."}</p>
       {plan.source.kind === "excel" && <div className="connection-actions"><button type="button" className="primary-button" disabled={busy} onClick={() => void selectExcel()}>Connect workbook →</button>{directAvailable && <button type="button" className="secondary-button" disabled={busy} onClick={() => void selectExcel(true)}>Use safe copy instead</button>}</div>}
       {syncBlocked && <p className="context-note">This training works locally. Its source completion mapping needs review, so source sync is unavailable.</p>}
-      {plan.source.kind === "google" && <div className="connection-actions"><button type="button" className="primary-button" disabled={busy || syncBlocked || !plan.source.connectorUrl} onClick={() => void validateGoogle()}>Validate source →</button><button type="button" className="secondary-button" disabled={busy || !validatedGoogle || syncBlocked} onClick={() => { if (plan.source.kind === "google" && updateSource(plan.id, { ...plan.source, syncEnabled: true })) setMessage("Google source sync enabled. Future completed workouts will attempt sync when online; pending workouts can be retried below."); }}>Enable sync</button></div>}
+      {plan.source.kind === "google" && <div className="connection-actions"><button type="button" className="primary-button" disabled={busy || syncBlocked || (plan.source.connectorVersion !== 2 && !plan.source.connectorUrl)} onClick={() => void validateGoogle()}>Validate source →</button><button type="button" className="secondary-button" disabled={busy || !validatedGoogle || syncBlocked} onClick={() => { if (plan.source.kind === "google" && updateSource(plan.id, { ...plan.source, syncEnabled: true })) setMessage("Google source sync enabled. Future completed workouts will attempt sync when online; pending workouts can be retried below."); }}>Enable sync</button></div>}
       {plan.source.kind === "builtin" && <Link className="secondary-button" href="/plans/">Import or connect training →</Link>}
     </section>
     <input ref={inputRef} type="file" className="sr-only" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { const file = event.target.files?.[0]; if (file) void validateExcel(file); else setMessage("File selection cancelled."); event.target.value = ""; }} />

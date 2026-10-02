@@ -4,6 +4,7 @@ import { WORKOUTS } from "../data/workouts";
 import { addTraining, refreshTraining, removeTraining } from "../lib/training/library";
 import { finishTrainingSession, startTrainingSession, updateTrainingBlock } from "../lib/training/session";
 import { emptyTrainingData, migrateV1, parseTrainingData } from "../lib/training/storage";
+import { localDateString } from "../lib/dates";
 import type { ImportedTraining } from "../types/training";
 
 const imported = (name: string, workoutId = "A"): ImportedTraining => ({
@@ -50,4 +51,16 @@ test("v1 sessions migrate without losing loads, dates or in-progress progress", 
   assert.equal(migrated.sessions[0].blocks[3].actualLoad, "9");
   assert.equal(migrated.sessions[1].blocks[0].completed, true);
   assert.equal(parseTrainingData(JSON.stringify(migrated)).sessions.length, 2);
+});
+
+test("completion uses the local finish date across midnight and preserves a manual correction", () => {
+  const plan = addTraining(emptyTrainingData(), imported("Night"), undefined, "2026-09-30T20:00:00Z", "night");
+  const started = startTrainingSession(plan, "night", "A", new Date(2026, 8, 30, 23, 50), "late");
+  const afterMidnight = new Date(2026, 9, 1, 0, 10);
+  const completed = finishTrainingSession(started.data, "late", localDateString(afterMidnight), afterMidnight);
+  assert.equal(completed.sessions[0].localDate, "2026-10-01");
+  const corrected = finishTrainingSession(started.data, "late", "2026-09-30", afterMidnight);
+  assert.equal(corrected.sessions[0].localDate, "2026-09-30");
+  assert.equal(localDateString(new Date(2026, 2, 29, 1, 30)), "2026-03-29");
+  assert.equal(localDateString(new Date(2026, 2, 29, 3, 30)), "2026-03-29");
 });

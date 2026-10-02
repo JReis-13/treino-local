@@ -19,6 +19,7 @@ interface AppContextValue {
   removePlan(planId: string): boolean;
   updateSource(planId: string, source: TrainingSource): boolean;
   setSyncStatus(sessionIds: string[], status: SourceSyncStatus, message?: string): void;
+  restoreData(restored: TrainingData): boolean;
   clearError(): void;
 }
 
@@ -76,16 +77,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const plan = dataRef.current?.plans.find((item) => item.id === session?.planId);
     const source = plan?.source;
     if (plan && session?.status === "completed" && source?.kind === "google" && source.syncEnabled &&
-        source.connectorUrl && source.mappingId && navigator.onLine &&
+        source.mappingId && navigator.onLine &&
         !plan.importWarnings.some((warning) => warning.severity === "syncBlocker")) {
       // The completed session has already been committed locally. Remote sync is best-effort.
       void (async () => {
         try {
-          const { loadConnectorKey } = await import("@/lib/connector/credentials");
+          const { loadPlanConnectorKey, loadDeviceConnector } = await import("@/lib/connector/credentials");
           const { registerConnectorCompletion } = await import("@/lib/connector/client");
-          const key = await loadConnectorKey(plan.id);
+          const device = source.connectorVersion === 2 ? await loadDeviceConnector() : undefined;
+          const url = device?.url ?? source.connectorUrl;
+          const key = await loadPlanConnectorKey(plan.id, source.connectorVersion);
+          if (!url) throw new Error("Google connector unavailable on this device. Reconnect in Training plans.");
           if (!key) throw new Error("Connection key unavailable. Reconnect this Sheet in Training plans.");
-          const result = await registerConnectorCompletion(source.connectorUrl!, key, session.workoutId, localDate, source.mappingId!);
+          if (source.connectorVersion === 2 && !source.spreadsheetId) throw new Error("Spreadsheet identity is missing. Refresh this training before syncing.");
+          const result = await registerConnectorCompletion(url, key, session.workoutId, localDate, source.mappingId!,
+            source.connectorVersion === 2 ? source.spreadsheetId : undefined);
           commit((current) => ({ ...current, sessions: current.sessions.map((item) => item.id !== sessionId ? item : {
             ...item, syncStatus: result.status === "synced" ? "synced" as const : "conflict" as const,
             syncMessage: result.status === "synced" ? `Date verified in ${result.sourceSlot}.` :
@@ -122,8 +128,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ? { ...session, syncStatus: status, syncMessage: message } : session) }));
   }, [commit]);
 
+  const restoreData = useCallback((restored: TrainingData): boolean => {
+    try {
+      trainingStorage.save(restored);
+      dataRef.current = restored;
+      storageBlocked.current = false;
+      setData(restored);
+      setError(null);
+      return true;
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not restore local data."); return false; }
+  }, []);
+
   return <AppContext.Provider value={{ data, error, start, updateBlock, finish, addPlan, refreshPlan,
-    setActivePlan, renamePlan, removePlan, updateSource, setSyncStatus, clearError: () => setError(null) }}>{children}</AppContext.Provider>;
+    setActivePlan, renamePlan, removePlan, updateSource, setSyncStatus, restoreData, clearError: () => setError(null) }}>{children}</AppContext.Provider>;
 }
 
 export function useApp() {

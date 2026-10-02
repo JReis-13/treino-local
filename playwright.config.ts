@@ -11,5 +11,7 @@ export default defineConfig({
   projects: [
     { name: "Pixel 7 Chrome", use: { ...devices["Pixel 7"], browserName: "chromium", channel: "chrome" } },
     { name: "iPhone 13 emulated Chrome", use: { ...devices["iPhone 13"], browserName: "chromium", channel: "chrome" } },
+    { name: "Narrow phone Chrome", use: { browserName: "chromium", channel: "chrome", viewport: { width: 320, height: 640 },
+      deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
   ],
 });

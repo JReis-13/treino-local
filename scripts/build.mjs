@@ -10,6 +10,8 @@ const buildId = `${revision.slice(0, 8)}-${builtAt.replace(/[-:.]/g, "").slice(0
 const environment = { ...process.env, NEXT_PUBLIC_TREINO_BUILD_ID: buildId, NEXT_PUBLIC_TREINO_BUILT_AT: builtAt };
 
 await copyFile(join(root, "google-apps-script", "WorkoutConnector.gs"), join(root, "public", "WorkoutConnector.gs.txt"));
+await copyFile(join(root, "google-apps-script", "WorkoutConnectorV2.gs"), join(root, "public", "WorkoutConnectorV2.gs.txt"));
+await copyFile(join(root, "google-apps-script", "appsscript.v2.json"), join(root, "public", "appsscript.v2.json.txt"));
 const next = spawnSync(process.execPath, [join(root, "node_modules", "next", "dist", "bin", "next"), "build"],
   { cwd: root, env: environment, stdio: "inherit", windowsHide: true });
 if (next.status !== 0) process.exit(next.status ?? 1);

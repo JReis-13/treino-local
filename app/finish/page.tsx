@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "@/components/app-provider";
 import { durationMinutes, isLocalDate, localDateString } from "@/lib/dates";
 
@@ -10,7 +10,14 @@ export default function FinishPage() {
   const router = useRouter();
   const { data, error, finish } = useApp();
   const [date, setDate] = useState("");
-  useEffect(() => setDate(localDateString()), []);
+  const dateEdited = useRef(false);
+  useEffect(() => {
+    const refresh = () => { if (!dateEdited.current) setDate(localDateString()); };
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
+  }, []);
   if (!data) return <div className="loading">Loading summary…</div>;
   const session = data.sessions.find((item) => item.status === "inProgress" && item.planId === data.activePlanId);
   if (!session) return <div className="empty-state"><h1>No workout in progress</h1><p>Choose a workout to see a finish summary.</p><Link className="primary-button" href="/">Go home →</Link></div>;
@@ -23,12 +30,12 @@ export default function FinishPage() {
   }));
   const duration = durationMinutes(session.startedAt, new Date().toISOString());
 
-  function save() { if (finish(session!.id, date)) router.push("/history/"); }
+  function save() { if (finish(session!.id, dateEdited.current ? date : localDateString())) router.push("/history/"); }
 
   return <div className="page-stack"><Link className="back-link" href={`/workout/?id=${encodeURIComponent(session.workoutId)}`}>← Back to workout</Link><div className="page-heading"><p className="eyebrow">SESSION SUMMARY · {plan?.name}</p><h1>Nice work.</h1><p>Review your session before saving it to this device.</p></div>
     {error && <div className="alert" role="alert">{error}</div>}
     <div className="summary-card"><div className="summary-top"><span>{session.workoutSnapshot.title}</span><span className="summary-badge">READY TO SAVE</span></div><div className="summary-stats"><div><small>STARTED</small><strong>{new Date(session.startedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</strong></div><div><small>DURATION</small><strong>{duration ?? "—"} min</strong></div><div><small>COMPLETED</small><strong>{completed} / {session.blocks.length}</strong></div></div></div>
-    <label className="date-field"><span>WORKOUT DATE <small>your local date</small></span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
+    <label className="date-field"><span>WORKOUT DATE <small>your local date</small></span><input type="date" value={date} onChange={(event) => { dateEdited.current = true; setDate(event.target.value); }} /></label>
     <section className="loads-summary"><div className="section-heading"><div><p className="eyebrow">THIS SESSION</p><h2>Loads used</h2></div><span className="section-count">{loads.length} ENTERED</span></div>{loads.length ? <div className="load-list">{loads.map((item) => <div key={item.name}><span>{item.name}</span><strong>{item.load}</strong></div>)}</div> : <p className="quiet-note">No actual loads entered. You can still save this workout.</p>}</section>
     {completed < session.blocks.length && <p className="quiet-note">You completed {completed} of {session.blocks.length} blocks. Save when you’re done with your planned session.</p>}
     <button type="button" className="primary-button" disabled={!isLocalDate(date)} onClick={save}>Save workout <span>→</span></button><p className="quiet-note centered">Saved locally first. Source sync can happen later.</p>

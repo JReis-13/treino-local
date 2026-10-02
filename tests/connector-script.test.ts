@@ -6,7 +6,8 @@ import vm from "node:vm";
 
 const key = "a".repeat(64);
 
-async function fixture(options: { occupyOnGet?: boolean; discardWrite?: boolean } = {}) {
+const spreadsheetId = "a12345678901234567890123";
+async function fixture(options: { occupyOnGet?: boolean; discardWrite?: boolean; version?: 1 | 2; denyAccess?: boolean } = {}) {
   const cells = new Map<string, { value: unknown; format: string }>();
   const put = (ref: string, value: unknown, format = "General") => cells.set(ref, { value, format });
   put("C1", "PLANO DE TREINO"); put("E4", "DIAS DE TREINO"); put("E18", "Aquecimento");
@@ -42,19 +43,22 @@ async function fixture(options: { occupyOnGet?: boolean; discardWrite?: boolean 
     },
   };
   let releases = 0;
+  const properties = new Map<string, string>([["WORKOUT_CONNECTOR_KEY", key]]);
+  const spreadsheet = { getName: () => "Test Copy", getUrl: () => `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+    getSpreadsheetTimeZone: () => "UTC", getSheets: () => [sheet], getSheetByName: (name: string) => name === "TREINO A" ? sheet : null };
   const sandbox = {
     Date, Number, JSON, Math,
-    PropertiesService: { getScriptProperties: () => ({ getProperty: () => key, setProperty: () => undefined }) },
-    SpreadsheetApp: { getActiveSpreadsheet: () => ({ getName: () => "Test Copy", getUrl: () => "https://docs.google.com/spreadsheets/d/copy",
-      getSpreadsheetTimeZone: () => "UTC", getSheets: () => [sheet], getSheetByName: (name: string) => name === "TREINO A" ? sheet : null }), flush: () => undefined },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: (name: string) => properties.get(name), setProperty: (name: string, value: string) => { properties.set(name, value); } }) },
+    SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet,
+      openById: (id: string) => { if (options.denyAccess || id !== spreadsheetId) throw new Error("private access error"); return spreadsheet; }, flush: () => undefined },
     ContentService: { MimeType: { JSON: "json" }, createTextOutput: (text: string) => ({ setMimeType: () => text }) },
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => { releases++; } }) },
     Utilities: { formatDate: (date: Date) => date.toISOString().slice(0, 10), parseDate: (value: string) => new Date(`${value}T00:00:00Z`), getUuid: () => "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" },
   };
   const context = vm.createContext(sandbox);
-  vm.runInContext(await readFile(join(process.cwd(), "google-apps-script", "WorkoutConnector.gs"), "utf8"), context);
-  const request = (operation: string, payload?: object, credential = key) => JSON.parse(vm.runInContext(
-    `doPost({postData:{contents:${JSON.stringify(JSON.stringify({ operation, payload, key: credential }))}}})`, context));
+  vm.runInContext(await readFile(join(process.cwd(), "google-apps-script", options.version === 2 ? "WorkoutConnectorV2.gs" : "WorkoutConnector.gs"), "utf8"), context);
+  const request = (operation: string, payload?: object, credential = key, id?: string) => JSON.parse(vm.runInContext(
+    `doPost({postData:{contents:${JSON.stringify(JSON.stringify({ operation, payload, key: credential, ...(id ? { spreadsheetId: id } : {}) }))}}})`, context));
   return { request, put, writes, get releases() { return releases; } };
 }
 
@@ -64,6 +68,35 @@ test("Apps Script connector limits operations and rejects wrong keys", async () 
   assert.equal(app.request("writeRange").error.code, "UNKNOWN_OPERATION");
   assert.deepEqual(app.request("ping").result.workoutSheets, ["TREINO A"]);
   assert.equal(app.writes.length, 0);
+});
+
+test("standalone v2 registers one explicit Sheet and refuses unregistered or inaccessible IDs", async () => {
+  const app = await fixture({ version: 2 });
+  assert.equal(app.request("ping").version, 2);
+  assert.equal(app.request("getWorkbookSnapshot", undefined, key, spreadsheetId).error.code, "NOT_REGISTERED");
+  assert.equal(app.request("registerSpreadsheet", undefined, "wrong", spreadsheetId).error.code, "UNAUTHORIZED");
+  assert.equal(app.request("registerSpreadsheet", undefined, key, "bad").error.code, "BAD_SPREADSHEET");
+  const registered = app.request("registerSpreadsheet", undefined, key, spreadsheetId);
+  assert.equal(registered.result.spreadsheetName, "Test Copy");
+  assert.equal(app.request("ping").result.registeredSheets, 1);
+  assert.equal(app.request("getWorkbookSnapshot", undefined, key, spreadsheetId).result.mappingId, registered.result.mappingId);
+  assert.equal(app.request("writeRange", { cell: "A1" }, key, spreadsheetId).error.code, "UNKNOWN_OPERATION");
+  assert.equal(app.writes.length, 0);
+  const denied = await fixture({ version: 2, denyAccess: true });
+  assert.equal(denied.request("registerSpreadsheet", undefined, key, spreadsheetId).error.code, "ACCESS_DENIED");
+});
+
+test("standalone v2 writes only verified date slots for registered Sheet", async () => {
+  const app = await fixture({ version: 2 });
+  const mappingId = app.request("registerSpreadsheet", undefined, key, spreadsheetId).result.mappingId;
+  const payload = { workoutId: "A", localDate: "2026-09-30", mappingId };
+  assert.equal(app.request("registerWorkoutCompletion", payload, key, spreadsheetId).error.code, "UNKNOWN_OPERATION");
+  assert.equal(app.request("registerSpreadsheetCompletion", payload, key, spreadsheetId).result.status, "synced");
+  assert.deepEqual(app.writes, ["E5"]);
+  assert.equal(app.request("registerSpreadsheetCompletion", payload, key, spreadsheetId).result.status, "duplicate");
+  app.put("E26", "Changed exercise");
+  assert.equal(app.request("registerSpreadsheetCompletion", { ...payload, localDate: "2026-10-01" }, key, spreadsheetId).error.code, "SOURCE_CHANGED");
+  assert.deepEqual(app.writes, ["E5"]);
 });
 
 test("Apps Script connector writes one verified bounded date, then detects duplicate", async () => {

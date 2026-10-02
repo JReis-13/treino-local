@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "@/components/app-provider";
-import { connectorPing, connectorWorkbook, type ConnectorPing } from "@/lib/connector/client";
-import { loadConnectorKey, removeConnectorKey, saveConnectorKey } from "@/lib/connector/credentials";
+import { connectorPing, connectorPingV2, connectorWorkbook, registerSpreadsheet, type ConnectorPing } from "@/lib/connector/client";
+import { loadConnectorKey, loadDeviceConnector, removeConnectorKey, removeDeviceConnector, saveConnectorKey, saveDeviceConnector, type DeviceConnector } from "@/lib/connector/credentials";
+import { canonicalSpreadsheetUrl, spreadsheetIdFromUrl } from "@/lib/connector/sheet-url";
 import { loadFileHandle, removeFileHandle, saveFileHandle } from "@/lib/import/file-handles";
 import { snapshotFromXlsx } from "@/lib/import/snapshot";
 import { parseTrainingSnapshot } from "@/lib/import/template-parser";
@@ -33,10 +34,15 @@ export default function PlansPage() {
   const [sheetUrl, setSheetUrl] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [connection, setConnection] = useState<ConnectorPing | null>(null);
+  const [deviceConnector, setDeviceConnector] = useState<DeviceConnector | null>(null);
+  const [deviceUrl, setDeviceUrl] = useState("");
+  const [deviceKey, setDeviceKey] = useState("");
   const [directAvailable, setDirectAvailable] = useState(false);
 
   useEffect(() => {
     setDirectAvailable(Boolean(window.isSecureContext && (window as PickerWindow).showOpenFilePicker));
+    loadDeviceConnector().then((saved) => { if (saved?.version === 2) setDeviceConnector(saved); })
+      .catch(() => setMessage("Saved Google connection could not be loaded on this device."));
   }, []);
   if (!data) return <div className="loading">Loading training plans…</div>;
 
@@ -89,14 +95,46 @@ export default function PlansPage() {
     finally { setBusy(false); }
   }
 
+  async function connectDevice() {
+    setBusy(true); setMessage("Testing standalone connector…");
+    try {
+      const url = deviceUrl.trim(), key = deviceKey.trim();
+      await connectorPingV2(url, key);
+      const saved: DeviceConnector = { url, key, version: 2, checkedAt: new Date().toISOString() };
+      await saveDeviceConnector(saved);
+      setDeviceConnector(saved); setDeviceKey(""); setMessage("Google connector connected on this device. Paste a Sheet URL to import training.");
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Could not connect Google connector."); }
+    finally { setBusy(false); }
+  }
+
+  async function importStandalone(refreshPlanId?: string, savedSheetId?: string) {
+    setBusy(true); setMessage("Registering and reading Google Sheet…");
+    try {
+      if (!deviceConnector) throw new Error("Complete one-time Google connector setup first.");
+      const spreadsheetId = savedSheetId ?? spreadsheetIdFromUrl(sheetUrl);
+      const result = refreshPlanId
+        ? await connectorWorkbook(deviceConnector.url, deviceConnector.key, spreadsheetId)
+        : await registerSpreadsheet(deviceConnector.url, deviceConnector.key, spreadsheetId);
+      const imported = parseTrainingSnapshot(result.snapshot, { kind: "google", filename: result.spreadsheetName,
+        connectorVersion: 2, sourceMode: "standalone", spreadsheetId, sheetUrl: canonicalSpreadsheetUrl(spreadsheetId),
+        mappingId: result.mappingId, template: "", mappings: {}, syncEnabled: false }, result.spreadsheetName);
+      const matching = data?.plans.find((item) => item.source.kind === "google" && item.source.connectorVersion === 2 && item.source.spreadsheetId === spreadsheetId);
+      const chosen = refreshPlanId ?? matching?.id;
+      setPreview({ imported, targetId: chosen, suggestedName: result.spreadsheetName });
+      setName(chosen ? data?.plans.find((item) => item.id === chosen)?.name ?? imported.name : imported.name);
+      setMessage("Training ready. Review it before saving; source sync starts disabled.");
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Could not import Google Sheet."); }
+    finally { setBusy(false); }
+  }
+
   async function importConnector(refreshId?: string, url = connectorUrl.trim(), key = connectorKey.trim()) {
     setBusy(true); setMessage("Reading training from the connected Sheet…");
     try {
       const result = await connectorWorkbook(url, key);
       const imported = parseTrainingSnapshot(result.snapshot, { kind: "google", filename: result.spreadsheetName,
         connectorUrl: url, mappingId: result.mappingId, sheetUrl: sheetUrl.trim() || result.sheetUrl,
-        template: "", mappings: {}, syncEnabled: false }, result.spreadsheetName);
-      const matching = data?.plans.find((plan) => plan.source.kind === "google" && plan.source.connectorUrl === url);
+        connectorVersion: 1, sourceMode: "bound", template: "", mappings: {}, syncEnabled: false }, result.spreadsheetName);
+      const matching = data?.plans.find((plan) => plan.source.kind === "google" && plan.source.connectorVersion !== 2 && plan.source.connectorUrl === url);
       const chosen = refreshId ?? matching?.id;
       setPreview({ imported, targetId: chosen, connectorKey: key, suggestedName: result.spreadsheetName });
       setName(chosen ? data?.plans.find((plan) => plan.id === chosen)?.name ?? result.spreadsheetName : result.spreadsheetName);
@@ -106,6 +144,11 @@ export default function PlansPage() {
   }
 
   async function refreshGoogle(plan: TrainingPlanRecord) {
+    if (plan.source.kind === "google" && plan.source.connectorVersion === 2) {
+      if (!plan.source.spreadsheetId) { setMessage("Spreadsheet identity is missing. Reconnect this training."); return; }
+      await importStandalone(plan.id, plan.source.spreadsheetId);
+      return;
+    }
     if (plan.source.kind !== "google" || !plan.source.connectorUrl) { setMessage("This older Google plan needs a connector. Paste its /exec URL and key below."); return; }
     try {
       const key = await loadConnectorKey(plan.id);
@@ -140,16 +183,25 @@ export default function PlansPage() {
   const notes = preview?.imported.warnings.filter((warning) => warning.severity !== "info") ?? [];
   return <div className="page-stack"><div className="page-heading"><p className="eyebrow">TRAINING PLAN LIBRARY</p><h1>Training plans<span className="dot-accent">.</span></h1><p>Import once, switch any time. Your completed sessions stay with the plan used.</p></div>
     {(message || error) && <div className={error ? "alert" : "context-note"} role="status">{error ?? message}</div>}
-    <div className="source-choice"><div className="source-choice-card"><strong>Connect a Google Sheet</strong><span>Use its small Apps Script connector once. No Google Cloud project is needed.</span><a className="inline-action" href="/google-connector-setup.html" target="_blank" rel="noopener noreferrer">How do I create a connector? ↗</a></div><div className="source-choice-card"><strong>Import Excel file</strong><span>Choose a local .xlsx workbook. Direct updates are used when this browser supports them.</span><button type="button" className="inline-action" disabled={busy} onClick={() => void selectExcel()}>Choose workbook →</button>{directAvailable && <button type="button" className="inline-action" disabled={busy} onClick={() => { setTargetId(undefined); inputRef.current?.click(); }}>Import as safe copy</button>}</div></div>
-    <section className="connection-card connector-form"><p className="eyebrow">GOOGLE SHEET CONNECTOR</p><h2>Connect a Google Sheet</h2>
+    <div className="source-choice"><div className="source-choice-card"><strong>Connect a Google Sheet</strong><span>Set up one standalone connector per Google account. Future plans need only their Sheet URL.</span><a className="inline-action" href="/google-connector-setup.html" target="_blank" rel="noopener noreferrer">One-time setup guide ↗</a></div><div className="source-choice-card"><strong>Import Excel file</strong><span>Choose a local .xlsx workbook. Direct updates are used when this browser supports them.</span><button type="button" className="inline-action" disabled={busy} onClick={() => void selectExcel()}>Choose workbook →</button>{directAvailable && <button type="button" className="inline-action" disabled={busy} onClick={() => { setTargetId(undefined); inputRef.current?.click(); }}>Import as safe copy</button>}</div></div>
+    <section className="connection-card connector-form"><p className="eyebrow">GOOGLE CONNECTION · THIS DEVICE</p><h2>{deviceConnector ? "Google connector connected" : "One-time Google setup required"}</h2>
+      {deviceConnector ? <><p className="quiet-note">Standalone connector v2 · checked {new Date(deviceConnector.checkedAt).toLocaleString()}. Each device uses its own connection.</p>
+        <div className="connection-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => void (async () => { setBusy(true); setMessage("Testing Google connector…"); try { await connectorPingV2(deviceConnector.url, deviceConnector.key); setMessage("Google connector is reachable."); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Connection test failed."); } finally { setBusy(false); } })()}>Test connection</button><button type="button" className="secondary-button" onClick={() => { setDeviceUrl(deviceConnector.url); setDeviceConnector(null); setMessage("Paste the replacement connector URL and key, then test it."); }}>Replace connector</button><button type="button" className="secondary-button" disabled={busy} onClick={() => void (async () => { if (!window.confirm("Disconnect this device's standalone Google connector? Local plans and history will remain.")) return; try { await removeDeviceConnector(); setDeviceConnector(null); setMessage("Google connector disconnected. Local plans and history remain saved."); } catch { setMessage("Could not remove the saved connection. Try again from this device."); } })()}>Disconnect</button></div></> : <><p className="quiet-note">Create a standalone Apps Script project, paste the v2 connector and manifest, initialize, authorize, deploy as Web App, then enter its /exec URL and key here. <a href="/google-connector-setup.html" target="_blank" rel="noopener noreferrer">Setup guide ↗</a></p>
+        <label className="date-field"><span>STANDALONE APPS SCRIPT /EXEC URL</span><input type="url" value={deviceUrl} onChange={(event) => setDeviceUrl(event.target.value)} placeholder="https://script.google.com/macros/s/…/exec" autoComplete="url" /></label>
+        <label className="date-field"><span>CONNECTOR KEY</span><input type="password" value={deviceKey} onChange={(event) => setDeviceKey(event.target.value)} autoComplete="off" /></label>
+        <button type="button" className="primary-button" disabled={busy || !deviceUrl.trim() || !deviceKey.trim()} onClick={() => void connectDevice()}>{busy ? "Testing…" : "Connect Google connector →"}</button></>}
+      <label className="date-field"><span>GOOGLE SHEETS URL</span><input type="url" value={sheetUrl} onChange={(event) => setSheetUrl(event.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…/edit" autoComplete="url" /></label>
+      <button type="button" className="primary-button" disabled={busy || !deviceConnector || !sheetUrl.trim()} onClick={() => void importStandalone()}>{busy ? "Importing…" : "Import training →"}</button>
+    </section>
+    <details className="connection-card connector-form"><summary>Existing bound-sheet connector (v1)</summary><p className="quiet-note">Existing plans keep working. Use this only to reconnect or import a legacy bound Sheet; migration is optional.</p>
       <label className="date-field"><span>APPS SCRIPT /EXEC URL</span><input type="url" value={connectorUrl} onChange={(event) => { setConnectorUrl(event.target.value); setConnection(null); }} placeholder="https://script.google.com/macros/s/…/exec" autoComplete="url" /></label>
       <label className="date-field"><span>CONNECTION KEY</span><input type={showKey ? "text" : "password"} value={connectorKey} onChange={(event) => { setConnectorKey(event.target.value); setConnection(null); }} autoComplete="off" /></label>
       <button type="button" className="inline-action" onClick={() => setShowKey(!showKey)}>{showKey ? "Hide key" : "Reveal key"}</button>
       <label className="date-field"><span>REGULAR SHEET URL (OPTIONAL)</span><input type="url" value={sheetUrl} onChange={(event) => setSheetUrl(event.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…" /></label>
       <div className="connection-actions"><button type="button" className="primary-button" disabled={busy} onClick={() => void testConnector()}>Test connection →</button>{connection && <button type="button" className="secondary-button" disabled={busy} onClick={() => void importConnector()}>Import training →</button>}</div>
       {connection && <p className="quiet-note">Connected: {connection.spreadsheetName} · {connection.workoutSheets.join(", ")} · connector v1</p>}
-      <p className="quiet-note">A regular Google Sheets link alone cannot authorize synchronization. Install the connector in that Sheet once.</p>
-    </section>
+      <p className="quiet-note">A v1 connector remains tied to its original Sheet. To upgrade, set up v2 above and import the same Sheet URL as a new plan.</p>
+    </details>
     <input ref={inputRef} className="sr-only" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { const file = event.target.files?.[0]; if (file) void inspect(file, undefined, targetId); else setMessage("File selection cancelled."); event.target.value = ""; }} />
     {preview && <section className="review-card"><p className="eyebrow">IMPORT REVIEW</p><h2>Training ready</h2><label className="date-field"><span>LOCAL TRAINING NAME</span><input value={name} onChange={(event) => setName(event.target.value)} /></label><div className="review-stats"><span><strong>{preview.imported.workouts.length}</strong> workouts</span><span><strong>{preview.imported.workouts.flatMap((workout) => workout.blocks).filter((block) => block.kind === "exercise").length}</strong> exercises</span><span><strong>{preview.imported.workouts.flatMap((workout) => workout.blocks).filter((block) => block.kind === "instruction").length}</strong> instruction blocks</span><span><strong>{preview.imported.legacyCompletions.length}</strong> previous workouts</span></div>
       <p className="quiet-note">{preview.imported.workouts.map((workout) => workout.title).join(" · ")}</p>

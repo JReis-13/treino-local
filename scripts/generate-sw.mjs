@@ -18,14 +18,15 @@ async function files(directory) {
 }
 
 const assets = (await files(staticRoot)).map((path) => "/_next/static/" + relative(staticRoot, path).replaceAll("\\", "/"));
-const routes = ["/", "/plans", "/history", "/history/session", "/workout", "/finish", "/source", "/debug"];
+const routes = ["/", "/plans", "/history", "/history/session", "/workout", "/finish", "/source", "/settings", "/debug"];
 const precache = [...routes, "/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png",
-  "/google-connector-setup.html", "/WorkoutConnector.gs.txt", ...assets].sort();
+  "/google-connector-setup.html", "/WorkoutConnector.gs.txt", "/WorkoutConnectorV2.gs.txt", "/appsscript.v2.json.txt", ...assets].sort();
 const sw = `const CACHE = "treino-${version}";
 const PRECACHE = ${JSON.stringify(precache)};
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(PRECACHE)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(PRECACHE)));
 });
+self.addEventListener("message", (event) => { if (event.data === "SKIP_WAITING") self.skipWaiting(); });
 self.addEventListener("activate", (event) => {
   event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("treino-") && key !== CACHE).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
 });

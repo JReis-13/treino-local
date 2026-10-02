@@ -23,13 +23,27 @@ function validPlan(value: unknown): value is TrainingPlanRecord {
   return record(value) && typeof value.id === "string" && typeof value.name === "string" &&
     Number.isInteger(value.version) && Number(value.version) > 0 &&
     typeof value.importedAt === "string" && typeof value.updatedAt === "string" &&
-    record(value.source) && ["builtin", "excel", "google"].includes(String(value.source.kind)) &&
+    validSource(value.source) &&
     Array.isArray(value.workouts) && value.workouts.length > 0 && value.workouts.every((workout: unknown) =>
       record(workout) && typeof workout.id === "string" && typeof workout.title === "string" &&
       Array.isArray(workout.blocks) && workout.blocks.length > 0 && workout.blocks.every(validBlock)) &&
     Array.isArray(value.importWarnings) && Array.isArray(value.legacyCompletions) &&
     value.legacyCompletions.every((item: unknown) => record(item) && typeof item.id === "string" &&
       typeof item.workoutId === "string" && typeof item.date === "string" && isLocalDate(item.date));
+}
+
+function validSource(value: unknown): boolean {
+  if (!record(value)) return false;
+  if (value.kind === "builtin") return typeof value.label === "string";
+  if (value.kind === "excel") return typeof value.filename === "string" && typeof value.template === "string" &&
+    record(value.mappings) && ["direct", "copy"].includes(String(value.mode));
+  if (value.kind === "google") return typeof value.filename === "string" && typeof value.template === "string" &&
+    record(value.mappings) && (value.connectorVersion === undefined || [1, 2].includes(Number(value.connectorVersion))) &&
+    (value.sourceMode === undefined || ["bound", "standalone"].includes(String(value.sourceMode))) &&
+    (value.spreadsheetId === undefined || (typeof value.spreadsheetId === "string" && /^[A-Za-z0-9_-]{20,128}$/.test(value.spreadsheetId))) &&
+    (value.connectorUrl === undefined || typeof value.connectorUrl === "string") &&
+    (value.mappingId === undefined || typeof value.mappingId === "string");
+  return false;
 }
 
 function validSession(value: unknown): value is TrainingSession {
@@ -51,6 +65,7 @@ export function parseTrainingData(raw: string): TrainingData {
   if (!record(value) || value.schemaVersion !== 2 || !Array.isArray(value.plans) || !value.plans.every(validPlan) ||
     !Array.isArray(value.sessions) || !value.sessions.every(validSession) ||
     (value.activePlanId !== undefined && typeof value.activePlanId !== "string") ||
+    (value.activePlanId !== undefined && !value.plans.some((plan: TrainingPlanRecord) => plan.id === value.activePlanId)) ||
     (value.archivedSources !== undefined && (!Array.isArray(value.archivedSources) || !value.archivedSources.every((source: unknown) =>
       record(source) && typeof source.planId === "string" && typeof source.planName === "string" && Array.isArray(source.legacyCompletions)))) ||
     new Set(value.plans.map((plan: TrainingPlanRecord) => plan.id)).size !== value.plans.length ||

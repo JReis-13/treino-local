@@ -1,0 +1,64 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import { useApp } from "@/components/app-provider";
+import { loadDeviceConnector } from "@/lib/connector/credentials";
+import { createBackup, MAX_BACKUP_BYTES, parseBackup, SAFETY_SNAPSHOT_KEY } from "@/lib/training/backup";
+import { parseTrainingData } from "@/lib/training/storage";
+import type { TrainingData } from "@/types/training";
+
+function downloadJson(text: string, filename: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+export default function SettingsPage() {
+  const { data, error, restoreData } = useApp();
+  const picker = useRef<HTMLInputElement>(null);
+  const [candidate, setCandidate] = useState<{ data: TrainingData; createdAt: string } | null>(null);
+  const [message, setMessage] = useState("");
+  const [hasSafetySnapshot, setHasSafetySnapshot] = useState(false);
+  const [googleConnected, setGoogleConnected] = useState(false);
+  useEffect(() => { try { setHasSafetySnapshot(Boolean(localStorage.getItem(SAFETY_SNAPSHOT_KEY))); } catch { /* Storage status is shown on restore. */ } }, []);
+  useEffect(() => { loadDeviceConnector().then((value) => setGoogleConnected(value?.version === 2)).catch(() => {}); }, []);
+
+  async function inspect(file: File) {
+    setCandidate(null);
+    try {
+      if (file.size > MAX_BACKUP_BYTES) throw new Error("Backup file is too large.");
+      const parsed = parseBackup(await file.text());
+      setCandidate(parsed);
+      setMessage("Backup validated. Review the summary before restoring.");
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Could not read backup."); }
+  }
+
+  function restore() {
+    if (!data || !candidate) return;
+    const sessions = candidate.data.sessions.filter((session) => session.status === "completed").length;
+    if (!window.confirm(`Replace local data with this backup? It contains ${candidate.data.plans.length} plans and ${sessions} completed sessions. A safety snapshot of your current data will be saved on this device first.`)) return;
+    try {
+      localStorage.setItem(SAFETY_SNAPSHOT_KEY, JSON.stringify(data));
+      setHasSafetySnapshot(true);
+      if (!restoreData(candidate.data)) throw new Error("Storage could not save the restored data. Your current data remains available in the safety snapshot.");
+      setCandidate(null);
+      setMessage("Backup restored. Google connectors and file permissions must be reconnected on this device before syncing.");
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Restore failed. Current data was not replaced."); }
+  }
+
+  if (!data) return <div className="loading">Loading local settings…</div>;
+  return <div className="page-stack"><div className="page-heading"><p className="eyebrow">ON THIS DEVICE</p><h1>Settings<span className="dot-accent">.</span></h1><p>Keep a copy of your plans and workout history. Google connector secrets are excluded.</p></div>
+    {(message || error) && <div className={error ? "alert" : "context-note"} role="status">{error ?? message}</div>}
+    <section className="review-card"><p className="eyebrow">GOOGLE CONNECTION</p><h2>{googleConnected ? "Standalone connector connected" : "No standalone connector on this device"}</h2><p className="quiet-note">One connector per Google account can import multiple Sheets. Existing bound plans still work.</p><Link className="secondary-button" href="/plans/">Manage Google connection →</Link></section>
+    <section className="review-card"><h2>Data backup</h2><p className="quiet-note">Export includes saved plans, versions, sessions and history. It excludes the Apps Script URL and key. A restored Google plan needs its connector reconnected before syncing.</p>
+      <div className="connection-actions"><button type="button" className="primary-button" onClick={() => { try { downloadJson(createBackup(data), `treino-local-backup-${new Date().toISOString().slice(0, 10)}.json`); setMessage("Backup download started."); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Backup export failed."); } }}>Export backup</button>
+        <button type="button" className="secondary-button" onClick={() => picker.current?.click()}>Import backup</button></div>
+      {hasSafetySnapshot && <button type="button" className="inline-action" onClick={() => { try { const raw = localStorage.getItem(SAFETY_SNAPSHOT_KEY); if (!raw) throw new Error("Safety snapshot is unavailable."); downloadJson(createBackup(parseTrainingData(raw)), "treino-local-before-restore.json"); setMessage("Safety snapshot download started."); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Could not export safety snapshot."); } }}>Download previous data safety snapshot</button>}
+      <input ref={picker} type="file" accept=".json,application/json" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void inspect(file); else setMessage("File selection cancelled."); event.target.value = ""; }} />
+      {candidate && <div className="context-note"><strong>Validated backup from {new Date(candidate.createdAt).toLocaleString()}</strong><span>{candidate.data.plans.length} plans · {candidate.data.sessions.filter((session) => session.status === "completed").length} completed sessions · {candidate.data.sessions.filter((session) => session.status === "inProgress").length} in-progress sessions</span><span>Restoring replaces current local data after a safety snapshot is saved.</span><button type="button" className="primary-button" onClick={restore}>Restore this backup</button><button type="button" className="secondary-button" onClick={() => { setCandidate(null); setMessage("Restore cancelled."); }}>Cancel</button></div>}
+    </section>
+    <Link className="back-link" href="/">← Home</Link>
+  </div>;
+}

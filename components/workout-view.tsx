@@ -5,18 +5,20 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useApp } from "@/components/app-provider";
 import { activePlan } from "@/lib/training/session";
+import { safeVideoUrl } from "@/lib/video-url";
 import type { WorkoutBlock } from "@/types/training";
 
 function BlockCard({ block, index, completed, actualLoad, onComplete, onLoad }: {
   block: WorkoutBlock; index: number; completed: boolean; actualLoad?: string;
   onComplete: () => void; onLoad: (value: string) => void;
 }) {
+  const videoUrl = block.kind === "exercise" ? safeVideoUrl(block.videoUrl) : undefined;
   return <article className={`exercise-card ${completed ? "is-complete" : ""}`}>
     <div className="exercise-head"><span className="exercise-number">{String(index + 1).padStart(2, "0")}</span><div><h3>{block.kind === "exercise" ? block.name : block.heading}</h3>{block.kind === "exercise" && block.groupId && <small>Grouped exercise</small>}</div><span className={`complete-dot ${completed ? "on" : ""}`}>{completed ? "✓" : ""}</span></div>
     {block.kind === "exercise" ? <>
       <div className="exercise-details"><div><span>TARGET</span><strong>{block.prescription || "See source plan"}</strong></div>{block.equipment && <div><span>EQUIPMENT</span><strong>{block.equipment}</strong></div>}</div>
       {block.section !== "Warm-up" && <label className="load-field"><span>ACTUAL LOAD <small>(unit as used in your plan)</small></span><input inputMode="decimal" type="text" value={actualLoad ?? ""} onChange={(event) => onLoad(event.target.value)} placeholder={block.defaultLoad ? `Plan: ${block.defaultLoad}` : "Enter if used"} aria-label={`Actual load for ${block.name}`} /></label>}
-      <div className="exercise-actions">{block.videoUrl && <a href={block.videoUrl} target="_blank" rel="noopener noreferrer" className="video-button">▶ Watch example</a>}<button type="button" className={completed ? "done-button done" : "done-button"} onClick={onComplete}>{completed ? "Completed ✓" : "Mark complete"}</button></div>
+      <div className="exercise-actions">{videoUrl && <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="video-button">▶ Watch example</a>}<button type="button" className={completed ? "done-button done" : "done-button"} onClick={onComplete}>{completed ? "Completed ✓" : "Mark complete"}</button></div>
     </> : <><p className="instruction-text">{block.text}</p><button type="button" className={completed ? "done-button done" : "done-button"} onClick={onComplete}>{completed ? "Completed ✓" : "Mark block complete"}</button></>}
   </article>;
 }

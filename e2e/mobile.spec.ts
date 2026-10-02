@@ -39,12 +39,18 @@ async function chooseExcelFile(page: Page, path: string) {
   await (await chooserPromise).setFiles(path);
 }
 
+async function expectNoHorizontalOverflow(page: Page) {
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+}
+
 test("mobile first launch, workout actions, reload, back/forward and history", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Choose your training/ })).toBeVisible();
   await importFile(page, jonatha);
+  await expectNoHorizontalOverflow(page);
   await expect(page.getByText("2 WORKOUTS", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Start workout" }).first().tap();
+  await expectNoHorizontalOverflow(page);
   await expect(page.getByRole("button", { name: /Mark complete/ }).first()).toBeVisible();
   await page.getByRole("button", { name: /Mark complete/ }).first().tap();
   await page.getByRole("textbox", { name: "Actual load for Agachamento goblet" }).fill("9");
@@ -68,6 +74,7 @@ test("mobile first launch, workout actions, reload, back/forward and history", a
 test("mobile plan switching isolates history and renders cardio instructions", async ({ page }) => {
   await page.goto("/");
   await importFile(page, milena);
+  await expectNoHorizontalOverflow(page);
   await expect(page.getByText("3 WORKOUTS")).toBeVisible();
   await page.getByRole("link", { name: "History", exact: true }).tap();
   await expect(page.locator(".history-total strong")).toHaveText("20");
@@ -85,6 +92,18 @@ test("mobile plan switching isolates history and renders cardio instructions", a
   await expect(page.getByRole("heading", { name: "Semana 1" })).toBeVisible();
   await page.getByRole("button", { name: "Mark block complete" }).first().tap();
   await expect(page.getByText("1 of 3 blocks completed")).toBeVisible();
+});
+
+test("very long training names stay inside a small phone viewport", async ({ page }) => {
+  await page.goto("/");
+  await importFile(page, milena);
+  await page.getByRole("link", { name: "Plans", exact: true }).tap();
+  page.once("dialog", (dialog) => void dialog.accept("Very long training name — strength and conditioning programme for a small phone screen"));
+  await page.locator(".plan-row").first().getByRole("button", { name: "Rename locally" }).tap();
+  await expect(page.getByText(/Very long training name/)).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await page.getByRole("link", { name: "Home", exact: true }).tap();
+  await expectNoHorizontalOverflow(page);
 });
 
 test("production PWA keeps the imported workout usable offline", async ({ page, context }) => {
@@ -127,6 +146,21 @@ test("production connector requests bypass PWA cache and update notice waits for
   await expect(page.getByRole("button", { name: "Reload" })).toBeVisible();
 });
 
+test("PWA update prompt cannot reload an in-progress workout", async ({ page }) => {
+  test.skip(process.env.E2E_PRODUCTION !== "1", "Production Next.js runtime only");
+  await page.goto("/");
+  await importFile(page, jonatha);
+  await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+  await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
+  await page.reload();
+  await page.getByRole("button", { name: "Start workout" }).first().tap();
+  await page.evaluate(() => navigator.serviceWorker.dispatchEvent(new Event("controllerchange")));
+  await expect(page.getByText(/reload after your workout/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reload" })).toBeDisabled();
+  await page.reload();
+  await expect(page.getByText(/IN PROGRESS/).first()).toBeVisible();
+});
+
 test("mobile Google connector import, validation and one verified completion use the same-origin route", async ({ page }) => {
   const snapshot = await snapshotFromXlsx(new Uint8Array(await readFile(jonatha)));
   const operations: string[] = [];
@@ -139,11 +173,13 @@ test("mobile Google connector import, validation and one verified completion use
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, version: 1, result }) });
   });
   await page.goto("/plans/");
-  await page.getByLabel("APPS SCRIPT /EXEC URL").fill("https://script.google.com/macros/s/AKfycbx123/exec");
-  await page.getByLabel("CONNECTION KEY").fill("a".repeat(64));
-  await page.getByRole("button", { name: /Test connection/ }).tap();
+  const legacy = page.getByText("Existing bound-sheet connector (v1)").locator("..");
+  await legacy.locator("summary").tap();
+  await legacy.getByLabel("APPS SCRIPT /EXEC URL").fill("https://script.google.com/macros/s/AKfycbx123/exec");
+  await legacy.getByLabel("CONNECTION KEY").fill("a".repeat(64));
+  await legacy.getByRole("button", { name: /Test connection/ }).tap();
   await expect(page.getByText(/Connected: Test copy/)).toBeVisible();
-  await page.getByRole("button", { name: /Import training/ }).tap();
+  await legacy.getByRole("button", { name: /Import training/ }).tap();
   await expect(page.getByRole("heading", { name: "Training ready" })).toBeVisible();
   await page.locator(".review-card").getByRole("button", { name: /Use this training/ }).tap();
   await page.getByRole("link", { name: "Source", exact: true }).tap();
@@ -164,4 +200,64 @@ test("mobile Google connector import, validation and one verified completion use
   await page.locator(".review-card").getByRole("button", { name: /Update this training/ }).tap();
   await expect(page.getByText("2 WORKOUTS", { exact: true })).toBeVisible();
   expect(operations.filter((operation) => operation === "getWorkbookSnapshot").length).toBe(3);
+});
+
+test("standalone connector imports a normal Sheet URL and preserves local history", async ({ page }) => {
+  const spreadsheetId = "a12345678901234567890123";
+  const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+  const snapshot = await snapshotFromXlsx(new Uint8Array(await readFile(jonatha)));
+  const operations: string[] = [];
+  await page.route("**/api/google-connector", async (route) => {
+    const body = route.request().postDataJSON();
+    operations.push(body.operation);
+    if (body.operation !== "ping") expect(body.spreadsheetId).toBe(spreadsheetId);
+    const result = body.operation === "ping" ? { connectorVersion: 2, registeredSheets: 0 } :
+      ["registerSpreadsheet", "getWorkbookSnapshot"].includes(body.operation) ? { spreadsheetName: "Test copy", sheetUrl, mappingId: "abcdef12", snapshot } :
+      { status: "synced", workoutId: body.payload.workoutId, localDate: body.payload.localDate, sourceSlot: "E5" };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, version: 2, result }) });
+  });
+  await page.goto("/plans/");
+  await page.getByLabel("STANDALONE APPS SCRIPT /EXEC URL").fill("https://script.google.com/macros/s/AKfycbx123/exec");
+  await page.getByLabel("CONNECTOR KEY", { exact: true }).fill("a".repeat(64));
+  await page.getByRole("button", { name: "Connect Google connector" }).tap();
+  await expect(page.getByText(/Google connector connected on this device/)).toBeVisible();
+  await page.getByLabel("GOOGLE SHEETS URL").fill(sheetUrl);
+  await page.getByRole("button", { name: "Import training" }).tap();
+  await expect(page.getByRole("heading", { name: "Training ready" })).toBeVisible();
+  await page.locator(".review-card").getByRole("button", { name: /Use this training/ }).tap();
+  await page.getByRole("link", { name: "Source", exact: true }).tap();
+  await page.getByRole("button", { name: /Validate source/ }).tap();
+  await expect(page.getByText(/Source validated/)).toBeVisible();
+  await page.getByRole("button", { name: "Enable sync" }).tap();
+  await page.getByRole("link", { name: "Home", exact: true }).tap();
+  await page.getByRole("button", { name: "Start workout" }).first().tap();
+  await page.getByRole("link", { name: /Finish workout/ }).tap();
+  await page.getByRole("button", { name: /Save workout/ }).tap();
+  await expect.poll(() => operations.filter((operation) => operation === "registerSpreadsheetCompletion").length).toBe(1);
+  await expect(page.getByText(/Synced/)).toBeVisible();
+  await page.getByRole("link", { name: "Settings", exact: true }).tap();
+  await expect(page.getByRole("heading", { name: /Settings/ })).toBeVisible();
+  expect(operations).toEqual(["ping", "registerSpreadsheet", "getWorkbookSnapshot", "registerSpreadsheetCompletion"]);
+});
+
+test("local backup rejects malformed JSON and restores a reviewed plan", async ({ page }) => {
+  await page.goto("/");
+  await importFile(page, jonatha);
+  await page.getByRole("link", { name: "Settings", exact: true }).tap();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export backup" }).tap();
+  const saved = await downloadPromise;
+  const backup = await readFile(await saved.path()!, "utf8");
+  expect(backup).toContain('"format": "treino-local-backup"');
+  expect(backup).not.toContain("connectorUrl");
+  await page.locator('input[type="file"]').setInputFiles({ name: "broken.json", mimeType: "application/json", buffer: Buffer.from("{") });
+  await expect(page.getByText(/not valid JSON/)).toBeVisible();
+  await page.locator('input[type="file"]').setInputFiles({ name: "valid.json", mimeType: "application/json", buffer: Buffer.from(backup) });
+  await expect(page.getByText(/Backup validated/)).toBeVisible();
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "Restore this backup" }).tap();
+  await expect(page.getByText(/Backup restored/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /Download previous data safety snapshot/ })).toBeVisible();
+  await page.getByRole("link", { name: "Home", exact: true }).tap();
+  await expect(page.getByText("2 WORKOUTS", { exact: true })).toBeVisible();
 });

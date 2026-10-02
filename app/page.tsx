@@ -14,7 +14,7 @@ export default function HomePage() {
   const plan = activePlan(data);
   if (!plan) return <div className="page-stack home-page"><section className="hero"><p className="eyebrow">YOUR TRAINING STARTS HERE</p><h1>Choose your<br /><em>training.</em></h1><p>Import once. Your workouts and progress stay on this device for everyday use.</p></section>
     {error && <div className="alert" role="alert">{error}</div>}
-    <div className="source-choice"><Link className="source-choice-card" href="/plans/?source=google"><strong>Connect Google Sheet</strong><span>Use a small connector installed in your Sheet. No Cloud Console needed.</span><b>Continue →</b></Link><Link className="source-choice-card" href="/plans/?source=excel"><strong>Import Excel file</strong><span>Choose an .xlsx workbook from this device.</span><b>Continue →</b></Link></div></div>;
+    <div className="source-choice"><Link className="source-choice-card" href="/plans/?source=google"><strong>Connect Google Sheet</strong><span>Set up one Google connector, then import each training with its Sheet URL.</span><b>Continue →</b></Link><Link className="source-choice-card" href="/plans/?source=excel"><strong>Import Excel file</strong><span>Choose an .xlsx workbook from this device.</span><b>Continue →</b></Link></div></div>;
   const own = data.sessions.filter((session) => session.planId === plan.id && session.status === "completed");
   const legacy = plan.legacyCompletions.filter((entry) => !own.some((session) => session.workoutId === entry.workoutId && session.localDate === entry.date));
   const latest = [...own].sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""))[0];

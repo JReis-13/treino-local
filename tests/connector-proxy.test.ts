@@ -18,6 +18,23 @@ test("proxy accepts only an exact Apps Script deployment endpoint and narrow mes
   assert.throws(() => proxy.validateMessage({ ...request, key: "bad" }));
   assert.throws(() => proxy.validateMessage({ ...request, operation: "registerWorkoutCompletion", payload: {
     workoutId: "A", localDate: "2026-09-30", mappingId: "abcdef12", cell: "A1" } }));
+  assert.throws(() => proxy.validateMessage({ ...request, operation: "registerSpreadsheet" }), /identifier/);
+  assert.throws(() => proxy.validateMessage({ ...request, operation: "registerSpreadsheet", spreadsheetId: "../private" }), /identifier/);
+  assert.throws(() => proxy.validateMessage({ ...request, operation: "registerSpreadsheetCompletion", spreadsheetId: "a".repeat(24), payload: {
+    workoutId: "A", localDate: "2026-09-30", mappingId: "abcdef12", cell: "A1" } }), /completion/);
+});
+
+test("proxy forwards v2 spreadsheet identity and sanitizes access errors", async () => {
+  const spreadsheetId = "a".repeat(24);
+  const sent: unknown[] = [];
+  const result = await proxy.forwardConnector({ ...request, operation: "registerSpreadsheet", spreadsheetId }, async (_url: URL | RequestInfo, init?: RequestInit) => {
+    sent.push(JSON.parse(String(init?.body)));
+    return response({ ok: false, version: 2, error: { code: "ACCESS_DENIED", message: `secret ${key}` } });
+  });
+  assert.equal((sent[0] as { spreadsheetId: string }).spreadsheetId, spreadsheetId);
+  assert.equal(result.version, 2);
+  assert.equal(result.error.code, "ACCESS_DENIED");
+  assert(!JSON.stringify(result).includes(key));
 });
 
 test("proxy posts only to Apps Script and follows its one approved response redirect", async () => {
@@ -76,4 +93,14 @@ test("proxy never logs the bearer key or its upstream error body", async () => {
     await assert.rejects(proxy.forwardConnector(request, async () => new Response("secret upstream response", { status: 500 })));
     assert.equal(logs.length, 0);
   } finally { console.log = previous; }
+});
+
+test("proxy masks network exceptions that contain private targets or keys", async () => {
+  const reply = await proxy.handleConnectorRequest(new Request("https://treino-local.vercel.app/api/google-connector", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request),
+  }), async () => { throw new Error(`private ${connectorUrl} ${key}`); });
+  assert.equal(reply.status, 502);
+  const body = await reply.text();
+  assert(!body.includes(key));
+  assert(!body.includes(connectorUrl));
 });

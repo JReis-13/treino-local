@@ -3,7 +3,7 @@
 ## Before deploy
 
 - [ ] Run `pnpm dlx pnpm@10.34.6 install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:excel`, and `pnpm build`. Private workbook fixtures must stay outside Git; set `WORKBOOK_FIXTURE_DIR` if they are not in Downloads.
-- [ ] Run `pnpm start` and open `http://localhost:3000` (or another chosen local port). Confirm `/`, `/plans`, `/workout`, `/history`, `/debug`, the manifest, `/sw.js`, and `POST /api/google-connector`. For mobile automation, set `E2E_BASE_URL` to that origin and `E2E_PRODUCTION=1`, then run `pnpm test:e2e`.
+- [ ] Run `pnpm start` and open `http://localhost:3000` (or another chosen local port). Confirm `/`, `/plans`, `/workout`, `/history`, `/source`, `/settings`, `/debug`, the manifest, `/sw.js`, and `POST /api/google-connector`. For mobile automation, set `E2E_BASE_URL` to that origin and `E2E_PRODUCTION=1`, then run `pnpm test:e2e`.
 - [ ] Confirm no key, `.env.local`, personal `.xlsx`, log, Playwright output, or build directory is staged. Confirm the original workbooks' SHA-256 hashes are unchanged. Ensure Git is committed and clean before pushing.
 - [ ] Confirm a disposable Google Sheet connector works from local production mode. Do not run automated tests against a real Sheet.
 
@@ -36,8 +36,8 @@ Replace `YOUR_GITHUB_USERNAME` with your real account name. If a remote already 
 
 ## First hosted smoke test
 
-On desktop, open the production URL, then `/debug` and confirm the expected build ID. Import a **copy** of a workbook, activate the plan, perform a short test session, and confirm it appears in History after reload. Check that `/api/google-connector` responds to a deliberately invalid target with a safe 400 response.
+On desktop, open the production URL, then `/debug` and confirm the expected build ID. Import a **copy** of a workbook, activate the plan, perform a short test session, and confirm it appears in History after reload. Export a backup in Settings and validate a restore using a disposable browser profile. Check that `/api/google-connector` responds to a deliberately invalid target with a safe 400 response.
 
 On a phone, open the HTTPS URL, navigate through Home, Plans, Source, and History, and install the PWA if supported. Reopen the installed app, start a workout, enter a test load, reload or reopen, and verify the in-progress state returns. Finish and confirm History. Test offline after the app has loaded online once. A later build should show **New version available — Reload**; choose when to reload.
 
-For Google sync, use a **copy/test Sheet** first. On Training plans, enter that copy's `/exec` URL and key, **Test connection**, then import or refresh. On Source, **Validate source** and **Enable sync**. Finish one test workout. Confirm that the **same Sheet copy** received exactly one date in its expected completion range, the app marks the session synced, and no new spreadsheet file was created. Only after this succeeds should you connect the canonical Sheet.
+For Google sync, use a **copy/test Sheet** first. Install the standalone v2 connector once from `script.google.com` with the documented manifest and deploy its `/exec` URL. On Plans, connect that URL/key, paste the **copy's normal Google Sheets URL**, and import. On Source, **Validate source** and **Enable sync**. Finish one test workout. Confirm that the **same Sheet copy** received exactly one date in its expected completion range, the app marks the session synced, and no new spreadsheet file was created. Then paste a second test Sheet URL without a new Apps Script deployment. Only after these tests succeed should you connect a canonical Sheet. Existing v1 plans may remain unchanged.
