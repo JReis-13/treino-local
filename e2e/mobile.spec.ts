@@ -166,7 +166,16 @@ test("production PWA keeps the imported workout usable offline", async ({ page, 
   await page.getByRole("button", { name: /Save workout/ }).tap();
   await expect(page.getByRole("heading", { name: /Workout completed/ })).toBeVisible();
   await expect(page.locator(".share-card-preview img")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Download card instead" })).toBeVisible();
+  await expect(page.getByText("Add photo")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Download card|Save image/i })).toHaveCount(0);
+  const offlinePhoto = await page.evaluate(() => {
+    const canvas = document.createElement("canvas"); canvas.width = canvas.height = 80;
+    const context = canvas.getContext("2d")!; context.fillStyle = "#168658"; context.fillRect(0, 0, 80, 80);
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  await page.getByLabel("Choose workout photo").setInputFiles({ name: "offline.png", mimeType: "image/png", buffer: Buffer.from(offlinePhoto, "base64") });
+  await expect(page.getByText("Photo selected for this share only.")).toBeVisible();
+  await expect(page.locator(".share-card-preview img")).toHaveAttribute("src", /^blob:/);
   await page.getByRole("link", { name: "Not now" }).tap();
   await expect(page.getByText(/1\/11 done/)).toBeVisible();
 });
@@ -192,7 +201,8 @@ test("saved workout shares edited text and a local PNG, then can be shared again
   await expect(page.getByRole("heading", { name: /Workout completed/ })).toBeVisible();
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2")!).sessions.filter((item: { status: string }) => item.status === "completed").length);
   expect(saved).toBe(1);
-  await expect(page.getByRole("button", { name: "Download card instead" })).toBeVisible();
+  await expect(page.getByText("Add photo")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Download card|Save image/i })).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
   if (testInfo.project.name === "Narrow phone Chrome") await page.screenshot({ path: testInfo.outputPath("share-preview-320.png"), animations: "disabled", fullPage: true });
   const message = page.getByRole("textbox", { name: /MESSAGE/ });
@@ -210,11 +220,9 @@ test("saved workout shares edited text and a local PNG, then can be shared again
   await expect(page.getByRole("heading", { name: "Workout A" })).toBeVisible();
 });
 
-test("date-only History uses a reduced card and clipboard fallback", async ({ page }) => {
+test("date-only History uses a reduced card and unsupported-share message", async ({ page }) => {
   await page.addInitScript(() => {
-    const state = window as unknown as { copied: string };
     Object.defineProperty(navigator, "share", { configurable: true, value: undefined });
-    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { state.copied = text; } } });
   });
   await page.goto("/");
   await importFile(page, milena);
@@ -222,10 +230,9 @@ test("date-only History uses a reduced card and clipboard fallback", async ({ pa
   await page.locator(".history-list a.history-card").first().tap();
   await expect(page.getByRole("heading", { name: "Share workout." })).toBeVisible();
   await expect(page.getByRole("textbox", { name: /MESSAGE/ })).not.toHaveValue(/exercises|min/);
-  await expect(page.getByRole("button", { name: "Download card instead" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Download card|Save image/i })).toHaveCount(0);
   await page.getByRole("button", { name: "Share workout" }).tap();
-  await expect(page.getByRole("status").filter({ hasText: "Copied to clipboard" })).toBeVisible();
-  expect(await page.evaluate(() => (window as unknown as { copied: string }).copied)).toMatch(/completed/);
+  await expect(page.getByRole("status").filter({ hasText: "Native sharing is unavailable" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
 

@@ -218,7 +218,14 @@ button,a,summary{-webkit-tap-highlight-color:transparent}
 .share-main-action{width:100%;justify-content:center;min-height:56px}
 .share-hint{margin:0;color:var(--muted);font-size:.74rem;line-height:1.45}
 .share-feedback{margin:0;padding:10px 12px;border-radius:10px;background:#e1f0e7;color:#176b51;font-size:.82rem;font-weight:700}
-.share-download,.share-dismiss{min-height:44px;display:flex;align-items:center;justify-content:center;color:var(--teal);font:inherit;font-size:.83rem;font-weight:800;text-decoration:none;background:transparent;border:0;cursor:pointer}
+.share-dismiss{min-height:44px;display:flex;align-items:center;justify-content:center;color:var(--teal);font:inherit;font-size:.83rem;font-weight:800;text-decoration:none;background:transparent;border:0;cursor:pointer}
+.share-photo-controls{display:flex;align-items:center;justify-content:center;gap:12px;min-height:44px}
+.share-photo-picker,.share-photo-remove{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 14px;border:1px solid #c9dfd3;border-radius:10px;background:#fff;color:var(--teal);font:inherit;font-size:.8rem;font-weight:800;cursor:pointer}
+.share-photo-remove{border-color:transparent;background:transparent;color:#677c73}
+.share-photo-input{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.share-photo-picker:has(+ .share-photo-input:focus-visible){outline:3px solid #1b8b63;outline-offset:3px}
+.share-photo-status,.share-photo-error{margin:-7px 0 0;text-align:center;font-size:.73rem;color:var(--muted)}
+.share-photo-error{color:#a15443}
 .history-share-link{align-self:flex-start;min-height:44px}
 @media(max-width:360px){.share-card-preview{width:min(100%,250px)}}
 @media(max-width:700px){

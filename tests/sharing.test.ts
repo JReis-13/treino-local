@@ -71,20 +71,21 @@ test("card has fixed square dimensions, escapes untrusted names, and omits unava
   assert.equal((long.match(/<tspan x="96"/g) ?? []).length, 3);
 });
 
-test("native image and text, text-only, clipboard, download, cancellation and rejection fallbacks", async () => {
+test("native image and text, text-only, cancellation and unsupported-share behavior", async () => {
   const file = new File(["image"], "card.png", { type: "image/png" });
   const calls: unknown[] = [];
   assert.equal(await shareWorkout("edited", file, { canShare: () => true, share: async (data) => { calls.push(data); } }), "shared");
   assert.deepEqual(calls[0], { files: [file], text: "edited" });
   assert.equal(await shareWorkout("text", file, { canShare: () => false, share: async (data) => { calls.push(data); } }), "shared");
   assert.deepEqual(calls[1], { text: "text" });
-  assert.equal(await shareWorkout("copy", file, { copy: async (text) => { calls.push(text); } }), "copied");
-  assert.equal(calls[2], "copy");
-  assert.equal(await shareWorkout("save", file, { download: (value) => { calls.push(value); } }), "downloaded");
-  assert.equal(calls[3], file);
+  let attempts = 0;
+  assert.equal(await shareWorkout("retry", file, { canShare: () => true, share: async (data) => {
+    attempts++;
+    if (data.files) throw new Error("Image attachment unsupported");
+  } }), "shared");
+  assert.equal(attempts, 2);
   assert.equal(await shareWorkout("cancel", file, { share: async () => { throw new DOMException("Cancel", "AbortError"); } }), "cancelled");
-  assert.equal(await shareWorkout("error", file, { share: async () => { throw new Error("Unavailable"); }, copy: async () => {} }), "copied");
+  assert.equal(await shareWorkout("error", file, { share: async () => { throw new Error("Unavailable"); } }), "failed");
   assert.equal(await shareWorkout("error", file, { canShare: () => { throw new Error("bad"); }, share: async () => {} }), "shared");
-  assert.equal(await shareWorkout("error", file, { download: () => { throw new Error("blocked"); } }), "failed");
-  assert.equal(await shareWorkout("none", undefined, {}), "failed");
+  assert.equal(await shareWorkout("none", undefined, {}), "unsupported");
 });
