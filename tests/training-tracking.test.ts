@@ -56,15 +56,33 @@ test("v2 production data and v1 backup migrate without dropping sessions or sour
   const started = startTrainingSession(data, "plan", "A", new Date("2026-10-01T08:00:00Z"), "ongoing").data;
   const old = { ...started, schemaVersion: 2 };
   const migrated = parseTrainingData(JSON.stringify(old));
-  assert.equal(migrated.schemaVersion, 3);
+  assert.equal(migrated.schemaVersion, 4);
   assert.equal(migrated.activePlanId, "plan");
   assert.equal(migrated.sessions[0].id, "ongoing");
   assert.equal(migrated.sessions[0].blocks[0].actualLoad, "7.5");
   const v1 = JSON.stringify({ format: "treino-local-backup", version: 1, createdAt: "2026-10-03T00:00:00Z", data: old });
   assert.equal(parseBackup(v1).data.sessions[0].id, "ongoing");
-  const v2 = JSON.parse(createBackup(migrated));
-  assert.equal(v2.version, 2);
-  assert.equal(parseBackup(JSON.stringify(v2)).data.schemaVersion, 3);
+  const v3 = JSON.parse(createBackup(migrated));
+  assert.equal(v3.version, 3);
+  assert.equal(parseBackup(JSON.stringify(v3)).data.schemaVersion, 4);
+  const oldV2Backup = { ...v3, version: 2, data: { ...v3.data, schemaVersion: 3, exerciseNotes: undefined } };
+  assert.equal(parseBackup(JSON.stringify(oldV2Backup)).data.sessions[0].id, "ongoing");
+  const productionV3 = { ...started, schemaVersion: 3, exerciseNotes: undefined };
+  const migratedV3 = parseTrainingData(JSON.stringify(productionV3));
+  assert.equal(migratedV3.schemaVersion, 4);
+  assert.deepEqual(migratedV3.exerciseNotes, []);
+  assert.equal(migratedV3.sessions[0].id, "ongoing");
+  const completed = finishTrainingSession(started, "ongoing", "2026-10-01", new Date("2026-10-01T08:40:00Z"));
+  const productionWithSource = { ...completed, schemaVersion: 3, exerciseNotes: undefined,
+    plans: completed.plans.map((item) => ({ ...item, source: { kind: "google", filename: "Training", template: "jonatha-v1",
+      mappings: {}, authMode: "oauth", spreadsheetId: "a12345678901234567890123", sourceProof: "a".repeat(43), syncEnabled: true } })),
+    sessions: completed.sessions.map((item) => ({ ...item, completionReceipt: { sourceKind: "google", sourceId: "a12345678901234567890123",
+      workoutId: "A", slot: "E5", syncedAt: "2026-10-01T08:41:00Z" }, completionSyncStatus: "synced", loadSyncStatus: "pending" })) };
+  const current = parseTrainingData(JSON.stringify(productionWithSource));
+  assert.equal(current.schemaVersion, 4);
+  assert.deepEqual(current.plans, JSON.parse(JSON.stringify(productionWithSource.plans)));
+  assert.deepEqual(current.sessions, JSON.parse(JSON.stringify(productionWithSource.sessions)));
+  assert.deepEqual(current.exerciseNotes, []);
 });
 
 test("statistics distinguish imported dates from timed, load-bearing local sessions", () => {

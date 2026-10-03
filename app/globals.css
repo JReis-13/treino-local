@@ -157,3 +157,61 @@ button,a,summary{-webkit-tap-highlight-color:transparent}
   .decision-sheet .decision-add,.decision-sheet .decision-replace{min-height:60px}
   .previous-session{padding:10px 12px}
 }
+
+/* Exercise context and rest controls are opened only when needed during a workout. */
+.exercise-detail-button{border:0;background:transparent;color:var(--teal);font-size:.78rem;font-weight:800;min-height:44px;padding:6px 8px}
+.exercise-actions .video-button{flex:0 1 auto;border:0;background:transparent;color:var(--teal);padding:8px;font-size:.75rem;min-height:44px}
+.exercise-actions .equipment-note{margin-right:auto;color:var(--muted);font-size:.7rem}
+.rest-suggestion{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;padding:10px;border-radius:11px;background:#e7f4ea;color:#256e68;font-size:.72rem}
+.rest-suggestion button{border:0;border-radius:9px;background:#168658;color:white;font-weight:800;min-height:42px;padding:8px 12px;white-space:nowrap}
+.detail-backdrop{position:fixed;inset:0;z-index:100;background:#172323ad;display:flex;align-items:flex-end;justify-content:center}
+.exercise-detail-sheet,.rest-detail-sheet{width:min(100%,560px);max-height:94dvh;overflow-y:auto;background:#fff;border-radius:22px 22px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -8px 40px #1723232b}
+.detail-sheet-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.detail-sheet-top h2{font-size:1.1rem;line-height:1.2;overflow-wrap:anywhere}
+.detail-sheet-top button{border:0;background:#eef2ef;border-radius:50%;width:44px;height:44px;flex-shrink:0;font-size:1.5rem}
+.detail-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-bottom:1px solid var(--line)}
+.detail-tabs button{border:0;border-bottom:3px solid transparent;background:transparent;color:var(--muted);font-size:.75rem;font-weight:800;min-height:44px}
+.detail-tabs button[aria-selected="true"]{border-bottom-color:var(--teal);color:var(--teal)}
+.detail-panel{display:flex;flex-direction:column;gap:13px;padding-top:14px}
+.detail-video{display:flex;flex-direction:column;gap:8px}
+.detail-video-frame{aspect-ratio:16/9;background:#172323;border-radius:12px;overflow:hidden;display:grid;place-items:center;color:white;text-align:center}
+.detail-video-frame iframe{border:0;width:100%;height:100%}
+.detail-video-frame button{border:0;background:#ffffffeb;border-radius:12px;padding:12px 18px;color:#172323;font-weight:800;min-height:48px}
+.detail-video-prompt{border:1px solid #cfe1d8;background:#eaf5ef;border-radius:11px;color:var(--teal);font-weight:800;min-height:48px;padding:10px 14px;text-align:left}
+.detail-video-frame p{padding:12px;margin:0}
+.detail-video>a{align-self:flex-start;color:var(--teal);font-weight:800;min-height:42px;display:flex;align-items:center}
+.detail-video small{color:var(--muted)}
+.detail-prescription{display:flex;flex-direction:column;gap:4px;margin:0;font-size:.82rem;line-height:1.4}
+.detail-prescription strong,.detail-loads small{font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.detail-loads{display:flex;gap:10px}
+.detail-loads div{display:flex;flex-direction:column;gap:4px;flex:1;padding:11px;background:#f3f6f3;border-radius:10px}
+.detail-loads strong{font-size:.9rem}
+.detail-complete{width:100%;justify-content:center;background:#168658}
+.detail-undo{background:#e1f0e7;color:#176b51}
+.detail-history-list{display:flex;flex-direction:column}
+.detail-history-list>div{display:flex;justify-content:space-between;gap:10px;padding:11px 2px;border-bottom:1px solid var(--line);font-size:.78rem}
+.detail-highest{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#fff8e9;border-radius:10px;padding:12px;font-size:.78rem}
+.detail-trend{width:100%;height:100px;color:#2073c6;background:#f6fafc;border-radius:10px}
+.detail-empty{color:var(--muted);font-size:.8rem}
+.detail-panel textarea,.session-note-field textarea{width:100%;min-height:94px;border:1px solid #dfe8de;border-radius:11px;background:#fff;padding:12px;font:inherit;resize:vertical}
+.detail-note-actions{display:flex;gap:10px;flex-wrap:wrap}
+.detail-note-actions button{flex:1;justify-content:center}
+.history-note-preview{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;color:#35635a!important}
+.session-note-card{background:#fff;border:1px solid var(--line);border-radius:13px;padding:14px}
+.session-note-card p:last-child{white-space:pre-wrap;overflow-wrap:anywhere;margin:7px 0 0;font-size:.84rem}
+.rest-timer-bar{position:fixed;z-index:70;left:50%;transform:translateX(-50%);bottom:calc(72px + env(safe-area-inset-bottom));width:min(calc(100% - 20px),540px);min-height:55px;display:flex;align-items:center;gap:5px;padding:5px 7px;background:#d9ede6;border:1px solid #a7d9c0;border-radius:12px;box-shadow:0 5px 20px #17232324}
+.rest-timer-bar.is-finished{background:#e3f5dd}
+.rest-timer-open{flex:1;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;min-height:44px;border:0;background:transparent;color:#1a5147;font-size:.78rem;font-weight:800;text-align:left}
+.rest-timer-open strong{font-size:1.15rem;font-variant-numeric:tabular-nums}
+.rest-timer-skip{border:0;background:#fff;border-radius:8px;color:#23645b;font-weight:800;min-height:44px;padding:7px 12px}
+.site-shell:has(.rest-timer-bar) .main-content{padding-bottom:190px}
+.site-shell:has(.rest-timer-bar) .sticky-action{position:static;padding-top:0;background:transparent}
+.rest-detail-sheet{padding-bottom:calc(25px + env(safe-area-inset-bottom))}
+.rest-clock{text-align:center;font-size:clamp(3.4rem,15vw,5rem);font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.04em;margin:20px 0 4px}
+.rest-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:23px}
+.rest-actions button{justify-content:center;min-height:55px}
+@media(max-width:700px){
+  .rest-timer-bar{bottom:calc(66px + env(safe-area-inset-bottom))}
+  .site-shell:has(.rest-timer-bar) .sticky-action{position:static}
+  .exercise-actions{flex-direction:row;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:7px}
+}

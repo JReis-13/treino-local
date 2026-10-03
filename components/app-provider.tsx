@@ -6,6 +6,8 @@ import { finishTrainingSession, sameDaySessions, startTrainingSession, updateTra
 import { changedLoads } from "@/lib/training/loads";
 import { normalizeLoad } from "@/lib/training/loads";
 import { withSyncStatus } from "@/lib/training/sync-state";
+import { updateExerciseNote } from "@/lib/training/exercise-notes";
+import { extendRest, pauseRest, resumeRest, skipRest, startRest } from "@/lib/training/rest-timer";
 import { trainingStorage } from "@/lib/training/storage";
 import type { ImportedTraining, SourceSyncStatus, TrainingData, TrainingSession, TrainingSource } from "@/types/training";
 
@@ -15,7 +17,13 @@ interface AppContextValue {
   start(planId: string, workoutId: string): TrainingSession | null;
   updateBlock(sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }): void;
   correctSessionLoad(sessionId: string, blockId: string, load: string): boolean;
-  finish(sessionId: string, localDate: string, choice?: "normal" | "add" | "replace", replaceId?: string): boolean;
+  finish(sessionId: string, localDate: string, choice?: "normal" | "add" | "replace", replaceId?: string, note?: string): boolean;
+  saveExerciseNote(planId: string, exerciseName: string, note: string): boolean;
+  startRestTimer(sessionId: string, seconds: number): boolean;
+  pauseRestTimer(): boolean;
+  resumeRestTimer(): boolean;
+  extendRestTimer(seconds: number): boolean;
+  skipRestTimer(): boolean;
   addPlan(imported: ImportedTraining, name?: string): string | null;
   refreshPlan(planId: string, imported: ImportedTraining): boolean;
   migrateGooglePlan(planId: string, imported: ImportedTraining): boolean;
@@ -69,7 +77,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!dataRef.current) return null;
     try {
       const result = startTrainingSession(dataRef.current, planId, workoutId);
-      return commit(() => result.data) ? result.session : null;
+      return commit(() => ({ ...result.data, restTimer: result.data.restTimer?.sessionId === result.session.id ? result.data.restTimer : undefined })) ? result.session : null;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not start workout."); return null; }
   }, [commit]);
 
@@ -109,9 +117,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }) };
     }) }));
   }, [commit]);
-  const finish = useCallback((sessionId: string, localDate: string, choice: "normal" | "add" | "replace" = "normal", replaceId?: string) => {
+  const saveExerciseNote = useCallback((planId: string, exerciseName: string, note: string) =>
+    commit((current) => updateExerciseNote(current, planId, exerciseName, note)), [commit]);
+  const startRestTimer = useCallback((sessionId: string, seconds: number) =>
+    commit((current) => startRest(current, sessionId, seconds)), [commit]);
+  const pauseRestTimer = useCallback(() => commit((current) => pauseRest(current)), [commit]);
+  const resumeRestTimer = useCallback(() => commit((current) => resumeRest(current)), [commit]);
+  const extendRestTimer = useCallback((seconds: number) => commit((current) => extendRest(current, seconds)), [commit]);
+  const skipRestTimer = useCallback(() => commit((current) => skipRest(current)), [commit]);
+  const finish = useCallback((sessionId: string, localDate: string, choice: "normal" | "add" | "replace" = "normal", replaceId?: string, note = "") => {
     const previous = dataRef.current ? sameDaySessions(dataRef.current, sessionId, localDate).find((item) => item.id === (replaceId ?? sameDaySessions(dataRef.current!, sessionId, localDate)[0]?.id)) : undefined;
-    const saved = commit((current) => finishTrainingSession(current, sessionId, localDate, new Date(), choice, replaceId));
+    const saved = commit((current) => finishTrainingSession(current, sessionId, localDate, new Date(), choice, replaceId, note));
     if (!saved) return false;
     const completedId = choice === "replace" ? previous?.id ?? sessionId : sessionId;
     const session = dataRef.current?.sessions.find((item) => item.id === completedId);
@@ -207,7 +223,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }), [commit]);
   const renamePlan = useCallback((planId: string, name: string) =>
     commit((current) => renameTraining(current, planId, name)), [commit]);
-  const removePlan = useCallback((planId: string) => commit((current) => removeTraining(current, planId)), [commit]);
+  const removePlan = useCallback((planId: string) => commit((current) => {
+    const next = removeTraining(current, planId);
+    return current.restTimer && current.sessions.some((session) => session.id === current.restTimer!.sessionId && session.planId === planId)
+      ? { ...next, restTimer: undefined } : next;
+  }), [commit]);
   const updateSource = useCallback((planId: string, source: TrainingSource) => commit((current) => ({ ...current,
     plans: current.plans.map((plan) => plan.id === planId ? { ...plan, source } : plan),
   })), [commit]);
@@ -228,7 +248,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not restore local data."); return false; }
   }, []);
 
-  return <AppContext.Provider value={{ data, error, start, updateBlock, correctSessionLoad, finish, addPlan, refreshPlan, migrateGooglePlan,
+  return <AppContext.Provider value={{ data, error, start, updateBlock, correctSessionLoad, finish,
+    saveExerciseNote, startRestTimer, pauseRestTimer, resumeRestTimer, extendRestTimer, skipRestTimer,
+    addPlan, refreshPlan, migrateGooglePlan,
     setActivePlan, renamePlan, removePlan, updateSource, setSyncStatus, setSessionSync, applySourceLoads,
     restoreData, clearError: () => setError(null) }}>{children}</AppContext.Provider>;
 }

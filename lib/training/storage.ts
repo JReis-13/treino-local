@@ -5,7 +5,7 @@ import type { TrainingData, TrainingPlanRecord, TrainingSession, WorkoutBlock } 
 
 export const TRAINING_STORAGE_KEY = "treino-local:v2";
 const OLD_KEY = "treino-local:v1";
-export const emptyTrainingData = (): TrainingData => ({ schemaVersion: 3, plans: [], sessions: [] });
+export const emptyTrainingData = (): TrainingData => ({ schemaVersion: 4, plans: [], sessions: [], exerciseNotes: [] });
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -68,6 +68,7 @@ function validSession(value: unknown): value is TrainingSession {
     (value.completionAttempted === undefined || typeof value.completionAttempted === "boolean") &&
     (value.loadCorrectionPending === undefined || typeof value.loadCorrectionPending === "boolean") &&
     (value.replacedAt === undefined || (typeof value.replacedAt === "string" && Number.isFinite(Date.parse(value.replacedAt)))) &&
+    (value.sessionNote === undefined || (typeof value.sessionNote === "string" && value.sessionNote.length <= 500)) &&
     (value.completionReceipt === undefined || (record(value.completionReceipt) &&
       ["google", "excel"].includes(String(value.completionReceipt.sourceKind)) &&
       typeof value.completionReceipt.sourceId === "string" && typeof value.completionReceipt.workoutId === "string" &&
@@ -83,8 +84,18 @@ function validSyncStatus(value: unknown): boolean {
 
 export function parseTrainingData(raw: string): TrainingData {
   const value: unknown = JSON.parse(raw);
-  if (!record(value) || ![2, 3].includes(Number(value.schemaVersion)) || !Array.isArray(value.plans) || !value.plans.every(validPlan) ||
+  if (!record(value) || ![2, 3, 4].includes(Number(value.schemaVersion)) || !Array.isArray(value.plans) || !value.plans.every(validPlan) ||
     !Array.isArray(value.sessions) || !value.sessions.every(validSession) ||
+    (value.exerciseNotes !== undefined && (!Array.isArray(value.exerciseNotes) || !value.exerciseNotes.every((note: unknown) =>
+      record(note) && typeof note.planId === "string" && typeof note.exerciseKey === "string" &&
+      typeof note.text === "string" && note.text.length <= 1000 && typeof note.updatedAt === "string" &&
+      Number.isFinite(Date.parse(note.updatedAt))))) ||
+    (value.restTimer !== undefined && (!record(value.restTimer) || typeof value.restTimer.sessionId !== "string" ||
+      !Number.isInteger(value.restTimer.durationSeconds) || Number(value.restTimer.durationSeconds) < 1 || Number(value.restTimer.durationSeconds) > 3600 ||
+      (value.restTimer.targetEndAt === undefined) === (value.restTimer.pausedRemainingSeconds === undefined) ||
+      (value.restTimer.targetEndAt !== undefined && (typeof value.restTimer.targetEndAt !== "string" || !Number.isFinite(Date.parse(value.restTimer.targetEndAt)))) ||
+      (value.restTimer.pausedRemainingSeconds !== undefined && (!Number.isInteger(value.restTimer.pausedRemainingSeconds) ||
+        Number(value.restTimer.pausedRemainingSeconds) < 0 || Number(value.restTimer.pausedRemainingSeconds) > 3600)))) ||
     (value.activePlanId !== undefined && typeof value.activePlanId !== "string") ||
     (value.activePlanId !== undefined && !value.plans.some((plan: TrainingPlanRecord) => plan.id === value.activePlanId)) ||
     (value.archivedSources !== undefined && (!Array.isArray(value.archivedSources) || !value.archivedSources.every((source: unknown) =>
@@ -93,14 +104,14 @@ export function parseTrainingData(raw: string): TrainingData {
     new Set(value.sessions.map((session: TrainingSession) => session.id)).size !== value.sessions.length) {
     throw new Error("Saved training data is invalid. It was left untouched.");
   }
-  return { ...value, schemaVersion: 3 } as unknown as TrainingData;
+  return { ...value, schemaVersion: 4, exerciseNotes: value.exerciseNotes ?? [] } as unknown as TrainingData;
 }
 
 export function migrateV1(raw: string, now = new Date().toISOString()): TrainingData {
   const old = parseStoredData(raw);
   if (old.sessions.length === 0 && !old.excel) return emptyTrainingData();
   const plan = legacyPlan(old, now);
-  return { schemaVersion: 3, plans: [plan], activePlanId: plan.id,
+  return { schemaVersion: 4, plans: [plan], activePlanId: plan.id, exerciseNotes: [],
     sessions: old.sessions.map((session) => migrateLegacySession(session, plan)) };
 }
 
@@ -115,8 +126,8 @@ export const trainingStorage: TrainingStorage = {
       const latest = localStorage.getItem(TRAINING_STORAGE_KEY);
       if (latest !== null) {
         const data = parseTrainingData(latest);
-        if (JSON.parse(latest).schemaVersion !== 3) localStorage.setItem(TRAINING_STORAGE_KEY, JSON.stringify(data));
-        return { data, migrated: JSON.parse(latest).schemaVersion !== 3 };
+        if (JSON.parse(latest).schemaVersion !== 4) localStorage.setItem(TRAINING_STORAGE_KEY, JSON.stringify(data));
+        return { data, migrated: JSON.parse(latest).schemaVersion !== 4 };
       }
       const old = localStorage.getItem(OLD_KEY);
       if (old === null) return { data: emptyTrainingData() };

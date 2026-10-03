@@ -35,3 +35,22 @@ Google **Publishing status** controls OAuth availability and verification. Trein
 9. Verify installed PWA startup, offline access to already-imported training, recovery after reopening, pending-sync retry, backup/restore, and disconnect/reconnect. Disconnect and rejection must not delete local plans or history.
 
 Review Git diff/status before pushing. Ensure `.env.local`, OAuth credentials, tokens, real workbooks, and generated build output are not staged. This checklist does not authorize Codex to push, deploy, or change Google Cloud settings.
+
+## Exercise Detail, notes, and rest timer phone check
+
+Use the installed PWA and a disposable training source. Keep canonical Sheets and Excel workbooks untouched.
+
+1. Open the installed PWA and start a workout.
+2. Open Exercise Detail, then tap Watch execution on an exercise with a video.
+3. Play the inline video, close Detail, and confirm playback and audio stop.
+4. Open the exercise's History tab and check recent actual loads and the highest comparable load.
+5. Add a persistent exercise note, close Detail, reopen it, and confirm the note remains.
+6. Mark an exercise complete. Where the plan gives rest guidance, start the suggested timer.
+7. Scroll and navigate while checking that the compact timer remains above navigation.
+8. Lock the phone, wait, reopen it, and confirm the timer advanced by elapsed real time.
+9. Add 30 seconds, pause and resume, then let the timer finish or skip it.
+10. Add an optional workout note on Finish Workout and save; confirm the timer disappears.
+11. Open History, check the short note preview, then open the session for the full note.
+12. Go offline. Confirm Exercise Detail, History, notes, and timer still work; video shows an internet-required message and retains the Open in YouTube fallback.
+
+Check portrait and landscape video, the phone keyboard with note/load fields, long names and notes, and bottom safe-area spacing. Embedded playback depends on each video's own YouTube settings; the external fallback is always available.

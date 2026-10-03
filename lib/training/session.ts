@@ -38,7 +38,7 @@ export function sameDaySessions(data: TrainingData, sessionId: string, date: str
 }
 
 export function finishTrainingSession(data: TrainingData, sessionId: string, date: string, now = new Date(),
-  choice: "normal" | "add" | "replace" = "normal", replaceId?: string): TrainingData {
+  choice: "normal" | "add" | "replace" = "normal", replaceId?: string, sessionNote = ""): TrainingData {
   if (!isLocalDate(date)) throw new Error("Choose a valid workout date.");
   const session = data.sessions.find((item) => item.id === sessionId && item.status === "inProgress");
   if (!session) throw new Error("No in-progress workout was found.");
@@ -49,6 +49,7 @@ export function finishTrainingSession(data: TrainingData, sessionId: string, dat
   if (choice === "replace" && !previous) throw new Error("The previous workout to replace was not found.");
   const completedBase: TrainingSession = { ...session, id: previous?.id ?? session.id, status: "completed", completedAt: now.toISOString(),
     localDate: date, replacedAt: previous ? now.toISOString() : undefined,
+    sessionNote: sessionNote.trim().slice(0, 500) || previous?.sessionNote,
     blocks: session.blocks.map((block) => ({ ...block, actualLoad: block.actualLoad === undefined ? undefined : normalizeLoad(block.actualLoad) })),
     duplicateDateAllowed: choice === "add" && matches.length > 0,
     completionReceipt: previous?.completionReceipt,
@@ -57,7 +58,8 @@ export function finishTrainingSession(data: TrainingData, sessionId: string, dat
     syncStatus: previous?.completionReceipt || previous?.syncStatus === "synced" ? "pending" : session.syncStatus,
   };
   const completed = withSyncStatus(completedBase, { loadSyncStatus: changedLoads(completedBase).length ? session.syncStatus : "notApplicable" });
-  return { ...data, sessions: data.sessions.filter((item) => item.id !== sessionId && item.id !== previous?.id)
+  return { ...data, restTimer: data.restTimer?.sessionId === sessionId ? undefined : data.restTimer,
+    sessions: data.sessions.filter((item) => item.id !== sessionId && item.id !== previous?.id)
     .concat(completed).sort((a, b) => b.startedAt.localeCompare(a.startedAt)) };
 }
 

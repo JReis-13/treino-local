@@ -4,6 +4,7 @@ import { AppProvider } from "@/components/app-provider";
 import { BottomNav } from "@/components/bottom-nav";
 import { RegisterServiceWorker } from "@/components/register-service-worker";
 import { ClientDiagnostics } from "@/components/client-diagnostics";
+import { RestTimerBar } from "@/components/rest-timer-bar";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -21,6 +22,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return <html lang="en"><body><AppProvider><RegisterServiceWorker /><ClientDiagnostics /><div className="site-shell">
     <header className="topbar"><Link className="brand" href="/" aria-label="Treino Local home"><span className="brand-mark">T<span>.</span></span><span>TREINO<span className="brand-light">LOCAL</span></span></Link><span className="topbar-caption">YOUR GYM COMPANION</span></header>
     <main className="main-content">{children}</main>
-    <BottomNav />
+    <RestTimerBar /><BottomNav />
   </div></AppProvider></body></html>;
 }

@@ -8,10 +8,14 @@ import { activePlan } from "@/lib/training/session";
 import { safeVideoUrl } from "@/lib/video-url";
 import type { WorkoutBlock } from "@/types/training";
 import { lastUsedLoad, normalizeLoad } from "@/lib/training/loads";
+import { ExerciseDetail } from "@/components/exercise-detail";
+import { suggestedRest } from "@/lib/training/rest-timer";
 
-function BlockCard({ block, index, completed, actualLoad, previousLoad, onComplete, onLoad }: {
+function BlockCard({ block, index, completed, actualLoad, previousLoad, restSuggestion, timerActive, onComplete, onLoad, onDetails, onVideo, onStartRest }: {
   block: WorkoutBlock; index: number; completed: boolean; actualLoad?: string; previousLoad?: string;
-  onComplete: () => void; onLoad: (value: string) => void;
+  restSuggestion?: { seconds: number; label: string }; timerActive: boolean;
+  onComplete: () => void; onLoad: (value: string) => void; onDetails: (opener: HTMLElement) => void;
+  onVideo: (opener: HTMLElement) => void; onStartRest: () => void;
 }) {
   const [showOptionalLoad, setShowOptionalLoad] = useState(false);
   const videoUrl = block.kind === "exercise" ? safeVideoUrl(block.videoUrl) : undefined;
@@ -21,7 +25,8 @@ function BlockCard({ block, index, completed, actualLoad, previousLoad, onComple
     {block.kind === "exercise" ? <>
       {(block.defaultLoad || previousLoad) && <div className="load-reference">{block.defaultLoad && <div><span>Current plan</span><strong>{block.defaultLoad}</strong></div>}{previousLoad && <div><span>Last used</span><strong>{previousLoad}</strong></div>}</div>}
       {block.section !== "Warm-up" && (hasLoad ? <label className="load-field"><span>LOAD TODAY</span><input inputMode="decimal" type="text" value={actualLoad ?? ""} onChange={(event) => onLoad(event.target.value)} onBlur={(event) => onLoad(normalizeLoad(event.target.value))} placeholder="Enter load used" aria-label={`Actual load for ${block.name}`} /></label> : <button type="button" className="add-load-button" onClick={() => setShowOptionalLoad(true)}>+ Record a load</button>)}
-      {(block.equipment || videoUrl) && <div className="exercise-actions">{block.equipment && <span className="equipment-note">{block.equipment}</span>}{videoUrl && <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="video-button">Watch example ↗</a>}</div>}
+      <div className="exercise-actions"><button type="button" className="exercise-detail-button" onClick={(event) => onDetails(event.currentTarget)}>Details</button>{videoUrl && <button type="button" className="video-button" aria-label="Watch execution" onClick={(event) => onVideo(event.currentTarget)}>▶ Video</button>}</div>
+      {completed && restSuggestion && !timerActive && <div className="rest-suggestion"><span>{restSuggestion.label}</span><button type="button" onClick={onStartRest}>Start {Math.floor(restSuggestion.seconds / 60)}:{String(restSuggestion.seconds % 60).padStart(2, "0")}</button></div>}
     </> : <p className="instruction-text">{block.text}</p>}
   </article>;
 }
@@ -39,8 +44,10 @@ function ElapsedTime({ startedAt }: { startedAt: string }) {
 
 export function WorkoutView({ workoutId }: { workoutId?: string }) {
   const router = useRouter();
-  const { data, error, start, updateBlock } = useApp();
+  const { data, error, start, updateBlock, startRestTimer } = useApp();
   const [queryId, setQueryId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<{ blockId: string; launchVideo: boolean } | null>(null);
+  const [detailOpener, setDetailOpener] = useState<HTMLElement | null>(null);
   useEffect(() => { window.scrollTo(0, 0); }, []);
   useEffect(() => { if (!workoutId) setQueryId(new URLSearchParams(window.location.search).get("id")); }, [workoutId]);
   if (!data) return <div className="loading">Loading your workout…</div>;
@@ -55,6 +62,9 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
   const blocks = ownSession?.workoutSnapshot.blocks ?? workout.blocks;
   const count = ownSession?.blocks.filter((state) => state.completed).length ?? 0;
   const sections = [...new Set(blocks.map((block) => block.section))];
+  const restSuggestion = suggestedRest(ownSession?.workoutSnapshot.restNote);
+  function openDetail(blockId: string, launchVideo: boolean, opener: HTMLElement) { setDetailOpener(opener); setDetail({ blockId, launchVideo }); }
+  function closeDetail() { setDetail(null); window.requestAnimationFrame(() => detailOpener?.focus()); }
 
   function begin() {
     const session = start(plan!.id, workout!.id);
@@ -70,10 +80,15 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
       const state = ownSession.blocks.find((item) => item.blockId === block.id);
       return <BlockCard key={block.id} block={block} index={index} completed={state?.completed ?? false} actualLoad={state?.actualLoad}
         previousLoad={block.kind === "exercise" ? lastUsedLoad(data, plan.id, block.id) : undefined}
+        restSuggestion={block.kind === "exercise" && block.section !== "Warm-up" ? restSuggestion : undefined}
+        timerActive={data.restTimer?.sessionId === ownSession.id}
         onComplete={() => updateBlock(ownSession.id, block.id, { completed: !state?.completed })}
-        onLoad={(actualLoad) => updateBlock(ownSession.id, block.id, { actualLoad })} />;
+        onLoad={(actualLoad) => updateBlock(ownSession.id, block.id, { actualLoad })}
+        onDetails={(opener) => openDetail(block.id, false, opener)} onVideo={(opener) => openDetail(block.id, true, opener)}
+        onStartRest={() => startRestTimer(ownSession.id, restSuggestion!.seconds)} />;
     })())}</div></section>)}
     {(ownSession.workoutSnapshot.restNote || ownSession.workoutSnapshot.rirByOccurrence?.length) && <details className="plan-context"><summary>Plan notes</summary><p>{ownSession.workoutSnapshot.restNote}{ownSession.workoutSnapshot.rirByOccurrence?.length ? " RIR follows workout occurrence in the source, not each exercise." : ""}</p></details>}
     <div className="sticky-action"><Link className="primary-button" href="/finish/">Finish workout <span>→</span></Link></div>
+    {detail && (() => { const block = blocks.find((item) => item.id === detail.blockId); const state = ownSession.blocks.find((item) => item.blockId === detail.blockId); return block?.kind === "exercise" ? <ExerciseDetail key={block.id} block={block} session={ownSession} actualLoad={state?.actualLoad} previousLoad={lastUsedLoad(data, plan.id, block.id)} completed={state?.completed ?? false} launchVideo={detail.launchVideo} onLoad={(actualLoad) => updateBlock(ownSession.id, block.id, { actualLoad })} onComplete={() => updateBlock(ownSession.id, block.id, { completed: !state?.completed })} onClose={closeDetail} /> : null; })()}
   </div>;
 }

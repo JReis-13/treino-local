@@ -109,13 +109,30 @@ export interface TrainingSession {
   preparedCompletionSlot?: string;
   loadCorrectionPending?: boolean;
   replacedAt?: string;
+  sessionNote?: string;
+}
+
+export interface ExerciseNote {
+  planId: string;
+  exerciseKey: string;
+  text: string;
+  updatedAt: string;
+}
+
+export interface RestTimer {
+  sessionId: string;
+  durationSeconds: number;
+  targetEndAt?: string;
+  pausedRemainingSeconds?: number;
 }
 
 export interface TrainingData {
-  schemaVersion: 3;
+  schemaVersion: 4;
   plans: TrainingPlanRecord[];
   activePlanId?: string;
   sessions: TrainingSession[];
+  exerciseNotes: ExerciseNote[];
+  restTimer?: RestTimer;
   archivedSources?: Array<{ planId: string; planName: string; legacyCompletions: LegacyCompletion[] }>;
 }
 
