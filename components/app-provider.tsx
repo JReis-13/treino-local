@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { addTraining, migrateGoogleTraining, refreshTraining, removeTraining, renameTraining } from "@/lib/training/library";
-import { finishTrainingSession, sameDaySessions, startTrainingSession, updateTrainingBlock } from "@/lib/training/session";
+import { finishTrainingSession, moveTrainingBlockLater, restoreTrainingQueue, sameDaySessions, setTrainingFocus, skipTrainingBlock, startTrainingSession, updateTrainingBlock } from "@/lib/training/session";
 import { changedLoads } from "@/lib/training/loads";
 import { normalizeLoad } from "@/lib/training/loads";
 import { withSyncStatus } from "@/lib/training/sync-state";
@@ -16,6 +16,10 @@ interface AppContextValue {
   error: string | null;
   start(planId: string, workoutId: string): TrainingSession | null;
   updateBlock(sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }): void;
+  moveBlockLater(sessionId: string, blockId: string): void;
+  restoreQueue(sessionId: string, queueOrder: string[], focusBlockId?: string): void;
+  skipBlock(sessionId: string, blockId: string, skipped: boolean): void;
+  setFocus(sessionId: string, enabled: boolean, blockId?: string): void;
   correctSessionLoad(sessionId: string, blockId: string, load: string): boolean;
   finish(sessionId: string, localDate: string, choice?: "normal" | "add" | "replace", replaceId?: string, note?: string): boolean;
   saveExerciseNote(planId: string, exerciseName: string, note: string): boolean;
@@ -83,6 +87,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const updateBlock = useCallback((sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }) => {
     commit((current) => updateTrainingBlock(current, sessionId, blockId, change));
+  }, [commit]);
+  const moveBlockLater = useCallback((sessionId: string, blockId: string) => {
+    commit((current) => moveTrainingBlockLater(current, sessionId, blockId));
+  }, [commit]);
+  const restoreQueue = useCallback((sessionId: string, queueOrder: string[], focusBlockId?: string) => {
+    commit((current) => restoreTrainingQueue(current, sessionId, queueOrder, focusBlockId));
+  }, [commit]);
+  const skipBlock = useCallback((sessionId: string, blockId: string, skipped: boolean) => {
+    commit((current) => skipTrainingBlock(current, sessionId, blockId, skipped));
+  }, [commit]);
+  const setFocus = useCallback((sessionId: string, enabled: boolean, blockId?: string) => {
+    commit((current) => setTrainingFocus(current, sessionId, enabled, blockId));
   }, [commit]);
   const correctSessionLoad = useCallback((sessionId: string, blockId: string, load: string): boolean =>
     commit((current) => {
@@ -248,7 +264,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not restore local data."); return false; }
   }, []);
 
-  return <AppContext.Provider value={{ data, error, start, updateBlock, correctSessionLoad, finish,
+  return <AppContext.Provider value={{ data, error, start, updateBlock, moveBlockLater, restoreQueue, skipBlock, setFocus, correctSessionLoad, finish,
     saveExerciseNote, startRestTimer, pauseRestTimer, resumeRestTimer, extendRestTimer, skipRestTimer,
     addPlan, refreshPlan, migrateGooglePlan,
     setActivePlan, renamePlan, removePlan, updateSource, setSyncStatus, setSessionSync, applySourceLoads,

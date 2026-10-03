@@ -48,7 +48,7 @@ test("persistent exercise notes isolate plan and normalized exercise, survive mi
   assert.equal(exerciseNote(data, "two", "Agachamento Goblet"), "other machine");
   const v3 = { ...base(), schemaVersion: 3, exerciseNotes: undefined };
   const migrated = parseTrainingData(JSON.stringify(v3));
-  assert.equal(migrated.schemaVersion, 4);
+  assert.equal(migrated.schemaVersion, 5);
   assert.deepEqual(migrated.exerciseNotes, []);
   assert.deepEqual(migrated.plans, base().plans);
 });

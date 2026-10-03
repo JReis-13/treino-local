@@ -85,6 +85,7 @@ export interface TrainingPlanRecord {
 export interface BlockProgress {
   blockId: string;
   completed: boolean;
+  skipped?: boolean;
   actualLoad?: string;
 }
 
@@ -99,6 +100,9 @@ export interface TrainingSession {
   completedAt?: string;
   localDate?: string;
   blocks: BlockProgress[];
+  queueOrder?: string[];
+  focusBlockId?: string;
+  focusMode?: boolean;
   syncStatus: SourceSyncStatus;
   syncMessage?: string;
   completionReceipt?: { sourceKind: "google" | "excel"; sourceId: string; workoutId: string; slot: string; syncedAt: string };
@@ -127,7 +131,7 @@ export interface RestTimer {
 }
 
 export interface TrainingData {
-  schemaVersion: 4;
+  schemaVersion: 5;
   plans: TrainingPlanRecord[];
   activePlanId?: string;
   sessions: TrainingSession[];

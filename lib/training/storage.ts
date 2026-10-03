@@ -5,7 +5,7 @@ import type { TrainingData, TrainingPlanRecord, TrainingSession, WorkoutBlock } 
 
 export const TRAINING_STORAGE_KEY = "treino-local:v2";
 const OLD_KEY = "treino-local:v1";
-export const emptyTrainingData = (): TrainingData => ({ schemaVersion: 4, plans: [], sessions: [], exerciseNotes: [] });
+export const emptyTrainingData = (): TrainingData => ({ schemaVersion: 5, plans: [], sessions: [], exerciseNotes: [] });
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -61,7 +61,12 @@ function validSession(value: unknown): value is TrainingSession {
     ["inProgress", "completed"].includes(String(value.status)) && typeof value.startedAt === "string" &&
     Number.isFinite(Date.parse(value.startedAt)) && Array.isArray(value.blocks) &&
     value.blocks.every((item: unknown) => record(item) && typeof item.blockId === "string" &&
-      typeof item.completed === "boolean" && (item.actualLoad === undefined || typeof item.actualLoad === "string")) &&
+      typeof item.completed === "boolean" && (item.skipped === undefined || (typeof item.skipped === "boolean" && !(item.skipped && item.completed))) &&
+      (item.actualLoad === undefined || typeof item.actualLoad === "string")) &&
+    (value.queueOrder === undefined || (Array.isArray(value.queueOrder) && value.queueOrder.every((id: unknown) => typeof id === "string") &&
+      new Set(value.queueOrder).size === value.queueOrder.length)) &&
+    (value.focusBlockId === undefined || typeof value.focusBlockId === "string") &&
+    (value.focusMode === undefined || typeof value.focusMode === "boolean") &&
     (value.completionSyncStatus === undefined || validSyncStatus(value.completionSyncStatus)) &&
     (value.loadSyncStatus === undefined || validSyncStatus(value.loadSyncStatus)) &&
     (value.duplicateDateAllowed === undefined || typeof value.duplicateDateAllowed === "boolean") &&
@@ -84,7 +89,7 @@ function validSyncStatus(value: unknown): boolean {
 
 export function parseTrainingData(raw: string): TrainingData {
   const value: unknown = JSON.parse(raw);
-  if (!record(value) || ![2, 3, 4].includes(Number(value.schemaVersion)) || !Array.isArray(value.plans) || !value.plans.every(validPlan) ||
+  if (!record(value) || ![2, 3, 4, 5].includes(Number(value.schemaVersion)) || !Array.isArray(value.plans) || !value.plans.every(validPlan) ||
     !Array.isArray(value.sessions) || !value.sessions.every(validSession) ||
     (value.exerciseNotes !== undefined && (!Array.isArray(value.exerciseNotes) || !value.exerciseNotes.every((note: unknown) =>
       record(note) && typeof note.planId === "string" && typeof note.exerciseKey === "string" &&
@@ -104,14 +109,16 @@ export function parseTrainingData(raw: string): TrainingData {
     new Set(value.sessions.map((session: TrainingSession) => session.id)).size !== value.sessions.length) {
     throw new Error("Saved training data is invalid. It was left untouched.");
   }
-  return { ...value, schemaVersion: 4, exerciseNotes: value.exerciseNotes ?? [] } as unknown as TrainingData;
+  return { ...value, schemaVersion: 5, exerciseNotes: value.exerciseNotes ?? [],
+    sessions: (value.sessions as TrainingSession[]).map((session) => ({ ...session,
+      queueOrder: session.queueOrder ?? session.workoutSnapshot.blocks.filter((block) => block.kind === "exercise").map((block) => block.id) })) } as TrainingData;
 }
 
 export function migrateV1(raw: string, now = new Date().toISOString()): TrainingData {
   const old = parseStoredData(raw);
   if (old.sessions.length === 0 && !old.excel) return emptyTrainingData();
   const plan = legacyPlan(old, now);
-  return { schemaVersion: 4, plans: [plan], activePlanId: plan.id, exerciseNotes: [],
+  return { schemaVersion: 5, plans: [plan], activePlanId: plan.id, exerciseNotes: [],
     sessions: old.sessions.map((session) => migrateLegacySession(session, plan)) };
 }
 
@@ -126,8 +133,8 @@ export const trainingStorage: TrainingStorage = {
       const latest = localStorage.getItem(TRAINING_STORAGE_KEY);
       if (latest !== null) {
         const data = parseTrainingData(latest);
-        if (JSON.parse(latest).schemaVersion !== 4) localStorage.setItem(TRAINING_STORAGE_KEY, JSON.stringify(data));
-        return { data, migrated: JSON.parse(latest).schemaVersion !== 4 };
+        if (JSON.parse(latest).schemaVersion !== 5) localStorage.setItem(TRAINING_STORAGE_KEY, JSON.stringify(data));
+        return { data, migrated: JSON.parse(latest).schemaVersion !== 5 };
       }
       const old = localStorage.getItem(OLD_KEY);
       if (old === null) return { data: emptyTrainingData() };

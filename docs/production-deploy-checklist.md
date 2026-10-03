@@ -67,3 +67,33 @@ Use a disposable workout in a normal phone browser, then repeat the share-sheet 
 6. Save another workout and tap **Not now**. Confirm no later share prompt appears and no photo is stored in History or backup.
 7. Go offline and open a saved workout's share view. Confirm the card, photo processing, and message work. If Web Share is unavailable, confirm the app shows a calm unsupported message without a download action.
 8. Inspect an imported date-only History entry. Its card must omit duration and exercise counts. Check long workout names, accents, emoji, 320px width, keyboard opening and bottom safe area.
+
+## Focus and session queue phone check
+
+Use a disposable workout. The source plan is authoritative; queue and skip actions are local session decisions. For Google and Excel, verify the source order on a disposable copy rather than a canonical file.
+
+1. Start a workout.
+2. Enter Focus Mode.
+3. Verify the current exercise, prescription, equipment, video and any note indicator.
+4. Change today's load, including with the keyboard open on a short viewport.
+5. Return to List and verify the same load.
+6. Change the load in List and return to Focus; verify the new value.
+7. Tap Do later on the current exercise and confirm the next exercise appears.
+8. Check List and verify the moved exercise is at the end of today's remaining queue.
+9. Undo Do later, then move it again; confirm there is exactly one instance.
+10. Skip an exercise today and confirm the lightweight confirmation explains the session-only effect.
+11. Confirm the skipped exercise disappears from the remaining queue but remains visible in List.
+12. Undo skip in List and verify it is eligible again in Focus.
+13. Skip it again and confirm the completed count does not rise.
+14. Complete an exercise in Focus and confirm the next eligible one appears.
+15. Start the suggested rest timer; confirm the next exercise stays usable.
+16. Use Previous and Next without changing completion state.
+17. Lock and reopen the phone; confirm Focus, queue, loads, skip and timer state persist.
+18. Go offline and repeat Do later, Skip today and load editing.
+19. Finish and save the workout; check the completed and skipped totals.
+20. Open History detail and confirm skipped exercises are labelled, not shown as completed.
+21. Check Statistics and the share card: only completed exercises count.
+22. Start the same workout again; verify original plan order and no inherited skips.
+23. Verify a grouped pair moves together while its two loads and completion states remain separate.
+24. Verify Google Sheet and Excel source order are unchanged, with no new plan version.
+25. Check 320px, Pixel-sized and iPhone-sized layouts, safe area, long names, video fallback and phone Back from Focus to List.

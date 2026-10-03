@@ -56,7 +56,7 @@ test("v2 production data and v1 backup migrate without dropping sessions or sour
   const started = startTrainingSession(data, "plan", "A", new Date("2026-10-01T08:00:00Z"), "ongoing").data;
   const old = { ...started, schemaVersion: 2 };
   const migrated = parseTrainingData(JSON.stringify(old));
-  assert.equal(migrated.schemaVersion, 4);
+  assert.equal(migrated.schemaVersion, 5);
   assert.equal(migrated.activePlanId, "plan");
   assert.equal(migrated.sessions[0].id, "ongoing");
   assert.equal(migrated.sessions[0].blocks[0].actualLoad, "7.5");
@@ -64,12 +64,12 @@ test("v2 production data and v1 backup migrate without dropping sessions or sour
   assert.equal(parseBackup(v1).data.sessions[0].id, "ongoing");
   const v3 = JSON.parse(createBackup(migrated));
   assert.equal(v3.version, 3);
-  assert.equal(parseBackup(JSON.stringify(v3)).data.schemaVersion, 4);
+  assert.equal(parseBackup(JSON.stringify(v3)).data.schemaVersion, 5);
   const oldV2Backup = { ...v3, version: 2, data: { ...v3.data, schemaVersion: 3, exerciseNotes: undefined } };
   assert.equal(parseBackup(JSON.stringify(oldV2Backup)).data.sessions[0].id, "ongoing");
   const productionV3 = { ...started, schemaVersion: 3, exerciseNotes: undefined };
   const migratedV3 = parseTrainingData(JSON.stringify(productionV3));
-  assert.equal(migratedV3.schemaVersion, 4);
+  assert.equal(migratedV3.schemaVersion, 5);
   assert.deepEqual(migratedV3.exerciseNotes, []);
   assert.equal(migratedV3.sessions[0].id, "ongoing");
   const completed = finishTrainingSession(started, "ongoing", "2026-10-01", new Date("2026-10-01T08:40:00Z"));
@@ -79,7 +79,7 @@ test("v2 production data and v1 backup migrate without dropping sessions or sour
     sessions: completed.sessions.map((item) => ({ ...item, completionReceipt: { sourceKind: "google", sourceId: "a12345678901234567890123",
       workoutId: "A", slot: "E5", syncedAt: "2026-10-01T08:41:00Z" }, completionSyncStatus: "synced", loadSyncStatus: "pending" })) };
   const current = parseTrainingData(JSON.stringify(productionWithSource));
-  assert.equal(current.schemaVersion, 4);
+  assert.equal(current.schemaVersion, 5);
   assert.deepEqual(current.plans, JSON.parse(JSON.stringify(productionWithSource.plans)));
   assert.deepEqual(current.sessions, JSON.parse(JSON.stringify(productionWithSource.sessions)));
   assert.deepEqual(current.exerciseNotes, []);

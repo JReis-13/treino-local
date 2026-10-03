@@ -21,7 +21,7 @@ const session = (): TrainingSession => ({
 test("share summary uses actual local date, duration and exercise-only partial count", () => {
   const summary = shareSummaryFromSession(session());
   assert.deepEqual(summary, { workoutName: "Treino rápido 💪", localDate: "2026-10-03", durationMinutes: 42, completedExercises: 1, totalExercises: 2 });
-  assert.equal(defaultShareText(summary), "Treino rápido 💪 completed 💪\n42 min · 1/2 exercises\n03 Oct 2026");
+  assert.equal(defaultShareText(summary), "Treino rápido 💪 completed 💪\n42 min · 1/2 exercises completed\n03 Oct 2026");
   assert.equal(shareDate("2026-10-03"), "03 Oct 2026");
   assert.match(defaultShareText({ ...summary, durationMinutes: 0 }), /under 1 min/);
   assert.match(createShareCardSvg({ ...summary, durationMinutes: 0 }), /&lt;1/);
@@ -46,6 +46,16 @@ test("normal, same-day, older, missing-duration and date-only summaries remain h
   assert.doesNotMatch(defaultShareText(legacy), /exercises|min/);
 });
 
+test("six completed and two skipped share as 6/8 without exposing skip details", () => {
+  const source = session();
+  source.workoutSnapshot.blocks = Array.from({ length: 8 }, (_, index) => ({ kind: "exercise", id: `exercise-${index}`, section: "A", name: `Exercise ${index}`, prescription: "3x10" }));
+  source.blocks = Array.from({ length: 8 }, (_, index) => ({ blockId: `exercise-${index}`, completed: index < 6, skipped: index >= 6 }));
+  const summary = shareSummaryFromSession(source);
+  assert.deepEqual([summary.completedExercises, summary.totalExercises], [6, 8]);
+  assert.match(defaultShareText(summary), /6\/8 exercises completed/);
+  assert.doesNotMatch(JSON.stringify(summary) + createShareCardSvg(summary), /skip|Exercise 6|Exercise 7/i);
+});
+
 test("public representation excludes private session, load, notes, source and identity data", () => {
   const privateSession = { ...session(), googleEmail: "PRIVATE-EMAIL", spreadsheetUrl: "PRIVATE-SHEET-URL", excelFilename: "PRIVATE-XLSX", oauthToken: "PRIVATE-OAUTH", exerciseNotes: "PRIVATE-PERSISTENT-NOTE" };
   const summary = shareSummaryFromSession(privateSession);
@@ -65,7 +75,7 @@ test("card has fixed square dimensions, escapes untrusted names, and omits unava
   assert.match(svg, /Café/);
   assert.doesNotMatch(svg, /\u0000/);
   const long = createShareCardSvg({ ...summary, workoutName: "Muito longo 🏋️ ".repeat(30), durationMinutes: 38, completedExercises: 6, totalExercises: 8 });
-  assert.match(long, /6 \/ 8 exercises/);
+  assert.match(long, /6 \/ 8 completed/);
   assert.match(long, /38/);
   assert.match(long, /…/);
   assert.equal((long.match(/<tspan x="96"/g) ?? []).length, 3);

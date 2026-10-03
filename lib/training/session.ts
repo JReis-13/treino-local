@@ -3,6 +3,7 @@ import type { TrainingData, TrainingPlanRecord, TrainingSession, TrainingWorkout
 import { lastUsedLoad, normalizeLoad } from "@/lib/training/loads";
 import { changedLoads } from "@/lib/training/loads";
 import { withSyncStatus } from "@/lib/training/sync-state";
+import { currentFocusId, moveExerciseLater, planExerciseOrder, remainingExerciseOrder, setExerciseSkipped } from "@/lib/training/queue";
 
 export function activePlan(data: TrainingData): TrainingPlanRecord | undefined {
   return data.plans.find((plan) => plan.id === data.activePlanId);
@@ -20,6 +21,7 @@ export function startTrainingSession(data: TrainingData, planId: string, workout
     status: "inProgress", startedAt: now.toISOString(),
     blocks: workout.blocks.map((block) => ({ blockId: block.id, completed: false,
       actualLoad: block.kind === "exercise" ? lastUsedLoad(data, planId, block.id) ?? block.defaultLoad : undefined })),
+    queueOrder: workout.blocks.filter((block) => block.kind === "exercise").map((block) => block.id),
     syncStatus: plan.source.kind === "builtin" ? "notApplicable" : "pending",
   };
   return { data: { ...data, sessions: [session, ...data.sessions] }, session };
@@ -27,7 +29,35 @@ export function startTrainingSession(data: TrainingData, planId: string, workout
 
 export function updateTrainingBlock(data: TrainingData, sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }): TrainingData {
   return { ...data, sessions: data.sessions.map((session) => session.id === sessionId && session.status === "inProgress"
-    ? { ...session, blocks: session.blocks.map((block) => block.blockId === blockId ? { ...block, ...change } : block) } : session) };
+    ? (() => {
+      const blocks = session.blocks.map((block) => block.blockId === blockId ? { ...block, ...change,
+        ...(change.completed ? { skipped: false } : {}) } : block);
+      const next = { ...session, blocks };
+      return change.completed && currentFocusId(session) === blockId
+        ? { ...next, focusBlockId: remainingExerciseOrder(next)[0] } : next;
+    })() : session) };
+}
+
+export function moveTrainingBlockLater(data: TrainingData, sessionId: string, blockId: string): TrainingData {
+  return { ...data, sessions: data.sessions.map((session) => session.id === sessionId && session.status === "inProgress"
+    ? moveExerciseLater(session, blockId) : session) };
+}
+
+export function restoreTrainingQueue(data: TrainingData, sessionId: string, queueOrder: string[], focusBlockId?: string): TrainingData {
+  return { ...data, sessions: data.sessions.map((session) => session.id === sessionId && session.status === "inProgress" &&
+    queueOrder.length === planExerciseOrder(session).length && new Set(queueOrder).size === queueOrder.length &&
+    queueOrder.every((id) => planExerciseOrder(session).includes(id))
+    ? { ...session, queueOrder, focusBlockId } : session) };
+}
+
+export function skipTrainingBlock(data: TrainingData, sessionId: string, blockId: string, skipped: boolean): TrainingData {
+  return { ...data, sessions: data.sessions.map((session) => session.id === sessionId && session.status === "inProgress"
+    ? setExerciseSkipped(session, blockId, skipped) : session) };
+}
+
+export function setTrainingFocus(data: TrainingData, sessionId: string, focusMode: boolean, blockId?: string): TrainingData {
+  return { ...data, sessions: data.sessions.map((session) => session.id === sessionId && session.status === "inProgress"
+    ? { ...session, focusMode, focusBlockId: blockId && planExerciseOrder(session).includes(blockId) ? blockId : currentFocusId(session) } : session) };
 }
 
 export function sameDaySessions(data: TrainingData, sessionId: string, date: string): TrainingSession[] {

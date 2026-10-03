@@ -41,7 +41,7 @@ export function shareMetrics(summary: WorkoutShareSummary): string {
   const parts: string[] = [];
   if (summary.durationMinutes !== undefined) parts.push(summary.durationMinutes === 0 ? "under 1 min" : `${summary.durationMinutes} min`);
   if (summary.completedExercises !== undefined && summary.totalExercises !== undefined) {
-    parts.push(`${summary.completedExercises}/${summary.totalExercises} exercises`);
+    parts.push(`${summary.completedExercises}/${summary.totalExercises} exercises completed`);
   }
   return parts.join(" · ");
 }

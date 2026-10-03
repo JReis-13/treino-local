@@ -38,7 +38,7 @@ export function createShareCardSvg(summary: WorkoutShareSummary): string {
   const title = lines.map((line, index) => `<tspan x="96" dy="${index ? 82 : 0}">${escapeXml(line)}</tspan>`).join("");
   const metrics: string[] = [];
   if (summary.durationMinutes !== undefined) metrics.push(`<text x="100" y="${lines.length > 2 ? 725 : 648}" font-size="104" font-weight="800" fill="#17312b">${summary.durationMinutes === 0 ? "&lt;1" : summary.durationMinutes}<tspan font-size="34" dx="13">MIN</tspan></text>`);
-  if (summary.completedExercises !== undefined && summary.totalExercises !== undefined) metrics.push(`<text x="100" y="${lines.length > 2 ? 806 : 750}" font-size="42" font-weight="700" fill="#245a4c">${summary.completedExercises} / ${summary.totalExercises} exercises</text>`);
+  if (summary.completedExercises !== undefined && summary.totalExercises !== undefined) metrics.push(`<text x="100" y="${lines.length > 2 ? 806 : 750}" font-size="42" font-weight="700" fill="#245a4c">${summary.completedExercises} / ${summary.totalExercises} completed</text>`);
   const date = escapeXml(shareDate(summary.localDate).toUpperCase());
   const dateText = metrics.length ? `<text x="100" y="921" font-family="Arial, sans-serif" font-size="32" font-weight="700" letter-spacing="3" fill="#59736a">${date}</text>`
     : `<text x="100" y="752" font-family="Arial, sans-serif" font-size="58" font-weight="700" letter-spacing="2" fill="#245a4c">${date}</text>`;
