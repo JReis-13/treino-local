@@ -18,7 +18,7 @@ async function files(directory) {
 }
 
 const assets = (await files(staticRoot)).map((path) => "/_next/static/" + relative(staticRoot, path).replaceAll("\\", "/"));
-const routes = ["/", "/plans", "/history", "/history/session", "/workout", "/finish", "/source", "/settings", "/debug"];
+const routes = ["/", "/plans", "/history", "/history/session", "/workout", "/finish", "/share", "/source", "/settings", "/debug"];
 const precache = [...routes, "/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png",
   "/google-connector-setup.html", "/WorkoutConnector.gs.txt", "/WorkoutConnectorV2.gs.txt", "/appsscript.v2.json.txt", ...assets].sort();
 const sw = `const CACHE = "treino-${version}";

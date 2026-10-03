@@ -94,6 +94,7 @@ test("exercise detail, lazy video, local notes, timer and workout note work on a
     await page.getByRole("textbox", { name: /WORKOUT NOTE/ }).fill("Workout felt good; increased load.");
     await page.screenshot({ path: testInfo.outputPath("finish-note.png"), animations: "disabled" });
     await page.getByRole("button", { name: /Save workout/ }).tap();
+    await page.getByRole("link", { name: "Not now" }).tap();
     await expect(page.locator(".history-note-preview")).toContainText("Workout felt good");
     await page.locator(".history-card").first().tap();
     await expect(page.getByText("Workout felt good; increased load.")).toBeVisible();

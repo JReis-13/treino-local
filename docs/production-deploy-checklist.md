@@ -54,3 +54,15 @@ Use the installed PWA and a disposable training source. Keep canonical Sheets an
 12. Go offline. Confirm Exercise Detail, History, notes, and timer still work; video shows an internet-required message and retains the Open in YouTube fallback.
 
 Check portrait and landscape video, the phone keyboard with note/load fields, long names and notes, and bottom safe-area spacing. Embedded playback depends on each video's own YouTube settings; the external fallback is always available.
+
+## Workout sharing phone check
+
+Use a disposable workout in a normal phone browser, then repeat the share-sheet check from the installed PWA. The phone chooses the share destination and recipient; browser and OS support for sending an image together with text varies.
+
+1. Complete a test workout and save it. Confirm the share screen appears only after the session is already present in History.
+2. Inspect the card and default message: name, local date, actual duration and exercise count where available. Confirm loads, notes, account and source details are absent.
+3. Edit the message and tap **Share workout**. Confirm the native share sheet opens, choose WhatsApp manually, then choose a recipient manually. Check whether this device sends both PNG and text; some targets accept only one.
+4. Cancel before sending and return to Treino Local. Confirm the workout remains saved. Open its History detail and share the same workout again.
+5. Save another workout and tap **Not now**. Confirm no later share prompt appears.
+6. Go offline and open a saved workout's share view. Confirm the card and message appear and **Download card instead** works. Try the browser's available text, clipboard and download fallbacks.
+7. Inspect an imported date-only History entry. Its card must omit duration and exercise counts. Check long workout names, accents, emoji, 320px width, keyboard opening and bottom safe area.

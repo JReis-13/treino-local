@@ -47,6 +47,7 @@ test("phone screens stay compact and readable through the gym flow", async ({ pa
     await page.getByRole("textbox", { name: "Actual load for Agachamento goblet" }).fill("7,5");
     await page.getByRole("link", { name: /Finish workout/ }).tap();
     await page.getByRole("button", { name: /Save workout/ }).tap();
+    await page.getByRole("link", { name: "Not now" }).tap();
     await capture("history");
     await page.getByRole("link", { name: "Stats", exact: true }).tap();
     await capture("statistics");

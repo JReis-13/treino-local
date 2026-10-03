@@ -42,7 +42,8 @@ export default function FinishPage() {
     const saveDate = dateEdited.current ? date : localDateString();
     const matches = sameDaySessions(data!, session!.id, saveDate);
     if (choice === "normal" && matches.length) { setDate(saveDate); setReplaceId(matches[0].id); setShowDuplicate(true); return; }
-    if (finish(session!.id, saveDate, choice, replaceId || undefined, sessionNote)) router.push("/history/");
+    const finalId = choice === "replace" ? (matches.find((item) => item.id === replaceId)?.id ?? matches[0]?.id) : session!.id;
+    if (finish(session!.id, saveDate, choice, replaceId || undefined, sessionNote) && finalId) router.push(`/share/?id=${encodeURIComponent(finalId)}`);
   }
 
   return <div className="page-stack"><Link className="back-link" href={`/workout/?id=${encodeURIComponent(session.workoutId)}`}>← Back to workout</Link><div className="page-heading"><p className="eyebrow">SESSION SUMMARY · {plan?.name}</p><h1>Nice work.</h1><p>Review your session before saving it to this device.</p></div>

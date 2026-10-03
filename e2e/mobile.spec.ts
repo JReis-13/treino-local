@@ -67,6 +67,8 @@ test("mobile first launch, workout actions, reload, back/forward and history", a
   await page.getByRole("link", { name: /Finish workout/ }).tap();
   await expect(page.getByRole("heading", { name: "Nice work." })).toBeVisible();
   await page.getByRole("button", { name: /Save workout/ }).tap();
+  await expect(page.getByRole("heading", { name: /Workout completed/ })).toBeVisible();
+  await page.getByRole("link", { name: "Not now" }).tap();
   await expect(page.getByRole("heading", { name: /History/ })).toBeVisible();
   await expect(page.getByText(/1\/11 done/)).toBeVisible();
   await page.reload();
@@ -78,16 +80,18 @@ test("mobile first launch, workout actions, reload, back/forward and history", a
 test("same-day Add and Replace keep distinct history entries and statistics offline", async ({ page, context }) => {
   await page.goto("/");
   await importFile(page, jonatha);
-  const startAndFinish = async () => {
+  const startAndFinish = async (completeTwo = false) => {
     await page.getByRole("button", { name: "Start workout" }).first().tap();
     const toggle = page.getByRole("checkbox", { name: /Complete Agachamento goblet/ });
     await toggle.tap();
+    if (completeTwo) await page.getByRole("checkbox", { name: /Complete/ }).first().tap();
     await expect(page.getByRole("checkbox", { name: /Reopen Agachamento goblet/ })).toHaveAttribute("aria-checked", "true");
     await page.getByRole("textbox", { name: "Actual load for Agachamento goblet" }).fill("7,5");
     await page.getByRole("link", { name: /Finish workout/ }).tap();
     await page.getByRole("button", { name: /Save workout/ }).tap();
   };
   await startAndFinish();
+  await page.getByRole("link", { name: "Not now" }).tap();
   await expect(page.locator(".history-list a.history-card")).toHaveCount(1);
   await page.getByRole("link", { name: "Home", exact: true }).tap();
   await startAndFinish();
@@ -96,10 +100,13 @@ test("same-day Add and Replace keep distinct history entries and statistics offl
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("button", { name: /Save workout/ }).tap();
   await page.getByRole("button", { name: /Add another workout/ }).tap();
+  await page.getByRole("link", { name: "Not now" }).tap();
   await expect(page.locator(".history-list a.history-card")).toHaveCount(2);
   await page.getByRole("link", { name: "Home", exact: true }).tap();
-  await startAndFinish();
+  await startAndFinish(true);
   await page.getByRole("button", { name: /Replace previous workout/ }).tap();
+  await expect(page.getByRole("textbox", { name: /MESSAGE/ })).toHaveValue(/2\/11 exercises/);
+  await page.getByRole("link", { name: "Not now" }).tap();
   await expect(page.locator(".history-list a.history-card")).toHaveCount(2);
   await context.setOffline(true);
   await page.getByRole("link", { name: "Stats", exact: true }).tap();
@@ -157,7 +164,69 @@ test("production PWA keeps the imported workout usable offline", async ({ page, 
   await expect(page.getByText("1 of 11 blocks completed")).toBeVisible();
   await page.getByRole("link", { name: /Finish workout/ }).tap();
   await page.getByRole("button", { name: /Save workout/ }).tap();
+  await expect(page.getByRole("heading", { name: /Workout completed/ })).toBeVisible();
+  await expect(page.locator(".share-card-preview img")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Download card instead" })).toBeVisible();
+  await page.getByRole("link", { name: "Not now" }).tap();
   await expect(page.getByText(/1\/11 done/)).toBeVisible();
+});
+
+test("saved workout shares edited text and a local PNG, then can be shared again from History", async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    const state = window as unknown as { treinoShares: Array<{ text: string; type?: string; width?: number; height?: number }> };
+    state.treinoShares = [];
+    Object.defineProperty(navigator, "canShare", { configurable: true, value: (data: ShareData) => Boolean(data.files?.length) });
+    Object.defineProperty(navigator, "share", { configurable: true, value: async (data: ShareData) => {
+      const file = data.files?.[0];
+      const bitmap = file ? await createImageBitmap(file) : undefined;
+      state.treinoShares.push({ text: data.text ?? "", type: file?.type, width: bitmap?.width, height: bitmap?.height });
+      bitmap?.close();
+    } });
+  });
+  await page.goto("/");
+  await importFile(page, jonatha);
+  await page.getByRole("button", { name: "Start workout" }).first().tap();
+  await page.getByRole("checkbox", { name: /Complete Agachamento goblet/ }).tap();
+  await page.getByRole("link", { name: /Finish workout/ }).tap();
+  await page.getByRole("button", { name: /Save workout/ }).tap();
+  await expect(page.getByRole("heading", { name: /Workout completed/ })).toBeVisible();
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2")!).sessions.filter((item: { status: string }) => item.status === "completed").length);
+  expect(saved).toBe(1);
+  await expect(page.getByRole("button", { name: "Download card instead" })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  if (testInfo.project.name === "Narrow phone Chrome") await page.screenshot({ path: testInfo.outputPath("share-preview-320.png"), animations: "disabled", fullPage: true });
+  const message = page.getByRole("textbox", { name: /MESSAGE/ });
+  await expect(message).toHaveValue(/Workout A completed/);
+  await message.fill("My edited workout update 💪");
+  await page.getByRole("button", { name: "Share workout" }).tap();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { treinoShares: unknown[] }).treinoShares.length)).toBe(1);
+  expect(await page.evaluate(() => (window as unknown as { treinoShares: unknown[] }).treinoShares[0])).toEqual({ text: "My edited workout update 💪", type: "image/png", width: 1080, height: 1080 });
+  await page.getByRole("link", { name: "Not now" }).tap();
+  await page.locator(".history-list a.history-card").first().tap();
+  await page.getByRole("link", { name: "Share workout" }).tap();
+  await expect(page.getByRole("heading", { name: "Share workout." })).toBeVisible();
+  await expect(message).toHaveValue(/Workout A completed/);
+  await page.getByRole("link", { name: "Cancel" }).tap();
+  await expect(page.getByRole("heading", { name: "Workout A" })).toBeVisible();
+});
+
+test("date-only History uses a reduced card and clipboard fallback", async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = window as unknown as { copied: string };
+    Object.defineProperty(navigator, "share", { configurable: true, value: undefined });
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { state.copied = text; } } });
+  });
+  await page.goto("/");
+  await importFile(page, milena);
+  await page.getByRole("link", { name: "History", exact: true }).tap();
+  await page.locator(".history-list a.history-card").first().tap();
+  await expect(page.getByRole("heading", { name: "Share workout." })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: /MESSAGE/ })).not.toHaveValue(/exercises|min/);
+  await expect(page.getByRole("button", { name: "Download card instead" })).toBeVisible();
+  await page.getByRole("button", { name: "Share workout" }).tap();
+  await expect(page.getByRole("status").filter({ hasText: "Copied to clipboard" })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { copied: string }).copied)).toMatch(/completed/);
+  await expectNoHorizontalOverflow(page);
 });
 
 test("production connector requests bypass PWA cache and update notice waits for a tap", async ({ page }) => {
@@ -246,6 +315,7 @@ test("fresh mobile user connects, imports by Sheet URL, finishes locally and syn
   await page.getByRole("link", { name: /Finish workout/ }).tap();
   await page.getByRole("button", { name: /Save workout/ }).tap();
   await expect.poll(() => operations.filter((item) => item === "sync").length).toBe(1);
+  await page.getByRole("link", { name: "Not now" }).tap();
   await expect(page.getByText(/Synced/)).toBeVisible();
   await page.getByRole("link", { name: "Plans", exact: true }).tap();
   await page.getByRole("button", { name: /\+ Add training/ }).tap();
