@@ -23,7 +23,7 @@ async function importFile(page: Page, path: string) {
   await page.getByRole("link", { name: /Import Excel file/ }).first().tap().catch(async () => {
     await page.getByRole("link", { name: /Switch training/ }).tap();
   });
-  await expect(page.getByRole("heading", { name: /Training plans/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Training plans|Add training/ })).toBeVisible();
   await chooseExcelFile(page, path);
   await expect(page.getByRole("heading", { name: "Training ready" })).toBeVisible();
   await page.locator(".review-card").getByRole("button", { name: /Use this training/ }).tap();
@@ -31,7 +31,8 @@ async function importFile(page: Page, path: string) {
 }
 
 async function chooseExcelFile(page: Page, path: string) {
-  await page.getByRole("button", { name: /Connect or add training|\+ Add training/ }).tap();
+  await expect(page.getByRole("heading", { name: /Training plans|Add training/ })).toBeVisible();
+  if (await page.getByRole("heading", { name: "Training plans" }).isVisible()) await page.getByRole("button", { name: /Add training/ }).tap();
   const direct = await page.evaluate(() => window.isSecureContext && "showOpenFilePicker" in window);
   const button = direct ? page.getByRole("button", { name: "Import as safe copy" })
     : page.getByRole("button", { name: "Choose workbook" });
@@ -94,11 +95,11 @@ test("same-day Add and Replace keep distinct history entries and statistics offl
   await page.getByRole("button", { name: "Cancel" }).tap();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("button", { name: /Save workout/ }).tap();
-  await page.getByRole("button", { name: "Add another workout" }).tap();
+  await page.getByRole("button", { name: /Add another workout/ }).tap();
   await expect(page.locator(".history-list a.history-card")).toHaveCount(2);
   await page.getByRole("link", { name: "Home", exact: true }).tap();
   await startAndFinish();
-  await page.getByRole("button", { name: "Replace previous workout" }).tap();
+  await page.getByRole("button", { name: /Replace previous workout/ }).tap();
   await expect(page.locator(".history-list a.history-card")).toHaveCount(2);
   await context.setOffline(true);
   await page.getByRole("link", { name: "Stats", exact: true }).tap();
@@ -135,7 +136,8 @@ test("very long training names stay inside a small phone viewport", async ({ pag
   await importFile(page, milena);
   await page.getByRole("link", { name: "Plans", exact: true }).tap();
   page.once("dialog", (dialog) => void dialog.accept("Very long training name — strength and conditioning programme for a small phone screen"));
-  await page.locator(".plan-row").first().getByRole("button", { name: "Rename locally" }).tap();
+  await page.locator(".active-plan-card .plan-manage summary").tap();
+  await page.locator(".active-plan-card").getByRole("button", { name: "Rename locally" }).tap();
   await expect(page.getByText(/Very long training name/)).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await page.getByRole("link", { name: "Home", exact: true }).tap();
@@ -197,7 +199,7 @@ test("PWA update prompt cannot reload an in-progress workout", async ({ page }) 
   await expect(page.getByText(/IN PROGRESS/).first()).toBeVisible();
 });
 
-test("fresh mobile user connects, imports by Sheet URL, finishes locally and syncs", async ({ page }) => {
+test("fresh mobile user connects, imports by Sheet URL, finishes locally and syncs", async ({ page }, testInfo) => {
   const spreadsheetId = "a12345678901234567890123";
   const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
   const secondId = "b12345678901234567890123";
@@ -214,6 +216,7 @@ test("fresh mobile user connects, imports by Sheet URL, finishes locally and syn
     await route.fulfill({ status: 302, headers: { location: "/plans/?google=connected" }, body: "" });
   });
   await page.route("**/api/google/sheets/import", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
     const url = route.request().postDataJSON().url;
     expect([sheetUrl, secondUrl]).toContain(url);
     operations.push("import");
@@ -229,12 +232,14 @@ test("fresh mobile user connects, imports by Sheet URL, finishes locally and syn
     await route.fulfill({ json: { status: "synced", sourceSlot: "E5" } });
   });
   await page.goto("/plans/");
-  await page.getByRole("button", { name: /Connect or add training/ }).tap();
+  await page.getByRole("button", { name: /Add training/ }).tap();
   await page.getByRole("button", { name: /Use Google Sheets/ }).tap();
   await page.getByRole("button", { name: /Connect Google/ }).tap();
   await expect(page.getByRole("heading", { name: "Google account connected" })).toBeVisible();
   await page.getByLabel("PASTE GOOGLE SHEETS LINK").fill(sheetUrl);
   await page.getByRole("button", { name: /Import training/ }).tap();
+  await expect(page.getByRole("heading", { name: /Importing training/ })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("google-import-progress.png"), animations: "disabled" });
   await expect(page.getByRole("heading", { name: "Training ready" })).toBeVisible();
   await page.locator(".review-card").getByRole("button", { name: /Use this training/ }).tap();
   await page.getByRole("button", { name: "Start workout" }).first().tap();

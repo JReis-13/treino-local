@@ -13,7 +13,7 @@ const items = [
 
 export function BottomNav() {
   const path = usePathname();
-  return <nav className="bottom-nav" aria-label="Main navigation">{items.map((item) => <Link key={item.href} href={item.href} className={path === item.href || (item.href !== "/" && path.startsWith(item.href)) ? "nav-item active" : "nav-item"}>
+  return <nav className="bottom-nav" aria-label="Main navigation">{items.map((item) => { const active = path === item.href || (item.href !== "/" && path.startsWith(item.href)); return <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={active ? "nav-item active" : "nav-item"}>
     <span className="nav-icon" aria-hidden="true">{item.icon}</span><span>{item.label}</span>
-  </Link>)}</nav>;
+  </Link>; })}</nav>;
 }
