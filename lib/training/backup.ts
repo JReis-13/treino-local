@@ -28,7 +28,7 @@ function withoutCredentials(key: string, value: unknown) { return credentialFiel
 
 export function createBackup(data: TrainingData, createdAt = new Date().toISOString()): string {
   const sanitized: TrainingData = { ...data, plans: data.plans.map((plan) => ({ ...plan, source: withoutConnector(plan.source) })) };
-  return JSON.stringify({ format: "treino-local-backup", version: 1, createdAt, data: sanitized }, withoutCredentials, 2);
+  return JSON.stringify({ format: "treino-local-backup", version: 2, createdAt, data: sanitized }, withoutCredentials, 2);
 }
 
 export function parseBackup(raw: string): { data: TrainingData; createdAt: string } {
@@ -38,7 +38,7 @@ export function parseBackup(raw: string): { data: TrainingData; createdAt: strin
   safeTree(value);
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Backup format is invalid.");
   const envelope = value as Record<string, unknown>;
-  if (envelope.format !== "treino-local-backup" || envelope.version !== 1 ||
+  if (envelope.format !== "treino-local-backup" || ![1, 2].includes(Number(envelope.version)) ||
       typeof envelope.createdAt !== "string" || !Number.isFinite(Date.parse(envelope.createdAt)))
     throw new Error("Backup format or version is unsupported.");
   const data = parseTrainingData(JSON.stringify(envelope.data, withoutCredentials));

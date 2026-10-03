@@ -1,5 +1,15 @@
 # Treino Local
 
+## Mobile workout tracking (October 2026)
+
+The exercise completion circle and its label are one large accessible toggle; tap again to undo. During a workout, **Current source** is the plan's load, **Last used** is the most recent actual load saved locally for that plan and exercise, and the editable field is the load used in this session. Starting a workout prefers the last local actual load, then the source load. Clean decimal commas such as `7,5` are stored as `7.5`; arbitrary text remains text. A completed session's actual load can be corrected from History. Corrections to older sessions stay local because they are not necessarily the source's current load.
+
+Saving the same workout on the same date asks to **Add another workout**, **Replace previous workout**, or **Cancel**. Add creates a separate stable session ID; Replace retains the chosen session ID and any verified source date receipt, so it does not append another source date. Google and Excel can write another identical date into the next validated empty slot after Add. Each workbook has only 12 date slots per workout; full or ambiguous source grids leave the local session safe. Dates and loads have separate sync states, so a successful date write cannot hide a failed load write.
+
+When a completed exercise's actual load differs from the source load, an OAuth-connected Google Sheet is updated through the server only at a parser-derived field, then read back. The server checks the approved account, signed source identity, workout structure, current load, and target cell. Excel sync uses the same mapped field in a verified direct write or a safe downloaded copy. A downloaded copy remains pending until reconnected and checked. Slash-separated pairs and distinct G/H/I columns are updated individually; ambiguous or formula load cells are left local. Source loads in the saved plan refresh after a verified write or reconnect. The older Apps Script connector supports dates only; migrate it to OAuth for load sync.
+
+**Statistics** uses local plan and session records, including imported completion dates for workout counts. Imported dates have no invented duration or actual load. Duration, frequency, workout mix, and comparable numeric load trends are shown with plan, workout, and date filters. Statistics works offline and adds no cloud workout database. History shows separate same-day sessions and their save times. Export a fresh backup from Settings before changing devices or clearing browser data.
+
 Mobile-first, local-first workout app. Import a supported training workbook once, then use the saved plan without keeping the source open or being online. Each browser/device has its own plan library, active plan, in-progress workouts, and history. Google Sheets is the preferred optional sync source; local Excel is also supported. Google authorization is only for Sheet access; there is no Treino Local cloud account or database.
 
 ## Run

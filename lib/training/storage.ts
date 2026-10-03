@@ -5,7 +5,7 @@ import type { TrainingData, TrainingPlanRecord, TrainingSession, WorkoutBlock } 
 
 export const TRAINING_STORAGE_KEY = "treino-local:v2";
 const OLD_KEY = "treino-local:v1";
-export const emptyTrainingData = (): TrainingData => ({ schemaVersion: 2, plans: [], sessions: [] });
+export const emptyTrainingData = (): TrainingData => ({ schemaVersion: 3, plans: [], sessions: [] });
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -15,6 +15,10 @@ function validBlock(value: unknown): value is WorkoutBlock {
   return record(value) && typeof value.id === "string" && typeof value.section === "string" &&
     (value.kind === "exercise" ? typeof value.name === "string" && typeof value.prescription === "string" &&
       (value.defaultLoad === undefined || typeof value.defaultLoad === "string") &&
+      (value.loadSource === undefined || (record(value.loadSource) && typeof value.loadSource.cell === "string" &&
+        /^[GHI](26|28|30|32|33)$/.test(value.loadSource.cell) &&
+        (value.loadSource.part === undefined || Number.isInteger(value.loadSource.part)) &&
+        (value.loadSource.parts === undefined || value.loadSource.parts === 2))) &&
       (value.videoUrl === undefined || typeof value.videoUrl === "string") :
       value.kind === "instruction" && typeof value.heading === "string" && typeof value.text === "string");
 }
@@ -58,14 +62,28 @@ function validSession(value: unknown): value is TrainingSession {
     Number.isFinite(Date.parse(value.startedAt)) && Array.isArray(value.blocks) &&
     value.blocks.every((item: unknown) => record(item) && typeof item.blockId === "string" &&
       typeof item.completed === "boolean" && (item.actualLoad === undefined || typeof item.actualLoad === "string")) &&
+    (value.completionSyncStatus === undefined || validSyncStatus(value.completionSyncStatus)) &&
+    (value.loadSyncStatus === undefined || validSyncStatus(value.loadSyncStatus)) &&
+    (value.duplicateDateAllowed === undefined || typeof value.duplicateDateAllowed === "boolean") &&
+    (value.completionAttempted === undefined || typeof value.completionAttempted === "boolean") &&
+    (value.loadCorrectionPending === undefined || typeof value.loadCorrectionPending === "boolean") &&
+    (value.replacedAt === undefined || (typeof value.replacedAt === "string" && Number.isFinite(Date.parse(value.replacedAt)))) &&
+    (value.completionReceipt === undefined || (record(value.completionReceipt) &&
+      ["google", "excel"].includes(String(value.completionReceipt.sourceKind)) &&
+      typeof value.completionReceipt.sourceId === "string" && typeof value.completionReceipt.workoutId === "string" &&
+      typeof value.completionReceipt.slot === "string" && typeof value.completionReceipt.syncedAt === "string")) &&
     ["notApplicable", "pending", "synced", "conflict", "authRequired", "sourceUnavailable", "failed"].includes(String(value.syncStatus)) &&
     (value.status !== "completed" || (typeof value.localDate === "string" && isLocalDate(value.localDate) &&
       typeof value.completedAt === "string" && Number.isFinite(Date.parse(value.completedAt))));
 }
 
+function validSyncStatus(value: unknown): boolean {
+  return ["notApplicable", "pending", "synced", "conflict", "authRequired", "sourceUnavailable", "failed"].includes(String(value));
+}
+
 export function parseTrainingData(raw: string): TrainingData {
   const value: unknown = JSON.parse(raw);
-  if (!record(value) || value.schemaVersion !== 2 || !Array.isArray(value.plans) || !value.plans.every(validPlan) ||
+  if (!record(value) || ![2, 3].includes(Number(value.schemaVersion)) || !Array.isArray(value.plans) || !value.plans.every(validPlan) ||
     !Array.isArray(value.sessions) || !value.sessions.every(validSession) ||
     (value.activePlanId !== undefined && typeof value.activePlanId !== "string") ||
     (value.activePlanId !== undefined && !value.plans.some((plan: TrainingPlanRecord) => plan.id === value.activePlanId)) ||
@@ -75,14 +93,14 @@ export function parseTrainingData(raw: string): TrainingData {
     new Set(value.sessions.map((session: TrainingSession) => session.id)).size !== value.sessions.length) {
     throw new Error("Saved training data is invalid. It was left untouched.");
   }
-  return value as unknown as TrainingData;
+  return { ...value, schemaVersion: 3 } as unknown as TrainingData;
 }
 
 export function migrateV1(raw: string, now = new Date().toISOString()): TrainingData {
   const old = parseStoredData(raw);
   if (old.sessions.length === 0 && !old.excel) return emptyTrainingData();
   const plan = legacyPlan(old, now);
-  return { schemaVersion: 2, plans: [plan], activePlanId: plan.id,
+  return { schemaVersion: 3, plans: [plan], activePlanId: plan.id,
     sessions: old.sessions.map((session) => migrateLegacySession(session, plan)) };
 }
 
@@ -95,7 +113,11 @@ export const trainingStorage: TrainingStorage = {
   load() {
     try {
       const latest = localStorage.getItem(TRAINING_STORAGE_KEY);
-      if (latest !== null) return { data: parseTrainingData(latest) };
+      if (latest !== null) {
+        const data = parseTrainingData(latest);
+        if (JSON.parse(latest).schemaVersion !== 3) localStorage.setItem(TRAINING_STORAGE_KEY, JSON.stringify(data));
+        return { data, migrated: JSON.parse(latest).schemaVersion !== 3 };
+      }
       const old = localStorage.getItem(OLD_KEY);
       if (old === null) return { data: emptyTrainingData() };
       const migrated = migrateV1(old);

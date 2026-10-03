@@ -33,6 +33,7 @@ export interface ExerciseBlock {
   prescription: string;
   equipment?: string;
   defaultLoad?: string;
+  loadSource?: { cell: string; part?: number; parts?: number };
   videoUrl?: string;
   groupId?: string;
   note?: string;
@@ -100,10 +101,18 @@ export interface TrainingSession {
   blocks: BlockProgress[];
   syncStatus: SourceSyncStatus;
   syncMessage?: string;
+  completionReceipt?: { sourceKind: "google" | "excel"; sourceId: string; workoutId: string; slot: string; syncedAt: string };
+  completionSyncStatus?: SourceSyncStatus;
+  loadSyncStatus?: SourceSyncStatus;
+  duplicateDateAllowed?: boolean;
+  completionAttempted?: boolean;
+  preparedCompletionSlot?: string;
+  loadCorrectionPending?: boolean;
+  replacedAt?: string;
 }
 
 export interface TrainingData {
-  schemaVersion: 2;
+  schemaVersion: 3;
   plans: TrainingPlanRecord[];
   activePlanId?: string;
   sessions: TrainingSession[];
@@ -114,6 +123,7 @@ export interface ImportedTraining {
   name: string;
   source: TrainingSource;
   sourceFingerprint: string;
+  legacyFingerprint?: string;
   workouts: TrainingWorkout[];
   warnings: ImportWarning[];
   legacyCompletions: LegacyCompletion[];

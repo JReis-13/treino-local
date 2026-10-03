@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { dateToSerial, snapshotFromXlsx, type GoogleGrid } from "../lib/import/snapshot";
-import { readGoogleTraining, registerCompletion, sourceProof } from "../lib/google/sheets";
+import { readGoogleTraining, registerCompletion, sourceProof, writeGoogleLoads } from "../lib/google/sheets";
 import { fixturePath } from "./fixture-path";
 
 process.env.APP_BASE_URL = "http://localhost:3000";
@@ -123,5 +123,99 @@ test("uncertain timeout after Google write reconciles from readback", async () =
       sourceProof: sourceProof(spreadsheetId, imported.sourceFingerprint), workoutId: "A", localDate: "2026-10-02" }, "token");
     assert.deepEqual(result, { status: "synced", sourceSlot: "E5" });
     assert.equal(writes, 1);
+  } finally { globalThis.fetch = original; }
+});
+
+test("Google load sync updates only the mapped slash segment and reconciles a lost response", async () => {
+  const grid = await fixtureGrid();
+  const original = globalThis.fetch;
+  let writes = 0;
+  const before = String(grid.sheets[0].data![0].rowData![25].values![7].formattedValue);
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes(":batchUpdate")) {
+      const update = JSON.parse(String(init?.body)).requests[0].updateCells;
+      assert.deepEqual([update.start.rowIndex, update.start.columnIndex], [25, 7]);
+      const value = update.rows[0].values[0].userEnteredValue.stringValue;
+      const cell = grid.sheets[0].data![0].rowData![25].values![7];
+      cell.effectiveValue = { stringValue: value }; cell.formattedValue = value;
+      writes++;
+      throw new Error("response lost after write");
+    }
+    return Response.json(url.includes("fields=") ? { properties: { title: "Jonatha" }, sheets: grid.sheets.map((sheet) => ({ properties: sheet.properties })) } : grid);
+  };
+  try {
+    const { imported } = await readGoogleTraining(spreadsheetId, "token");
+    const block = imported.workouts[0].blocks.find((item) => item.kind === "exercise" && item.loadSource?.cell === "H26" && item.loadSource.part === 0);
+    assert(block?.kind === "exercise");
+    const next = "9.5";
+    const request = { spreadsheetId, sourceFingerprint: imported.sourceFingerprint,
+      sourceProof: sourceProof(spreadsheetId, imported.sourceFingerprint), workoutId: "A",
+      changes: [{ blockId: block.id, expected: block.defaultLoad ?? "", load: next }] };
+    const result = await writeGoogleLoads(request, "token");
+    assert.equal(result.imported.workouts[0].blocks.find((item) => item.id === block.id)?.kind, "exercise");
+    assert.equal(grid.sheets[0].data![0].rowData![25].values![7].formattedValue, `${next}/${before.split("/")[1].trim()}`);
+    assert.equal(writes, 1);
+    await writeGoogleLoads(request, "token");
+    assert.equal(writes, 1);
+  } finally { globalThis.fetch = original; }
+});
+
+test("Google date-formatted decimal load is written as text and stale mapping writes nothing", async () => {
+  const grid = await fixtureGrid("TREINO 4 MILENA.xlsx");
+  const original = globalThis.fetch;
+  let writes = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes(":batchUpdate")) {
+      const update = JSON.parse(String(init?.body)).requests[0].updateCells;
+      assert.deepEqual([update.start.rowIndex, update.start.columnIndex], [27, 7]);
+      assert.deepEqual(update.rows[0].values[0].userEnteredValue, { stringValue: "8.5" });
+      const cell = grid.sheets[0].data![0].rowData![27].values![7];
+      cell.effectiveValue = { stringValue: "8.5" }; cell.formattedValue = "8.5";
+      writes++;
+      return Response.json({ replies: [{}] });
+    }
+    return Response.json(url.includes("fields=") ? { properties: { title: "Milena" }, sheets: grid.sheets.map((sheet) => ({ properties: sheet.properties })) } : grid);
+  };
+  try {
+    const { imported } = await readGoogleTraining(spreadsheetId, "token");
+    const block = imported.workouts[0].blocks.find((item) => item.kind === "exercise" && item.loadSource?.cell === "H28");
+    assert(block?.kind === "exercise");
+    const request = { spreadsheetId, sourceFingerprint: imported.sourceFingerprint,
+      sourceProof: sourceProof(spreadsheetId, imported.sourceFingerprint), workoutId: "A",
+      changes: [{ blockId: block.id, expected: block.defaultLoad ?? "", load: "8.5" }] };
+    await assert.rejects(() => writeGoogleLoads({ ...request, sourceFingerprint: "f".repeat(8) }, "token"));
+    assert.equal(writes, 0);
+    await writeGoogleLoads(request, "token");
+    assert.equal(writes, 1);
+  } finally { globalThis.fetch = original; }
+});
+
+test("explicit same-day Add writes a second date slot while ordinary retry reports duplicate", async () => {
+  const grid = await fixtureGrid();
+  const original = globalThis.fetch;
+  const slots: string[] = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes(":batchUpdate")) {
+      const update = JSON.parse(String(init?.body)).requests[0].updateCells;
+      const row = update.start.rowIndex;
+      slots.push(`E${row + 1}`);
+      const cell = grid.sheets[0].data![0].rowData![row].values![4];
+      cell.effectiveValue = { numberValue: update.rows[0].values[0].userEnteredValue.numberValue };
+      cell.formattedValue = "02/10";
+      return Response.json({ replies: [{}] });
+    }
+    return Response.json(url.includes("fields=") ? { properties: { title: "Jonatha" }, sheets: grid.sheets.map((sheet) => ({ properties: sheet.properties })) } : grid);
+  };
+  try {
+    const { imported } = await readGoogleTraining(spreadsheetId, "token");
+    const request = { spreadsheetId, sourceFingerprint: imported.sourceFingerprint,
+      sourceProof: sourceProof(spreadsheetId, imported.sourceFingerprint), workoutId: "A", localDate: "2026-10-02" };
+    assert.deepEqual(await registerCompletion(request, "token"), { status: "synced", sourceSlot: "E5" });
+    assert.deepEqual(await registerCompletion(request, "token"), { status: "duplicate" });
+    assert.deepEqual(await registerCompletion({ ...request, allowDuplicate: true }, "token"), { status: "synced", sourceSlot: "E6" });
+    assert.deepEqual(slots, ["E5", "E6"]);
   } finally { globalThis.fetch = original; }
 });

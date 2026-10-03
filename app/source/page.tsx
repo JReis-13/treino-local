@@ -6,7 +6,7 @@ import { useApp } from "@/components/app-provider";
 import { formatLocalDate } from "@/lib/dates";
 import { inspectWorkbook } from "@/lib/excel/adapter";
 import { connectorWorkbook, registerConnectorCompletion } from "@/lib/connector/client";
-import { connectGoogle, googleStatus, refreshGoogleSheet, syncGoogleDate } from "@/lib/google/client";
+import { connectGoogle, googleStatus, refreshGoogleSheet, syncGoogleDate, syncGoogleLoads } from "@/lib/google/client";
 import { loadDeviceConnector, loadPlanConnectorKey } from "@/lib/connector/credentials";
 import { loadFileHandle, saveFileHandle } from "@/lib/import/file-handles";
 import { snapshotFromXlsx } from "@/lib/import/snapshot";
@@ -14,6 +14,7 @@ import { parseTrainingSnapshot } from "@/lib/import/template-parser";
 import { sessionsWaitingForSource } from "@/lib/sync/logic";
 import { prepareXlsxSync } from "@/lib/sync/xlsx";
 import { activePlan } from "@/lib/training/session";
+import { changedLoads } from "@/lib/training/loads";
 import type { TrainingSession } from "@/types/training";
 
 interface DirectHandle extends FileSystemFileHandle {
@@ -36,7 +37,7 @@ function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 export default function SourcePage() {
-  const { data, error, updateSource, setSyncStatus } = useApp();
+  const { data, error, updateSource, setSyncStatus, setSessionSync, applySourceLoads } = useApp();
   const inputRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<SelectedFile | null>(null);
   const [busy, setBusy] = useState(false);
@@ -83,18 +84,29 @@ export default function SourcePage() {
       const bytes = new Uint8Array(await file.arrayBuffer());
       if (!currentPlan.sourceFingerprint && currentPlan.source.template === "jonatha-v1") await inspectWorkbook(bytes);
       const imported = parseTrainingSnapshot(await snapshotFromXlsx(bytes), currentPlan.source, currentPlan.name);
-      if (imported.sourceFingerprint !== currentPlan.sourceFingerprint && currentPlan.sourceFingerprint !== undefined) {
+      if (currentPlan.sourceFingerprint && ![imported.sourceFingerprint, imported.legacyFingerprint].includes(currentPlan.sourceFingerprint)) {
         throw new Error("This workbook has changed. Refresh the training in Training plans before syncing.");
       }
       if (imported.source.kind !== "excel" || imported.source.template !== currentPlan.source.template) throw new Error("This is a different workbook template.");
       const mode = handle ? "direct" : "copy";
       setSelected({ bytes, filename: file.name, handle, mode });
       updateSource(currentPlan.id, { ...currentPlan.source, filename: file.name, mode });
+      applySourceLoads(currentPlan.id, imported);
       if (handle) await saveFileHandle(currentPlan.id, handle).catch(() => setMessage("Connected, but this browser could not remember the handle. Reconnect after reopening the app."));
       for (const session of pending.filter((item) => item.syncMessage?.startsWith("Copy prepared"))) {
-        if (imported.legacyCompletions.some((entry) => entry.workoutId === session.workoutId && entry.date === session.localDate)) {
-          setSyncStatus([session.id], "synced", "Saved workbook copy was reconnected and its date verified.");
+        const verifiedDate = imported.legacyCompletions.find((entry) => entry.workoutId === session.workoutId && entry.date === session.localDate &&
+          (session.preparedCompletionSlot ? entry.sourceSlot === session.preparedCompletionSlot : !session.duplicateDateAllowed));
+        if (verifiedDate) {
+          setSessionSync(session.id, { completionSyncStatus: "synced", preparedCompletionSlot: undefined,
+            completionReceipt: { sourceKind: "excel", sourceId: file.name, workoutId: session.workoutId,
+              slot: verifiedDate.sourceSlot, syncedAt: new Date().toISOString() },
+            syncMessage: "Saved workbook copy was reconnected and its date verified." });
         }
+        const loads = session.loadCorrectionPending ? session.blocks.filter((state) => state.completed && state.actualLoad?.trim())
+          .map((state) => ({ blockId: state.blockId, load: state.actualLoad!.trim() })) : changedLoads(session);
+        if (loads.length && loads.every((change) => imported.workouts.find((item) => item.id === session.workoutId)?.blocks.some((block) =>
+          block.kind === "exercise" && block.id === change.blockId && block.defaultLoad === change.load)))
+          setSessionSync(session.id, { loadSyncStatus: "synced", loadCorrectionPending: false, syncMessage: "Saved workbook copy was reconnected and loads verified." });
       }
       setMessage(`${file.name} is compatible. ${mode === "direct" ? "This selected file can be updated directly after permission is granted." : "Safe-copy mode is ready."}`);
     } catch (cause) { setSelected(null); setMessage(cause instanceof Error ? cause.message : "Workbook validation failed. No changes were made."); }
@@ -120,10 +132,12 @@ export default function SourcePage() {
       const sourceBytes = handle ? new Uint8Array(await (await handle.getFile()).arrayBuffer()) : selected.bytes;
       const prepared = await prepareXlsxSync(sourceBytes, plan!, pending);
       for (const outcome of prepared.outcomes) {
-        if (outcome.decision.kind === "duplicate" || outcome.decision.kind === "full") setSyncStatus([outcome.sessionId], "conflict", outcome.decision.message);
+        if (outcome.decision.kind === "duplicate" || outcome.decision.kind === "full") setSessionSync(outcome.sessionId, { completionSyncStatus: "conflict", syncMessage: outcome.decision.message });
       }
+      for (const outcome of prepared.loadOutcomes.filter((item) => item.status === "conflict"))
+        setSessionSync(outcome.sessionId, { loadSyncStatus: "conflict", syncMessage: outcome.message });
       const written = prepared.outcomes.filter((item) => item.decision.kind === "write").map((item) => item.sessionId);
-      if (!prepared.bytes || !written.length) { setMessage("No new dates were written. Review source conflicts in History."); return; }
+      if (!prepared.bytes) { setMessage("No source changes were needed. Review any sync issues in History."); return; }
       if (handle) {
         if (await handle.queryPermission({ mode: "readwrite" }) !== "granted") throw new Error("Write permission expired. Reconnect and try again.");
         const latest = new Uint8Array(await (await handle.getFile()).arrayBuffer());
@@ -134,11 +148,23 @@ export default function SourcePage() {
         await prepareXlsxSync(verified, plan!, []);
         if (!equalBytes(verified, prepared.bytes)) throw new Error("The updated file differs from the verified output. Local sessions remain safe.");
         setSelected({ ...selected, bytes: verified });
-        setSyncStatus(written, "synced", "Date written and verified in the connected workbook.");
-        setMessage(`${written.length} workout date${written.length === 1 ? "" : "s"} written directly and verified.`);
+        for (const outcome of prepared.outcomes.filter((item) => item.decision.kind === "write"))
+          setSessionSync(outcome.sessionId, { completionSyncStatus: "synced", completionReceipt: { sourceKind: "excel",
+            sourceId: plan!.source.kind === "excel" ? plan!.source.filename : "workbook", workoutId: pending.find((item) => item.id === outcome.sessionId)!.workoutId,
+            slot: outcome.decision.kind === "write" ? outcome.decision.slot : "", syncedAt: new Date().toISOString() }, syncMessage: "Date verified in workbook." });
+        for (const outcome of prepared.loadOutcomes.filter((item) => item.status === "synced"))
+          setSessionSync(outcome.sessionId, { loadSyncStatus: "synced", loadCorrectionPending: false, syncMessage: "Load verified in workbook." });
+        const imported = parseTrainingSnapshot(await snapshotFromXlsx(verified), plan!.source, plan!.name);
+        applySourceLoads(plan!.id, imported);
+        setMessage(`${written.length} date(s) and ${prepared.loadOutcomes.filter((item) => item.status === "synced").length} load(s) verified in the workbook.`);
       } else {
         download(prepared.bytes, selected.filename);
-        setSyncStatus(written, "pending", "Copy prepared. Reconnect the saved copy to verify.");
+        for (const outcome of prepared.outcomes.filter((item) => item.decision.kind === "write"))
+          setSessionSync(outcome.sessionId, { completionSyncStatus: "pending",
+            preparedCompletionSlot: outcome.decision.kind === "write" ? outcome.decision.slot : undefined,
+            syncMessage: "Copy prepared. Reconnect the saved copy to verify." });
+        for (const outcome of prepared.loadOutcomes.filter((item) => item.status === "synced"))
+          setSessionSync(outcome.sessionId, { loadSyncStatus: "pending", syncMessage: "Copy prepared. Reconnect the saved copy to verify." });
         setSelected(null);
         setMessage("Updated copy downloaded. Save it, then reconnect that copy to verify its dates. Local workouts remain pending.");
       }
@@ -157,7 +183,7 @@ export default function SourcePage() {
         if (!plan!.source.spreadsheetId) throw new Error("Spreadsheet identity is missing. Refresh this plan.");
         if (!plan!.source.sourceProof) throw new Error("Refresh this restored training in Training plans before syncing.");
         const { imported } = await refreshGoogleSheet(plan!.source.spreadsheetId, plan!.sourceFingerprint!, plan!.source.sourceProof!);
-        if (imported.sourceFingerprint !== plan!.sourceFingerprint || imported.warnings.some((warning) => warning.severity === "syncBlocker"))
+        if (![imported.sourceFingerprint, imported.legacyFingerprint].includes(plan!.sourceFingerprint) || imported.warnings.some((warning) => warning.severity === "syncBlocker"))
           throw new Error("The spreadsheet structure changed. Refresh the training in Training plans before syncing.");
         setValidatedGoogle(true); setMessage("Google Sheet validated. Future workouts sync automatically when online."); return;
       }
@@ -186,14 +212,50 @@ export default function SourcePage() {
       if (plan!.source.authMode === "oauth") {
         if (!plan!.source.spreadsheetId || !plan!.source.sourceProof || !plan!.sourceFingerprint) throw new Error("Google source identity is missing. Refresh this training.");
         let synced = 0;
+        const { imported } = await refreshGoogleSheet(plan!.source.spreadsheetId, plan!.sourceFingerprint, plan!.source.sourceProof);
+        if (![imported.sourceFingerprint, imported.legacyFingerprint].includes(plan!.sourceFingerprint)) throw new Error("Sheet structure changed; review the plan before syncing.");
+        applySourceLoads(plan!.id, imported);
+        const proof = imported.source.kind === "google" ? imported.source.sourceProof : undefined;
+        if (!proof) throw new Error("Google source proof is unavailable.");
         for (const session of pending) {
           if (!session.localDate) continue;
-          const result = await syncGoogleDate(plan!.source.spreadsheetId, plan!.sourceFingerprint, plan!.source.sourceProof, session.workoutId, session.localDate);
+          if (session.completionSyncStatus !== "synced" && !session.completionReceipt) {
+            if (session.duplicateDateAllowed && session.completionAttempted) {
+              setSessionSync(session.id, { completionSyncStatus: "conflict", syncMessage: "Duplicate date needs manual review before retrying." });
+            } else {
+              if (session.duplicateDateAllowed) setSessionSync(session.id, { completionAttempted: true });
+              const result = await syncGoogleDate(plan!.source.spreadsheetId, imported.sourceFingerprint, proof, session.workoutId,
+                session.localDate, session.duplicateDateAllowed);
+              if (result.status === "synced" && result.sourceSlot) { synced++; setSessionSync(session.id, { completionSyncStatus: "synced",
+                completionReceipt: { sourceKind: "google", sourceId: plan!.source.spreadsheetId, workoutId: session.workoutId,
+                  slot: result.sourceSlot, syncedAt: new Date().toISOString() }, syncMessage: "Date verified in Sheet." }); }
+              else setSessionSync(session.id, { completionSyncStatus: "conflict", syncMessage: result.status === "duplicate" ? "Date already exists; review before retrying." : "Completion slots are full." });
+            }
+          }
+          const currentWorkout = imported.workouts.find((item) => item.id === session.workoutId);
+          const loads = session.loadSyncStatus === "synced" && !session.loadCorrectionPending ? [] : session.loadCorrectionPending ? session.blocks.flatMap((state) => {
+            const block = currentWorkout?.blocks.find((item) => item.kind === "exercise" && item.id === state.blockId);
+            return state.completed && block?.kind === "exercise" && state.actualLoad?.trim() &&
+              state.actualLoad.trim() !== (block.defaultLoad ?? "") ? [{ blockId: state.blockId, load: state.actualLoad.trim() }] : [];
+          }) : changedLoads(session);
+          if (session.loadCorrectionPending && !loads.length) setSessionSync(session.id, { loadSyncStatus: "synced", loadCorrectionPending: false });
+          if (loads.length) {
+            const mapped = loads.filter((change) => imported.workouts.find((item) => item.id === session.workoutId)?.blocks.some((block) =>
+              block.kind === "exercise" && block.id === change.blockId && block.loadSource));
+            if (mapped.length !== loads.length) setSessionSync(session.id, { loadSyncStatus: "conflict", syncMessage: "Ambiguous load mapping; local values are safe." });
+            if (mapped.length) {
+              const changes = mapped.map((change) => ({ ...change, expected: session.loadCorrectionPending ?
+                (currentWorkout?.blocks.find((block) => block.kind === "exercise" && block.id === change.blockId) as { defaultLoad?: string } | undefined)?.defaultLoad ?? "" :
+                session.workoutSnapshot.blocks.find((block) => block.kind === "exercise" && block.id === change.blockId)?.kind === "exercise" ?
+                (session.workoutSnapshot.blocks.find((block) => block.id === change.blockId) as { defaultLoad?: string }).defaultLoad ?? "" : "" }));
+              const result = await syncGoogleLoads(plan!.source.spreadsheetId, imported.sourceFingerprint, proof, session.workoutId, changes);
+              applySourceLoads(plan!.id, result.imported);
+              if (mapped.length === loads.length) setSessionSync(session.id, { loadSyncStatus: "synced", loadCorrectionPending: false, syncMessage: "Date and loads checked against Sheet." });
+            }
+          }
           processed.add(session.id);
-          if (result.status === "synced") { synced++; setSyncStatus([session.id], "synced", `Date written and verified in ${result.sourceSlot}.`); }
-          else setSyncStatus([session.id], "conflict", result.status === "duplicate" ? "This workout/date already exists in the Sheet." : "Completion slots are full.");
         }
-        setMessage(`${synced} date(s) verified in the connected Google Sheet.`); return;
+        setMessage(`${synced} date(s) verified. Load updates were checked separately.`); return;
       }
       const device = plan!.source.connectorVersion === 2 ? await loadDeviceConnector() : undefined;
       const url = device?.url ?? plan!.source.connectorUrl;
@@ -204,11 +266,18 @@ export default function SourcePage() {
       let synced = 0;
       for (const session of pending) {
         if (!session.localDate) continue;
+        if (changedLoads(session).length) setSessionSync(session.id, { loadSyncStatus: "conflict",
+          syncMessage: "Actual load is saved locally; the legacy connector cannot update source loads. Reconnect with Google OAuth." });
+        if (session.completionSyncStatus === "synced" || session.completionReceipt) { processed.add(session.id); continue; }
+        if (session.duplicateDateAllowed) {
+          setSessionSync(session.id, { completionSyncStatus: "conflict", syncMessage: "Legacy connector cannot identify a second same-day occurrence. Local workout is safe." });
+          processed.add(session.id); continue;
+        }
         const result = await registerConnectorCompletion(url, key, session.workoutId, session.localDate, plan!.source.mappingId!,
           plan!.source.connectorVersion === 2 ? plan!.source.spreadsheetId : undefined);
         processed.add(session.id);
-        if (result.status === "synced") { synced++; setSyncStatus([session.id], "synced", `Date written and verified in ${result.sourceSlot}.`); }
-        else setSyncStatus([session.id], "conflict", result.status === "duplicate" ? "This workout/date already exists in the Sheet; review it before retrying." : "Source completion slots are full. Local history remains saved.");
+        if (result.status === "synced") { synced++; setSessionSync(session.id, { completionSyncStatus: "synced", syncMessage: `Date written and verified in ${result.sourceSlot}.` }); }
+        else setSessionSync(session.id, { completionSyncStatus: "conflict", syncMessage: result.status === "duplicate" ? "This workout/date already exists in the Sheet; review it before retrying." : "Source completion slots are full. Local history remains saved." });
       }
       setMessage(`${synced} date(s) verified in the connected Google Sheet.`);
     } catch (cause) {

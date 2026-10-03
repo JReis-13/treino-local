@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     const token = await requireGoogle(request);
     const result = await registerCompletion({ spreadsheetId: body.spreadsheetId,
       sourceFingerprint: body.sourceFingerprint, sourceProof: body.sourceProof,
-      workoutId: body.workoutId, localDate: body.localDate }, token);
+      workoutId: body.workoutId, localDate: body.localDate, allowDuplicate: body.allowDuplicate === true }, token);
     return noStore(result);
   } catch (cause) { return failure(cause); }
 }

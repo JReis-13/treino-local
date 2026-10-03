@@ -1,6 +1,12 @@
 # Production stabilization audit — 2026-10-02
 
-**Historical audit of the previously deployed Apps Script build.** The current repository's preferred Google integration is OAuth + Sheets API; this document's connector findings describe the earlier baseline. The new OAuth build has not been deployed or tested on the public production URL. See [OAuth developer setup](google-oauth-developer-setup.md) and [current deployment checklist](production-deploy-checklist.md).
+## October 2026 mobile tracking release audit
+
+The user's successful physical-phone gym session is the product baseline. A fresh read-only request to `https://treino-local.vercel.app` from this work environment was blocked by network access, so this release does not claim a new live-site or physical-device audit. No production Sheet, Excel workbook, or workout history was modified during automated testing. The earlier read-only production findings below describe a prior build.
+
+Related bugs found locally: the exercise circle looked actionable but was inert; the Plans entry sent an unconnected user straight to Google and hid Excel; mobile import tests followed the old layout; date-formatted decimal loads needed text writes; and an Excel safe copy with two same-day dates needed slot-specific verification. These now have code changes and regression coverage. The remaining source limitation is a blank or ambiguous grouped load field, which stays local instead of receiving a guessed write. Date-only Sheets cannot automatically identify a duplicate occurrence after a lost response; that case remains a visible manual-review conflict. A real-phone smoke test and a disposable Google Sheet write are required before deployment.
+
+**Historical audit of the previously deployed Apps Script build.** The current repository's preferred Google integration is OAuth + Sheets API; this document's connector findings describe the earlier baseline. At the time of this audit, the OAuth build had not yet been deployed. See [OAuth developer setup](google-oauth-developer-setup.md) and [current deployment checklist](production-deploy-checklist.md).
 
 The current OAuth code adds cryptographic ID-token verification and a server-only `GOOGLE_ALLOWED_EMAILS` check at callback and every Sheets action. Google Publishing status and verification are separate from Treino Local authorization; Testing's Test users are temporary OAuth eligibility, not the long-term access policy. This code still requires manual Vercel configuration, deployment, and Google Cloud publishing change before production behavior can be confirmed.
 

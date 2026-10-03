@@ -57,7 +57,8 @@ function completionGrid(sheet: SourceSheet, workoutId: string, warnings: ImportW
   return { mapping: { sheetName: sheet.name, sheetId: sheet.sheetId, slots, ordinalCells: ordinals } satisfies CompletionMapping, history, rir };
 }
 
-function loadValues(sheet: SourceSheet, row: number, count: number, warnings: ImportWarning[], variant: TemplateVariant): Array<string | undefined> {
+function loadValues(sheet: SourceSheet, row: number, count: number, warnings: ImportWarning[], variant: TemplateVariant):
+  Array<{ value?: string; source?: { cell: string; part?: number; parts?: number } }> {
   const values = (variant === "jonatha-v1" ? ["H"] : ["G", "H", "I"]).map((col) => cell(sheet, `${col}${row}`));
   const used = values.map((value) => value?.displayed.trim() || undefined);
   for (const value of values) {
@@ -65,15 +66,22 @@ function loadValues(sheet: SourceSheet, row: number, count: number, warnings: Im
       warn(warnings, "formatted-load", `Load is stored as a date-like number but displays as “${value.displayed}”; the displayed load was kept.`, `${sheet.name}!${value.ref}`);
     }
   }
-  if (count === 1) return [used.find(Boolean)];
+  if (count === 1) {
+    const index = used.findIndex(Boolean);
+    return [{ value: index < 0 ? undefined : used[index], source: { cell: `${variant === "jonatha-v1" ? "H" : ["G", "H", "I"][Math.max(index, 0)]}${row}` } }];
+  }
   const joined = used.find((value) => value?.includes("/"));
   if (count === 2 && joined && used.filter(Boolean).length === 1) {
-    return joined.split("/").map((value) => value.trim() === "?" ? undefined : value.trim());
+    const pieces = joined.split("/");
+    if (pieces.length === 2) return pieces.map((value, part) => ({
+      value: value.trim() === "?" ? undefined : value.trim(), source: { cell: `H${row}`, part, parts: 2 },
+    }));
   }
   if (used.filter(Boolean).length === 1 && count > 1) {
     warn(warnings, "uncertain-load", "One load is shown for a multi-exercise group; its assignment needs review.", `${sheet.name}!G${row}:I${row}`);
   }
-  return Array.from({ length: count }, (_, index) => used[index]);
+  if (variant === "jonatha-v1") return Array.from({ length: count }, (_, index) => ({ value: index === 0 ? used[0] : undefined }));
+  return Array.from({ length: count }, (_, index) => ({ value: used[index], source: { cell: `${["G", "H", "I"][index]}${row}` } }));
 }
 
 function structuredWorkout(sheet: SourceSheet, id: string, warnings: ImportWarning[], rir: number[], variant: TemplateVariant): TrainingWorkout {
@@ -111,7 +119,8 @@ function structuredWorkout(sheet: SourceSheet, id: string, warnings: ImportWarni
     if (links.length > names.length) warn(warnings, "extra-video", "More video links than exercises; additional reference links were not assigned.", `${sheet.name}!${row}`);
     names.forEach((name, index) => blocks.push({ kind: "exercise", id: `${id}-${challenge ? "challenge" : "strength"}-${row}-${index + 1}`,
       section: challenge ? "Challenge" : "Strength", name, prescription: prescriptions[index] ?? prescriptions[0] ?? "",
-      equipment: equipment[index] ?? (equipment.length === 1 && (variant !== "jonatha-v1" || equipment[0] === "Polia") ? equipment[0] : undefined), defaultLoad: loads[index],
+      equipment: equipment[index] ?? (equipment.length === 1 && (variant !== "jonatha-v1" || equipment[0] === "Polia") ? equipment[0] : undefined), defaultLoad: loads[index]?.value,
+      loadSource: loads[index]?.source,
       videoUrl: links[index], groupId: names.length > 1 ? `${id}-group-${row}` : undefined, sourceCell: `E${row}` }));
   }
   for (let row = 34; row <= (variant === "milena-v1" ? 45 : 33); row++) {
@@ -170,5 +179,18 @@ export function parseTrainingSnapshot(snapshot: SourceSnapshot, source: Training
     }
   }
   const nextSource = source.kind === "builtin" ? source : { ...source, template: template ?? "unknown", mappings };
-  return { name, source: nextSource, sourceFingerprint: fingerprint({ workouts, mappings }), workouts, warnings, legacyCompletions };
+  const legacyWorkouts = workouts.map((workout) => ({ ...workout, blocks: workout.blocks.map((block) => {
+    if (block.kind !== "exercise") return block;
+    const { loadSource: _loadSource, ...legacy } = block;
+    void _loadSource;
+    return legacy;
+  }) }));
+  const structureWorkouts = workouts.map((workout) => ({ ...workout, blocks: workout.blocks.map((block) => {
+    if (block.kind !== "exercise") return block;
+    const { defaultLoad: _defaultLoad, ...structure } = block;
+    void _defaultLoad;
+    return structure;
+  }) }));
+  return { name, source: nextSource, sourceFingerprint: fingerprint({ workouts: structureWorkouts, mappings }),
+    legacyFingerprint: fingerprint({ workouts: legacyWorkouts, mappings }), workouts, warnings, legacyCompletions };
 }

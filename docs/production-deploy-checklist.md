@@ -1,5 +1,22 @@
 # OAuth production deployment checklist
 
+## Real-phone gym smoke test for this release
+
+Use the installed PWA on a phone and a **disposable copy** of a supported Sheet for source-write checks. Do not use the canonical training Sheet as a test target.
+
+1. Open the installed PWA, select the active training, and open a workout.
+2. Check that the current source load and any last-used local load are distinct and readable.
+3. Tap a completion circle and its label; tap again to undo, then complete several exercises.
+4. Change one actual load, including a decimal comma (`7,5`), and check the displayed session value.
+5. Lock and reopen the phone; confirm completion and load edits survived.
+6. Finish and save. If the same workout/date exists, choose Cancel once, then test Add or Replace deliberately. Confirm Add makes two History entries and Replace keeps the count unchanged.
+7. In History, check date, time, duration, load, and sync status. Open Statistics and check count, timed-session sample, and load trend.
+8. Start a new workout and confirm the edited value appears as Last used and as the editable initial load.
+9. Online with the disposable Google Sheet, confirm the intended completion date and changed current load in the mapped cells; check that neighboring grouped loads stayed unchanged.
+10. Go offline, start or resume a workout, change a load, finish or leave it in progress, then reopen the PWA. Confirm local persistence and offline Statistics. Reconnect and use Source to retry pending writes; confirm separate date/load outcomes.
+
+For Excel, use only a disposable workbook copy. Confirm a safe-copy download remains pending until the saved copy is reconnected and verified. Check `7.5` displays as a load, not a calendar date. Browser E2E emulation is evidence of layout and behavior, not a substitute for this real-phone test.
+
 Google **Publishing status** controls OAuth availability and verification. Treino Local's server-only `GOOGLE_ALLOWED_EMAILS` controls the three accounts allowed to use Google Sheets. In production does not restrict Google OAuth to those three accounts. [Developer setup](google-oauth-developer-setup.md) explains the configuration and Google's unverified warning.
 
 ## Before changing Google to In production

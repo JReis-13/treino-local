@@ -7,19 +7,20 @@ import { useApp } from "@/components/app-provider";
 import { activePlan } from "@/lib/training/session";
 import { safeVideoUrl } from "@/lib/video-url";
 import type { WorkoutBlock } from "@/types/training";
+import { lastUsedLoad, normalizeLoad } from "@/lib/training/loads";
 
-function BlockCard({ block, index, completed, actualLoad, onComplete, onLoad }: {
-  block: WorkoutBlock; index: number; completed: boolean; actualLoad?: string;
+function BlockCard({ block, index, completed, actualLoad, previousLoad, onComplete, onLoad }: {
+  block: WorkoutBlock; index: number; completed: boolean; actualLoad?: string; previousLoad?: string;
   onComplete: () => void; onLoad: (value: string) => void;
 }) {
   const videoUrl = block.kind === "exercise" ? safeVideoUrl(block.videoUrl) : undefined;
   return <article className={`exercise-card ${completed ? "is-complete" : ""}`}>
-    <div className="exercise-head"><span className="exercise-number">{String(index + 1).padStart(2, "0")}</span><div><h3>{block.kind === "exercise" ? block.name : block.heading}</h3>{block.kind === "exercise" && block.groupId && <small>Grouped exercise</small>}</div><span className={`complete-dot ${completed ? "on" : ""}`}>{completed ? "✓" : ""}</span></div>
+    <div className="exercise-head"><span className="exercise-number">{String(index + 1).padStart(2, "0")}</span><div><h3>{block.kind === "exercise" ? block.name : block.heading}</h3>{block.kind === "exercise" && block.groupId && <small>Grouped exercise</small>}</div><button type="button" className="completion-toggle" role="checkbox" aria-checked={completed} aria-label={`${completed ? "Reopen" : "Complete"} ${block.kind === "exercise" ? block.name : block.heading}`} onClick={onComplete}><span className={`complete-dot ${completed ? "on" : ""}`} aria-hidden="true">{completed ? "✓" : ""}</span><span>{completed ? "Completed" : "Mark done"}</span></button></div>
     {block.kind === "exercise" ? <>
       <div className="exercise-details"><div><span>TARGET</span><strong>{block.prescription || "See source plan"}</strong></div>{block.equipment && <div><span>EQUIPMENT</span><strong>{block.equipment}</strong></div>}</div>
-      {block.section !== "Warm-up" && <label className="load-field"><span>ACTUAL LOAD <small>(unit as used in your plan)</small></span><input inputMode="decimal" type="text" value={actualLoad ?? ""} onChange={(event) => onLoad(event.target.value)} placeholder={block.defaultLoad ? `Plan: ${block.defaultLoad}` : "Enter if used"} aria-label={`Actual load for ${block.name}`} /></label>}
-      <div className="exercise-actions">{videoUrl && <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="video-button">▶ Watch example</a>}<button type="button" className={completed ? "done-button done" : "done-button"} onClick={onComplete}>{completed ? "Completed ✓" : "Mark complete"}</button></div>
-    </> : <><p className="instruction-text">{block.text}</p><button type="button" className={completed ? "done-button done" : "done-button"} onClick={onComplete}>{completed ? "Completed ✓" : "Mark block complete"}</button></>}
+      {block.section !== "Warm-up" && <label className="load-field"><span>LOAD <small>Current source: {block.defaultLoad || "—"} · Last used: {previousLoad || "—"}</small></span><input inputMode="decimal" type="text" value={actualLoad ?? ""} onChange={(event) => onLoad(event.target.value)} onBlur={(event) => onLoad(normalizeLoad(event.target.value))} placeholder={block.defaultLoad || "Enter if used"} aria-label={`Actual load for ${block.name}`} /></label>}
+      <div className="exercise-actions">{videoUrl && <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="video-button">▶ Watch example</a>}</div>
+    </> : <p className="instruction-text">{block.text}</p>}
   </article>;
 }
 
@@ -55,6 +56,7 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
     {sections.map((section) => <section key={section} className="exercise-section"><div className="section-heading"><div><p className="eyebrow">YOUR PLAN</p><h2>{section}</h2></div><span className="section-count">{blocks.filter((block) => block.section === section).length} BLOCKS</span></div><div className="exercise-list">{blocks.map((block, index) => block.section !== section ? null : (() => {
       const state = ownSession.blocks.find((item) => item.blockId === block.id);
       return <BlockCard key={block.id} block={block} index={index} completed={state?.completed ?? false} actualLoad={state?.actualLoad}
+        previousLoad={block.kind === "exercise" ? lastUsedLoad(data, plan.id, block.id) : undefined}
         onComplete={() => updateBlock(ownSession.id, block.id, { completed: !state?.completed })}
         onLoad={(actualLoad) => updateBlock(ownSession.id, block.id, { actualLoad })} />;
     })())}</div></section>)}

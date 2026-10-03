@@ -66,3 +66,46 @@ test("Milena B and Cardio C use their own bounded completion grids", async () =>
   assert.equal(sheets.find((sheet) => sheet.name === "TREINO C")!.cells.E13.raw, String(dateToSerial("2026-09-30")));
   assert.equal(sheets.find((sheet) => sheet.name === "TREINO C")!.cells.E13.numberFormat, "dd/mm");
 }));
+
+test("Excel load sync changes only the intended Jonatha slash segment", async () => disposable(original, async (bytes) => {
+  const imported = parseTrainingSnapshot(await snapshotFromXlsx(bytes), { kind: "excel", filename: "copy.xlsx", template: "", mappings: {}, mode: "copy" }, "Jonatha");
+  const plan = addTraining(emptyTrainingData(), imported, undefined, "2026-10-03T08:00:00Z", "jonatha").plans[0];
+  const started = startTrainingSession({ ...emptyTrainingData(), plans: [plan], activePlanId: plan.id }, plan.id, "A",
+    new Date("2026-10-03T08:00:00Z"), "one");
+  const first = plan.workouts[0].blocks.find((block) => block.kind === "exercise" && block.sourceCell === "E26")!;
+  assert.equal(first.kind, "exercise");
+  const changed = { ...started.data, sessions: started.data.sessions.map((item) => ({ ...item,
+    blocks: item.blocks.map((state) => state.blockId === first.id ? { ...state, completed: true, actualLoad: "9" } : state) })) };
+  const done = finishTrainingSession(changed, "one", "2026-10-03");
+  done.sessions[0].completionSyncStatus = "synced";
+  const output = await prepareXlsxSync(bytes, plan, done.sessions);
+  assert(output.bytes);
+  assert.equal(output.loadOutcomes[0].status, "synced");
+  const before = await snapshotFromXlsx(bytes), after = await snapshotFromXlsx(output.bytes);
+  assert.equal(before.sheets.find((sheet) => sheet.name === "TREINO A")!.cells.H26.displayed, "8/15");
+  assert.equal(after.sheets.find((sheet) => sheet.name === "TREINO A")!.cells.H26.displayed, "9/15");
+  const reparsed = parseTrainingSnapshot(after, plan.source, plan.name);
+  assert.equal(reparsed.workouts[0].blocks.find((block) => block.id === first.id && block.kind === "exercise")?.kind === "exercise" &&
+    (reparsed.workouts[0].blocks.find((block) => block.id === first.id) as { defaultLoad?: string }).defaultLoad, "9");
+}));
+
+test("Excel date-formatted decimal load writes as visible text without changing adjacent loads", async () => disposable(source, async (bytes) => {
+  const imported = parseTrainingSnapshot(await snapshotFromXlsx(bytes), { kind: "excel", filename: "copy.xlsx", template: "", mappings: {}, mode: "copy" }, "Milena");
+  const plan = addTraining(emptyTrainingData(), imported, undefined, "2026-10-03T08:00:00Z", "milena").plans[0];
+  const started = startTrainingSession({ ...emptyTrainingData(), plans: [plan], activePlanId: plan.id }, plan.id, "A",
+    new Date("2026-10-03T08:00:00Z"), "one");
+  const block = plan.workouts[0].blocks.find((item) => item.kind === "exercise" && item.name === "Desenvolvimento na máquina")!;
+  assert.equal(block.kind, "exercise");
+  const changed = { ...started.data, sessions: started.data.sessions.map((item) => ({ ...item,
+    blocks: item.blocks.map((state) => state.blockId === block.id ? { ...state, completed: true, actualLoad: "8,5" } : state) })) };
+  const done = finishTrainingSession(changed, "one", "2026-10-03");
+  done.sessions[0].completionSyncStatus = "synced";
+  const output = await prepareXlsxSync(bytes, plan, done.sessions);
+  assert(output.bytes);
+  const before = await snapshotFromXlsx(bytes), after = await snapshotFromXlsx(output.bytes);
+  const oldSheet = before.sheets.find((sheet) => sheet.name === "TREINO A")!, newSheet = after.sheets.find((sheet) => sheet.name === "TREINO A")!;
+  assert.equal(newSheet.cells.H28.displayed, "8.5");
+  assert.equal(newSheet.cells.G28.displayed, oldSheet.cells.G28.displayed);
+  assert.equal(newSheet.cells.I28.displayed, oldSheet.cells.I28.displayed);
+  assert.equal(newSheet.cells.H28.rawType, "inlineStr");
+}));

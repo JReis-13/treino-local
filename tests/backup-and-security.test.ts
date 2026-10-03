@@ -6,7 +6,7 @@ import { safeVideoUrl } from "../lib/video-url";
 import type { TrainingData } from "../types/training";
 
 const id = "a12345678901234567890123";
-const data: TrainingData = { schemaVersion: 2, activePlanId: "p", sessions: [], plans: [{
+const data: TrainingData = { schemaVersion: 3, activePlanId: "p", sessions: [], plans: [{
   id: "p", name: "Test", source: { kind: "google", filename: "Copy", template: "jonatha-v1", mappings: {},
     connectorVersion: 2, sourceMode: "standalone", spreadsheetId: id, connectorUrl: "https://script.google.com/macros/s/secret/exec",
     sheetUrl: `https://docs.google.com/spreadsheets/d/${id}/edit`, syncEnabled: true },

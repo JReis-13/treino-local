@@ -1,5 +1,11 @@
 # Excel adapter decision and write safety
 
+## Current load and same-day behavior (October 2026)
+
+The supported Jonatha A load cells contain slash-separated pairs in `H26/H28/H30/H32`; parser mapping records the segment for each logical exercise. Milena's grouped loads use separate `G/H/I` fields. A changed completed exercise load is applied only to its parser-derived cell/segment. The adapter preserves neighboring segments, writes load text as inline XML to avoid Excel date formatting turning `7.5` into a date, checks all unrelated ZIP entries, reopens the copy, and verifies the parsed load. Formula cells, ambiguous groups, source drift, and unsupported blank group layouts block only that remote load update; actual loads remain in local history. The supplied workbooks are read-only test fixtures; automated writes use disposable copies.
+
+Same-day Add may write the identical date into the next empty validated `E5:E16` slot. Replace retains the prior session's date receipt and writes no new date. Direct file sync checks the selected handle, permission, unchanged bytes, and readback. Safe-copy sync downloads a new file and keeps date/load states pending; reconnect checks the exact prepared date slot, which matters when the same date occurs twice. Excel has no stored app session ID, so a lost copy or ambiguous occurrence needs manual review. The older date-only statements below describe the earlier adapter behavior.
+
 ## Current two-workbook import and sync
 
 The first adapter described below remains a strict regression path for the original Jonatha workbook. The current import path reads workbook/package XML into a `SourceSnapshot` (`lib/import/snapshot.ts`), then recognizes a supported workout-template family in `lib/import/template-parser.ts`. It imports only `TREINO` sheets, normalizes a dynamic number of workouts, splits one/two/three exercise groups in source order, maps adjacent load and video columns, and converts instruction-only cardio sections to text blocks. Unsupported layouts and critical ambiguities fail safely. The import review presents warnings and existing date counts before adding or refreshing a plan.

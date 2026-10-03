@@ -21,6 +21,10 @@ export const disconnectGoogle = () => post<{ disconnected: boolean }>("/api/goog
 export const importGoogleSheet = (url: string) => post<{ imported: ImportedTraining }>("/api/google/sheets/import", { url });
 export const refreshGoogleSheet = (spreadsheetId: string, sourceFingerprint: string, sourceProof: string) =>
   post<{ imported: ImportedTraining }>("/api/google/sheets/refresh", { spreadsheetId, sourceFingerprint, sourceProof });
-export const syncGoogleDate = (spreadsheetId: string, sourceFingerprint: string, sourceProof: string, workoutId: string, localDate: string) =>
+export const syncGoogleDate = (spreadsheetId: string, sourceFingerprint: string, sourceProof: string, workoutId: string, localDate: string, allowDuplicate = false) =>
   post<{ status: "synced" | "duplicate" | "full"; sourceSlot?: string }>("/api/google/sheets/register-completion",
-    { spreadsheetId, sourceFingerprint, sourceProof, workoutId, localDate });
+    { spreadsheetId, sourceFingerprint, sourceProof, workoutId, localDate, allowDuplicate });
+export const syncGoogleLoads = (spreadsheetId: string, sourceFingerprint: string, sourceProof: string, workoutId: string,
+  changes: Array<{ blockId: string; expected: string; load: string }>) =>
+  post<{ imported: ImportedTraining; updated: number }>("/api/google/sheets/update-loads",
+    { spreadsheetId, sourceFingerprint, sourceProof, workoutId, changes });

@@ -31,6 +31,7 @@ async function importFile(page: Page, path: string) {
 }
 
 async function chooseExcelFile(page: Page, path: string) {
+  await page.getByRole("button", { name: /Connect or add training|\+ Add training/ }).tap();
   const direct = await page.evaluate(() => window.isSecureContext && "showOpenFilePicker" in window);
   const button = direct ? page.getByRole("button", { name: "Import as safe copy" })
     : page.getByRole("button", { name: "Choose workbook" });
@@ -52,8 +53,9 @@ test("mobile first launch, workout actions, reload, back/forward and history", a
   await expect(page.getByText("2 WORKOUTS", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Start workout" }).first().tap();
   await expectNoHorizontalOverflow(page);
-  await expect(page.getByRole("button", { name: /Mark complete/ }).first()).toBeVisible();
-  await page.getByRole("button", { name: /Mark complete/ }).first().tap();
+  await expect(page.getByRole("checkbox", { name: /Complete/ }).first()).toBeVisible();
+  await page.getByRole("checkbox", { name: /Complete/ }).first().tap();
+  await expect(page.getByRole("checkbox", { name: /Reopen/ }).first()).toHaveAttribute("aria-checked", "true");
   await page.getByRole("textbox", { name: "Actual load for Agachamento goblet" }).fill("9");
   await page.goBack();
   await expect(page.getByText(/in progress/)).toBeVisible();
@@ -70,6 +72,39 @@ test("mobile first launch, workout actions, reload, back/forward and history", a
   await expect(page.getByText(/1\/11 done/)).toBeVisible();
   await page.getByRole("link", { name: /Workout A/ }).last().tap();
   await expect(page.getByText(/Load 9/)).toBeVisible();
+});
+
+test("same-day Add and Replace keep distinct history entries and statistics offline", async ({ page, context }) => {
+  await page.goto("/");
+  await importFile(page, jonatha);
+  const startAndFinish = async () => {
+    await page.getByRole("button", { name: "Start workout" }).first().tap();
+    const toggle = page.getByRole("checkbox", { name: /Complete Agachamento goblet/ });
+    await toggle.tap();
+    await expect(page.getByRole("checkbox", { name: /Reopen Agachamento goblet/ })).toHaveAttribute("aria-checked", "true");
+    await page.getByRole("textbox", { name: "Actual load for Agachamento goblet" }).fill("7,5");
+    await page.getByRole("link", { name: /Finish workout/ }).tap();
+    await page.getByRole("button", { name: /Save workout/ }).tap();
+  };
+  await startAndFinish();
+  await expect(page.locator(".history-list a.history-card")).toHaveCount(1);
+  await page.getByRole("link", { name: "Home", exact: true }).tap();
+  await startAndFinish();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).tap();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("button", { name: /Save workout/ }).tap();
+  await page.getByRole("button", { name: "Add another workout" }).tap();
+  await expect(page.locator(".history-list a.history-card")).toHaveCount(2);
+  await page.getByRole("link", { name: "Home", exact: true }).tap();
+  await startAndFinish();
+  await page.getByRole("button", { name: "Replace previous workout" }).tap();
+  await expect(page.locator(".history-list a.history-card")).toHaveCount(2);
+  await context.setOffline(true);
+  await page.getByRole("link", { name: "Stats", exact: true }).tap();
+  await expect(page.getByRole("heading", { name: /Statistics/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Load progression" })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
 });
 
 test("mobile plan switching isolates history and renders cardio instructions", async ({ page }) => {
@@ -91,7 +126,7 @@ test("mobile plan switching isolates history and renders cardio instructions", a
   await page.getByRole("button", { name: "Start workout" }).last().tap();
   await expect(page.getByRole("heading", { name: "Workout Cardio" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Semana 1" })).toBeVisible();
-  await page.getByRole("button", { name: "Mark block complete" }).first().tap();
+  await page.getByRole("checkbox", { name: /Complete Semana 1/ }).first().tap();
   await expect(page.getByText("1 of 3 blocks completed")).toBeVisible();
 });
 
@@ -115,7 +150,7 @@ test("production PWA keeps the imported workout usable offline", async ({ page, 
   await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
   await context.setOffline(true);
   await page.getByRole("button", { name: "Start workout" }).first().tap();
-  await page.getByRole("button", { name: /Mark complete/ }).first().tap();
+  await page.getByRole("checkbox", { name: /Complete/ }).first().tap();
   await page.reload();
   await expect(page.getByText("1 of 11 blocks completed")).toBeVisible();
   await page.getByRole("link", { name: /Finish workout/ }).tap();
@@ -185,6 +220,7 @@ test("fresh mobile user connects, imports by Sheet URL, finishes locally and syn
     await route.fulfill({ json: { imported: url === sheetUrl ? imported : { ...imported, name: "Second copy",
       source: { ...imported.source, filename: "Second copy", spreadsheetId: secondId, sheetUrl: secondUrl } } } });
   });
+  await page.route("**/api/google/sheets/refresh", (route) => route.fulfill({ json: { imported } }));
   await page.route("**/api/google/sheets/register-completion", async (route) => {
     const body = route.request().postDataJSON();
     expect(body.spreadsheetId).toBe(spreadsheetId);
@@ -193,6 +229,8 @@ test("fresh mobile user connects, imports by Sheet URL, finishes locally and syn
     await route.fulfill({ json: { status: "synced", sourceSlot: "E5" } });
   });
   await page.goto("/plans/");
+  await page.getByRole("button", { name: /Connect or add training/ }).tap();
+  await page.getByRole("button", { name: /Use Google Sheets/ }).tap();
   await page.getByRole("button", { name: /Connect Google/ }).tap();
   await expect(page.getByRole("heading", { name: "Google account connected" })).toBeVisible();
   await page.getByLabel("PASTE GOOGLE SHEETS LINK").fill(sheetUrl);
@@ -205,6 +243,8 @@ test("fresh mobile user connects, imports by Sheet URL, finishes locally and syn
   await expect.poll(() => operations.filter((item) => item === "sync").length).toBe(1);
   await expect(page.getByText(/Synced/)).toBeVisible();
   await page.getByRole("link", { name: "Plans", exact: true }).tap();
+  await page.getByRole("button", { name: /\+ Add training/ }).tap();
+  await page.getByRole("button", { name: /Use Google Sheets/ }).tap();
   await page.getByLabel("PASTE GOOGLE SHEETS LINK").fill(secondUrl);
   await page.getByRole("button", { name: /Import training/ }).tap();
   await expect(page.getByRole("heading", { name: "Training ready" })).toBeVisible();

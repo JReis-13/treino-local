@@ -2,7 +2,10 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { addTraining, migrateGoogleTraining, refreshTraining, removeTraining, renameTraining } from "@/lib/training/library";
-import { finishTrainingSession, startTrainingSession, updateTrainingBlock } from "@/lib/training/session";
+import { finishTrainingSession, sameDaySessions, startTrainingSession, updateTrainingBlock } from "@/lib/training/session";
+import { changedLoads } from "@/lib/training/loads";
+import { normalizeLoad } from "@/lib/training/loads";
+import { withSyncStatus } from "@/lib/training/sync-state";
 import { trainingStorage } from "@/lib/training/storage";
 import type { ImportedTraining, SourceSyncStatus, TrainingData, TrainingSession, TrainingSource } from "@/types/training";
 
@@ -11,7 +14,8 @@ interface AppContextValue {
   error: string | null;
   start(planId: string, workoutId: string): TrainingSession | null;
   updateBlock(sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }): void;
-  finish(sessionId: string, localDate: string): boolean;
+  correctSessionLoad(sessionId: string, blockId: string, load: string): boolean;
+  finish(sessionId: string, localDate: string, choice?: "normal" | "add" | "replace", replaceId?: string): boolean;
   addPlan(imported: ImportedTraining, name?: string): string | null;
   refreshPlan(planId: string, imported: ImportedTraining): boolean;
   migrateGooglePlan(planId: string, imported: ImportedTraining): boolean;
@@ -20,6 +24,8 @@ interface AppContextValue {
   removePlan(planId: string): boolean;
   updateSource(planId: string, source: TrainingSource): boolean;
   setSyncStatus(sessionIds: string[], status: SourceSyncStatus, message?: string): void;
+  setSessionSync(sessionId: string, patch: Partial<TrainingSession>): void;
+  applySourceLoads(planId: string, imported: ImportedTraining): void;
   restoreData(restored: TrainingData): boolean;
   clearError(): void;
 }
@@ -70,11 +76,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateBlock = useCallback((sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }) => {
     commit((current) => updateTrainingBlock(current, sessionId, blockId, change));
   }, [commit]);
+  const correctSessionLoad = useCallback((sessionId: string, blockId: string, load: string): boolean =>
+    commit((current) => {
+      const target = current.sessions.find((item) => item.id === sessionId && item.status === "completed");
+      if (!target || !target.blocks.some((block) => block.blockId === blockId)) throw new Error("Session load is unavailable.");
+      const plan = current.plans.find((item) => item.id === target.planId);
+      const latest = current.sessions.filter((item) => item.status === "completed" && item.planId === target.planId &&
+        item.blocks.some((block) => block.blockId === blockId && block.completed)).sort((a, b) =>
+        (b.completedAt ?? "").localeCompare(a.completedAt ?? ""))[0];
+      const shouldSync = Boolean(plan && plan.source.kind !== "builtin" && latest?.id === sessionId);
+      return { ...current, sessions: current.sessions.map((item) => item.id === sessionId ? withSyncStatus({ ...item,
+        blocks: item.blocks.map((block) => block.blockId === blockId ? { ...block, actualLoad: normalizeLoad(load) } : block) },
+        { loadSyncStatus: shouldSync ? "pending" : "notApplicable", loadCorrectionPending: shouldSync,
+          syncMessage: shouldSync ? "Load correction saved locally; source update pending." : "Historical load corrected locally." }) : item) };
+    }), [commit]);
 
-  const finish = useCallback((sessionId: string, localDate: string) => {
-    const saved = commit((current) => finishTrainingSession(current, sessionId, localDate));
+  const setSessionSync = useCallback((sessionId: string, patch: Partial<TrainingSession>) => {
+    commit((current) => ({ ...current, sessions: current.sessions.map((session) => session.id === sessionId ? withSyncStatus(session, patch) : session) }));
+  }, [commit]);
+  const applySourceLoads = useCallback((planId: string, imported: ImportedTraining) => {
+    commit((current) => ({ ...current, plans: current.plans.map((plan) => {
+      if (plan.id !== planId || plan.source.kind !== imported.source.kind) return plan;
+      return { ...plan, sourceFingerprint: imported.sourceFingerprint,
+        source: { ...plan.source, ...(imported.source.kind === "google" ? { sourceProof: imported.source.sourceProof } : {}) },
+        workouts: plan.workouts.map((workout) => {
+          const next = imported.workouts.find((item) => item.id === workout.id);
+          return { ...workout, blocks: workout.blocks.map((block) => {
+            const match = next?.blocks.find((item) => item.id === block.id);
+            return block.kind === "exercise" && match?.kind === "exercise" ?
+              { ...block, defaultLoad: match.defaultLoad, loadSource: match.loadSource } : block;
+          }) };
+        }) };
+    }) }));
+  }, [commit]);
+  const finish = useCallback((sessionId: string, localDate: string, choice: "normal" | "add" | "replace" = "normal", replaceId?: string) => {
+    const previous = dataRef.current ? sameDaySessions(dataRef.current, sessionId, localDate).find((item) => item.id === (replaceId ?? sameDaySessions(dataRef.current!, sessionId, localDate)[0]?.id)) : undefined;
+    const saved = commit((current) => finishTrainingSession(current, sessionId, localDate, new Date(), choice, replaceId));
     if (!saved) return false;
-    const session = dataRef.current?.sessions.find((item) => item.id === sessionId);
+    const completedId = choice === "replace" ? previous?.id ?? sessionId : sessionId;
+    const session = dataRef.current?.sessions.find((item) => item.id === completedId);
     const plan = dataRef.current?.plans.find((item) => item.id === session?.planId);
     const source = plan?.source;
     if (plan && session?.status === "completed" && source?.kind === "google" && source.syncEnabled &&
@@ -82,12 +122,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         !plan.importWarnings.some((warning) => warning.severity === "syncBlocker")) {
       // The completed session has already been committed locally. Remote sync is best-effort.
       void (async () => {
+        let currentPlan = plan;
+        if (source.authMode === "oauth") {
+          try {
+            const { refreshGoogleSheet } = await import("@/lib/google/client");
+            const { imported } = await refreshGoogleSheet(source.spreadsheetId!, plan.sourceFingerprint!, source.sourceProof!);
+            if (![imported.sourceFingerprint, imported.legacyFingerprint].includes(plan.sourceFingerprint) ||
+                imported.warnings.some((warning) => warning.severity === "activationBlocker")) throw new Error("The Sheet changed; review it before syncing.");
+            applySourceLoads(plan.id, imported);
+            currentPlan = dataRef.current?.plans.find((item) => item.id === plan.id) ?? plan;
+          } catch (cause) {
+            setSessionSync(completedId, { completionSyncStatus: "failed", loadSyncStatus: "failed",
+              syncMessage: cause instanceof Error ? cause.message : "Google source could not be validated." });
+            return;
+          }
+        }
+        const currentSource = currentPlan.source;
         try {
-          let result: { status: "synced" | "duplicate" | "full"; sourceSlot?: string };
-          if (source.authMode === "oauth") {
-            const { syncGoogleDate } = await import("@/lib/google/client");
-            result = await syncGoogleDate(source.spreadsheetId!, plan.sourceFingerprint!, source.sourceProof!, session.workoutId, localDate);
-          } else {
+          if (session.completionSyncStatus !== "synced") {
+            let result: { status: "synced" | "duplicate" | "full"; sourceSlot?: string };
+            if (currentSource.kind === "google" && currentSource.authMode === "oauth") {
+              const { syncGoogleDate } = await import("@/lib/google/client");
+              if (session.duplicateDateAllowed && session.completionAttempted) throw new Error("Duplicate date sync needs review before retrying.");
+              if (session.duplicateDateAllowed) setSessionSync(completedId, { completionAttempted: true });
+              result = await syncGoogleDate(currentSource.spreadsheetId!, currentPlan.sourceFingerprint!, currentSource.sourceProof!,
+                session.workoutId, localDate, session.duplicateDateAllowed);
+            } else {
             const { loadPlanConnectorKey, loadDeviceConnector } = await import("@/lib/connector/credentials");
             const { registerConnectorCompletion } = await import("@/lib/connector/client");
             const device = source.connectorVersion === 2 ? await loadDeviceConnector() : undefined;
@@ -96,22 +156,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             if (!url || !key) throw new Error("Legacy Google connector unavailable. Reconnect with Google in Training plans.");
             result = await registerConnectorCompletion(url, key, session.workoutId, localDate, source.mappingId!,
               source.connectorVersion === 2 ? source.spreadsheetId : undefined);
+            }
+            setSessionSync(completedId, { completionSyncStatus: result.status === "synced" ? "synced" : "conflict",
+              completionReceipt: result.status === "synced" && result.sourceSlot ? { sourceKind: "google",
+                sourceId: currentSource.kind === "google" ? currentSource.spreadsheetId ?? "legacy" : "legacy", workoutId: session.workoutId,
+                slot: result.sourceSlot, syncedAt: new Date().toISOString() } : undefined,
+              syncMessage: result.status === "synced" ? "Completion date verified." : result.status === "duplicate" ?
+                "This date already exists in the source; local workout is safe." : "Source completion slots are full." });
           }
-          commit((current) => ({ ...current, sessions: current.sessions.map((item) => item.id !== sessionId ? item : {
-            ...item, syncStatus: result.status === "synced" ? "synced" as const : "conflict" as const,
-            syncMessage: result.status === "synced" ? `Date verified in ${result.sourceSlot}.` :
-              result.status === "duplicate" ? "This workout/date already exists in the Sheet." : "Source completion slots are full.",
-          }) }));
         } catch (cause) {
-          commit((current) => ({ ...current, sessions: current.sessions.map((item) => item.id !== sessionId ? item : {
-            ...item, syncStatus: cause instanceof Error && /reconnect|expired/i.test(cause.message) ? "authRequired" as const : "failed" as const,
-            syncMessage: cause instanceof Error ? cause.message : "Google sync failed. Retry from Source.",
-          }) }));
+          setSessionSync(completedId, { completionSyncStatus: cause instanceof Error && /reconnect|expired/i.test(cause.message) ? "authRequired" : "failed",
+            syncMessage: cause instanceof Error ? cause.message : "Date sync failed. Retry from Source." });
+        }
+        const changes = changedLoads(session);
+        if (!changes.length) return;
+        if (currentSource.kind !== "google" || currentSource.authMode !== "oauth") {
+          setSessionSync(completedId, { loadSyncStatus: "conflict", syncMessage: "Load saved locally; legacy connector cannot update loads." }); return;
+        }
+        const mapped = changes.filter((change) => currentPlan.workouts.find((item) => item.id === session.workoutId)?.blocks
+          .some((block) => block.kind === "exercise" && block.id === change.blockId && block.loadSource));
+        if (mapped.length !== changes.length) setSessionSync(completedId, { loadSyncStatus: "conflict", syncMessage: "Some load destinations are ambiguous; loads remain local." });
+        if (!mapped.length) return;
+        try {
+          const { syncGoogleLoads } = await import("@/lib/google/client");
+          const requestChanges = mapped.map((change) => ({ ...change, expected: session.workoutSnapshot.blocks.find((block) =>
+            block.kind === "exercise" && block.id === change.blockId)?.kind === "exercise" ?
+            (session.workoutSnapshot.blocks.find((block) => block.id === change.blockId) as { defaultLoad?: string }).defaultLoad ?? "" : "" }));
+          const { imported } = await syncGoogleLoads(currentSource.spreadsheetId!, currentPlan.sourceFingerprint!, currentSource.sourceProof!,
+            session.workoutId, requestChanges);
+          applySourceLoads(plan.id, imported);
+          if (mapped.length === changes.length) setSessionSync(completedId, { loadSyncStatus: "synced", syncMessage: "Date and load updates checked against the Sheet." });
+        } catch (cause) {
+          setSessionSync(completedId, { loadSyncStatus: "failed", syncMessage: cause instanceof Error ? cause.message : "Load sync failed; local workout is safe." });
         }
       })();
     }
     return true;
-  }, [commit]);
+  }, [commit, applySourceLoads, setSessionSync]);
   const addPlan = useCallback((imported: ImportedTraining, name?: string) => {
     const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     return commit((current) => addTraining(current, imported, name, new Date().toISOString(), id)) ? id : null;
@@ -147,8 +228,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not restore local data."); return false; }
   }, []);
 
-  return <AppContext.Provider value={{ data, error, start, updateBlock, finish, addPlan, refreshPlan, migrateGooglePlan,
-    setActivePlan, renamePlan, removePlan, updateSource, setSyncStatus, restoreData, clearError: () => setError(null) }}>{children}</AppContext.Provider>;
+  return <AppContext.Provider value={{ data, error, start, updateBlock, correctSessionLoad, finish, addPlan, refreshPlan, migrateGooglePlan,
+    setActivePlan, renamePlan, removePlan, updateSource, setSyncStatus, setSessionSync, applySourceLoads,
+    restoreData, clearError: () => setError(null) }}>{children}</AppContext.Provider>;
 }
 
 export function useApp() {

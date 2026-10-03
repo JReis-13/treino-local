@@ -5,11 +5,14 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "@/components/app-provider";
 import { durationMinutes, isLocalDate, localDateString } from "@/lib/dates";
+import { sameDaySessions } from "@/lib/training/session";
 
 export default function FinishPage() {
   const router = useRouter();
   const { data, error, finish } = useApp();
   const [date, setDate] = useState("");
+  const [showDuplicate, setShowDuplicate] = useState(false);
+  const [replaceId, setReplaceId] = useState("");
   const dateEdited = useRef(false);
   useEffect(() => {
     const refresh = () => { if (!dateEdited.current) setDate(localDateString()); };
@@ -30,14 +33,24 @@ export default function FinishPage() {
   }));
   const duration = durationMinutes(session.startedAt, new Date().toISOString());
 
-  function save() { if (finish(session!.id, dateEdited.current ? date : localDateString())) router.push("/history/"); }
+  const duplicates = isLocalDate(date) ? sameDaySessions(data, session.id, date) : [];
+  function save(choice: "normal" | "add" | "replace" = "normal") {
+    const saveDate = dateEdited.current ? date : localDateString();
+    const matches = sameDaySessions(data!, session!.id, saveDate);
+    if (choice === "normal" && matches.length) { setDate(saveDate); setReplaceId(matches[0].id); setShowDuplicate(true); return; }
+    if (finish(session!.id, saveDate, choice, replaceId || undefined)) router.push("/history/");
+  }
 
   return <div className="page-stack"><Link className="back-link" href={`/workout/?id=${encodeURIComponent(session.workoutId)}`}>← Back to workout</Link><div className="page-heading"><p className="eyebrow">SESSION SUMMARY · {plan?.name}</p><h1>Nice work.</h1><p>Review your session before saving it to this device.</p></div>
     {error && <div className="alert" role="alert">{error}</div>}
     <div className="summary-card"><div className="summary-top"><span>{session.workoutSnapshot.title}</span><span className="summary-badge">READY TO SAVE</span></div><div className="summary-stats"><div><small>STARTED</small><strong>{new Date(session.startedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</strong></div><div><small>DURATION</small><strong>{duration ?? "—"} min</strong></div><div><small>COMPLETED</small><strong>{completed} / {session.blocks.length}</strong></div></div></div>
-    <label className="date-field"><span>WORKOUT DATE <small>your local date</small></span><input type="date" value={date} onChange={(event) => { dateEdited.current = true; setDate(event.target.value); }} /></label>
+    <label className="date-field"><span>WORKOUT DATE <small>your local date</small></span><input type="date" value={date} onChange={(event) => { dateEdited.current = true; setDate(event.target.value); setShowDuplicate(false); }} /></label>
     <section className="loads-summary"><div className="section-heading"><div><p className="eyebrow">THIS SESSION</p><h2>Loads used</h2></div><span className="section-count">{loads.length} ENTERED</span></div>{loads.length ? <div className="load-list">{loads.map((item) => <div key={item.name}><span>{item.name}</span><strong>{item.load}</strong></div>)}</div> : <p className="quiet-note">No actual loads entered. You can still save this workout.</p>}</section>
     {completed < session.blocks.length && <p className="quiet-note">You completed {completed} of {session.blocks.length} blocks. Save when you’re done with your planned session.</p>}
-    <button type="button" className="primary-button" disabled={!isLocalDate(date)} onClick={save}>Save workout <span>→</span></button><p className="quiet-note centered">Saved locally first. Source sync can happen later.</p>
+    <button type="button" className="primary-button" disabled={!isLocalDate(date)} onClick={() => save()}>Save workout <span>→</span></button><p className="quiet-note centered">Saved locally first. Source sync can happen later.</p>
+    {showDuplicate && <div className="dialog-backdrop"><section className="decision-sheet" role="dialog" aria-modal="true" aria-labelledby="duplicate-title"><p className="eyebrow">SAME DAY</p><h2 id="duplicate-title">You already saved {session.workoutSnapshot.title} today.</h2><p>Keep another session, or replace one saved today. Your local history stays safe.</p>
+      {duplicates.length > 1 && <label className="date-field"><span>SESSION TO REPLACE</span><select value={replaceId} onChange={(event) => setReplaceId(event.target.value)}>{duplicates.map((item) => <option key={item.id} value={item.id}>{new Date(item.completedAt!).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} · {item.blocks.filter((block) => block.completed).length} done</option>)}</select></label>}
+      <button type="button" className="primary-button" onClick={() => save("add")}>Add another workout</button><button type="button" className="secondary-button" onClick={() => save("replace")}>Replace previous workout</button><button type="button" className="secondary-button" onClick={() => setShowDuplicate(false)}>Cancel</button>
+    </section></div>}
   </div>;
 }

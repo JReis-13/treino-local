@@ -32,12 +32,14 @@ export default function PlansPage() {
   const [sheetUrl, setSheetUrl] = useState("");
   const [connected, setConnected] = useState(false);
   const [directAvailable, setDirectAvailable] = useState(false);
+  const [stage, setStage] = useState<"library" | "choose" | "google" | "review">("library");
 
   useEffect(() => {
     setDirectAvailable(Boolean(window.isSecureContext && (window as PickerWindow).showOpenFilePicker));
     googleStatus().then((status) => setConnected(status.connected)).catch(() => setConnected(false));
     const result = new URLSearchParams(window.location.search).get("google");
     if (result) {
+      setStage("google");
       setMessage(result === "connected" ? "Google connected. Paste a Google Sheets URL to import training." :
         result === "denied" ? "Google authorization was cancelled." :
         result === "unauthorized" ? "Esta conta Google não está autorizada a usar a integração Google do Treino Local." :
@@ -65,6 +67,7 @@ export default function PlansPage() {
       const matching = data?.plans.find((plan) => plan.source.kind === "excel" && plan.source.filename === file.name);
       const chosen = refreshId ?? matching?.id;
       setPreview({ imported, targetId: chosen, handle });
+      setStage("review"); window.scrollTo(0, 0);
       setName(chosen ? data?.plans.find((plan) => plan.id === chosen)?.name ?? imported.name : imported.name);
       setMessage("Training imported. Review the summary before using it.");
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Could not read the workbook."); }
@@ -99,6 +102,7 @@ export default function PlansPage() {
       }
       const migration = Boolean(refreshId && old?.source.kind === "google" && old.source.authMode !== "oauth");
       setPreview({ imported, targetId: chosen, migration }); setName(old?.name ?? imported.name);
+      setStage("review"); window.scrollTo(0, 0);
       setMessage(migration ? "Legacy plan matched. Review and reconnect without losing its local history." : "Training imported. Review it before using it.");
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Could not import Google Sheet."); }
     finally { setBusy(false); }
@@ -108,7 +112,7 @@ export default function PlansPage() {
     if (plan.source.authMode === "oauth" && plan.source.spreadsheetId && plan.source.sourceProof && plan.sourceFingerprint) {
       setBusy(true); setMessage("Refreshing spreadsheet…");
       try { const { imported } = await refreshGoogleSheet(plan.source.spreadsheetId, plan.sourceFingerprint, plan.source.sourceProof);
-        setPreview({ imported, targetId: plan.id }); setName(plan.name); setMessage("Updated training ready for review."); }
+        setPreview({ imported, targetId: plan.id }); setName(plan.name); setStage("review"); window.scrollTo(0, 0); setMessage("Updated training ready for review."); }
       catch (cause) { setMessage(cause instanceof Error ? cause.message : "Could not refresh spreadsheet."); }
       finally { setBusy(false); }
       return;
@@ -116,6 +120,7 @@ export default function PlansPage() {
     if (plan.source.authMode === "oauth" && plan.source.sheetUrl) { await importGoogle(plan.id, plan.source.sheetUrl); return; }
     sessionStorage.setItem("treino-google-migration-id", plan.id);
     setMigrationId(plan.id);
+    setStage("google");
     setSheetUrl(plan.source.sheetUrl ?? (plan.source.spreadsheetId ? `https://docs.google.com/spreadsheets/d/${plan.source.spreadsheetId}/edit` : ""));
     setMessage("This plan uses the legacy Google connector. Connect Google and paste the same Sheet URL to migrate it. Local workouts remain usable.");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -143,9 +148,11 @@ export default function PlansPage() {
   const activationBlocked = preview?.imported.warnings.some((warning) => warning.severity === "activationBlocker") ?? false;
   const syncBlocked = preview?.imported.warnings.some((warning) => warning.severity === "syncBlocker") ?? false;
   const notes = preview?.imported.warnings.filter((warning) => warning.severity !== "info") ?? [];
-  return <div className="page-stack"><div className="page-heading"><p className="eyebrow">TRAINING PLAN LIBRARY</p><h1>Training plans<span className="dot-accent">.</span></h1><p>Import once, switch any time. Your completed sessions stay with the plan used.</p></div>
+  return <div className={`page-stack plans-page stage-${stage}`}><div className="page-heading"><p className="eyebrow">TRAINING PLAN LIBRARY</p><h1>{stage === "library" ? "Training plans" : stage === "choose" ? "Add training" : stage === "google" ? "Google Sheet" : "Import review"}<span className="dot-accent">.</span></h1><p>{stage === "library" ? "Import once, switch any time. Your completed sessions stay with the plan used." : stage === "review" ? "Check the training before saving it on this device." : "Choose and import a training source."}</p></div>
+    {stage !== "library" && <button type="button" className="inline-action" onClick={() => { setStage(stage === "review" ? "choose" : "library"); setPreview(null); setMessage(""); }}>← Back</button>}
     {(message || error) && <div className={error ? "alert" : "context-note"} role="status">{error ?? message}</div>}
-    <div className="source-choice"><div className="source-choice-card"><strong>Google Sheets</strong><span>Connect your Google account, then paste the URL of a Sheet you can access.</span></div><div className="source-choice-card"><strong>Excel file</strong><span>Choose a local .xlsx workbook. Direct updates are used when this browser supports them.</span><button type="button" className="inline-action" disabled={busy} onClick={() => void selectExcel()}>Choose workbook →</button>{directAvailable && <button type="button" className="inline-action" disabled={busy} onClick={() => { setTargetId(undefined); inputRef.current?.click(); }}>Import as safe copy</button>}</div></div>
+    <section className="connection-card compact-google"><div><p className="eyebrow">GOOGLE SHEETS</p><strong>{connected ? "✓ Connected" : "Not connected"}</strong></div><button type="button" className="primary-button" onClick={() => { setStage("choose"); window.scrollTo(0, 0); }}>{connected ? "+ Add training" : "Connect or add training"}</button></section>
+    <div className="source-choice"><div className="source-choice-card"><strong>Google Sheets</strong><span>Paste a Sheet URL you can access.</span><button type="button" className="primary-button" onClick={() => { setStage("google"); window.scrollTo(0, 0); }}>Use Google Sheets →</button></div><div className="source-choice-card"><strong>Excel file</strong><span>Choose a local .xlsx workbook.</span><button type="button" className="primary-button" disabled={busy} onClick={() => void selectExcel()}>Choose workbook →</button>{directAvailable && <button type="button" className="inline-action" disabled={busy} onClick={() => { setTargetId(undefined); inputRef.current?.click(); }}>Import as safe copy</button>}</div></div>
     <section className="connection-card connector-form"><p className="eyebrow">GOOGLE SHEETS</p><h2>{connected ? "Google account connected" : "Connect Google"}</h2>
       {!connected ? <button type="button" className="primary-button" onClick={() => connectGoogle("/plans")}>{message.includes("não está autorizada") ? "Tentar outra conta Google →" : "Connect Google →"}</button> : <>
         {migrationId && <p className="context-note">Reconnect legacy plan: {data.plans.find((plan) => plan.id === migrationId)?.name}. Use its original Sheet URL.</p>}
@@ -162,8 +169,8 @@ export default function PlansPage() {
       {preview.targetId && <div className="context-note"><strong>{preview.migration ? "Legacy migration" : "Update option"}</strong><span>{preview.migration ? "Plan ID, version and local sessions are preserved." : describeChanges(data.plans.find((plan) => plan.id === preview.targetId)!, preview.imported).join(" · ")}</span></div>}
       {activationBlocked ? <p className="alert">Workout content could not be identified safely. Activation is blocked.</p> : <div className="review-actions"><button type="button" className="primary-button" disabled={busy} onClick={() => void commitPreview(preview.targetId)}>{preview.migration ? "Reconnect existing plan" : preview.targetId ? "Update this training" : "Use this training"} →</button>{preview.targetId && !preview.migration && <button type="button" className="secondary-button" disabled={busy} onClick={() => void commitPreview()}>Add as new training</button>}</div>}
     </section>}
-    <div className="section-heading"><div><p className="eyebrow">ON THIS DEVICE</p><h2>Saved plans</h2></div><span className="section-count">{data.plans.length} PLANS</span></div>
-    {data.plans.length ? <div className="plan-list">{data.plans.map((plan) => <article className="plan-row" key={plan.id}><div><p className="eyebrow">{plan.id === active?.id ? "ACTIVE TRAINING" : plan.source.kind.toUpperCase()}</p><h3>{plan.name}</h3><p className="quiet-note">{plan.workouts.length} workouts · version {plan.version} · updated {new Date(plan.updatedAt).toLocaleDateString()} · {plan.source.kind}</p>{plan.source.kind === "google" && plan.source.authMode !== "oauth" && <p className="context-note">This plan uses the legacy Google connector. Local training remains available. Reconnect with Google to resume sync.</p>}</div><div className="plan-actions"><button type="button" onClick={() => { if (setActivePlan(plan.id)) router.push("/"); }}>Use this training</button><button type="button" onClick={() => plan.source.kind === "google" ? void refreshGoogle(plan) : plan.source.kind === "excel" ? void refreshExcel(plan) : setMessage("This built-in plan has no external source to refresh.")}>{plan.source.kind === "google" && plan.source.authMode !== "oauth" ? "Reconnect with Google" : "Refresh training"}</button><button type="button" onClick={() => { const next = window.prompt("New local training name", plan.name); if (next !== null) renamePlan(plan.id, next); }}>Rename locally</button><button type="button" onClick={() => void remove(plan)}>Remove from this device</button></div></article>)}</div> : <p className="quiet-note">No plans yet. Connect Google or import an Excel file above.</p>}
+    <div className="library-content"><div className="section-heading"><div><p className="eyebrow">ON THIS DEVICE</p><h2>Saved plans</h2></div><span className="section-count">{data.plans.length} PLANS</span></div>
+    {data.plans.length ? <div className="plan-list">{data.plans.map((plan) => <article className="plan-row" key={plan.id}><div><p className="eyebrow">{plan.id === active?.id ? "ACTIVE TRAINING" : plan.source.kind.toUpperCase()}</p><h3>{plan.name}</h3><p className="quiet-note">{plan.workouts.length} workouts · version {plan.version} · updated {new Date(plan.updatedAt).toLocaleDateString()} · {plan.source.kind}</p>{plan.source.kind === "google" && plan.source.authMode !== "oauth" && <p className="context-note">This plan uses the legacy Google connector. Local training remains available. Reconnect with Google to resume sync.</p>}</div><div className="plan-actions"><button type="button" onClick={() => { if (setActivePlan(plan.id)) router.push("/"); }}>Use this training</button><button type="button" onClick={() => plan.source.kind === "google" ? void refreshGoogle(plan) : plan.source.kind === "excel" ? void refreshExcel(plan) : setMessage("This built-in plan has no external source to refresh.")}>{plan.source.kind === "google" && plan.source.authMode !== "oauth" ? "Reconnect with Google" : "Refresh training"}</button><button type="button" onClick={() => { const next = window.prompt("New local training name", plan.name); if (next !== null) renamePlan(plan.id, next); }}>Rename locally</button><button type="button" onClick={() => void remove(plan)}>Remove from this device</button></div></article>)}</div> : <p className="quiet-note">No plans yet. Add a Google Sheet or Excel file above.</p>}</div>
     <Link className="back-link" href="/">← Home</Link>
   </div>;
 }
