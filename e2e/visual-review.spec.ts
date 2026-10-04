@@ -32,7 +32,7 @@ test("phone screens stay compact and readable through the gym flow", async ({ pa
     await capture("plans-active");
     await page.getByRole("link", { name: "Home", exact: true }).tap();
     await page.getByRole("button", { name: "Start workout" }).first().tap();
-    await expect(page.locator(".workout-title h1")).toBeInViewport();
+    await expect(page.locator(".active-workout-header h1")).toBeInViewport();
     await capture("workout");
     const normalViewport = page.viewportSize()!;
     await page.setViewportSize({ ...normalViewport, height: 440 });

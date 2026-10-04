@@ -106,3 +106,15 @@ Use a disposable workout. The source plan is authoritative; queue and skip actio
 23. Verify a grouped pair moves together while its two loads and completion states remain separate.
 24. Verify Google Sheet and Excel source order are unchanged, with no new plan version.
 25. Check 320px, Pixel-sized and iPhone-sized layouts, safe area, long names, video fallback and phone Back from Focus to List.
+
+## Compact workout and Friends phone check
+
+Use two allowlisted Google accounts and disposable workouts. Open Settings → Friends on both phones once to provision their social identities. Keep any source-write test on a disposable Sheet/Excel copy.
+
+1. Open List and Focus and confirm the same compact workout header, progress, elapsed time and List/Focus switch. Check that Mark complete has a comfortable normal-button height.
+2. Edit a load, complete one exercise, skip another, move a third later and start a rest timer. Open the workout overflow → Cancel workout, choose Keep workout, and verify all draft state remains.
+3. Open Cancel workout again and confirm. Verify Home has no active workout, the timer is gone, History has no new entry, the plan and older History remain, and the next start uses the original plan state. Confirm no Google/Excel completion or social activity was published.
+4. In Friends settings, have A request B's Google email and B accept. Confirm the setting to share completed workouts is initially off.
+5. A enables sharing and saves a disposable workout. B opens or foregrounds Home, sees A's latest workout name/date/duration/count, and reacts 🔥. A refreshes Home and sees B's reaction.
+6. Verify B cannot see exercise loads, notes or source details. Remove the friendship and confirm the shared workout disappears on B's next Home refresh.
+7. Repeat a local workout save while offline. Confirm History saves normally and the small social summary appears after reconnecting and opening Home, without a duplicate.

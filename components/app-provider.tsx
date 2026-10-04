@@ -2,19 +2,21 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { addTraining, migrateGoogleTraining, refreshTraining, removeTraining, renameTraining } from "@/lib/training/library";
-import { finishTrainingSession, moveTrainingBlockLater, restoreTrainingQueue, sameDaySessions, setTrainingFocus, skipTrainingBlock, startTrainingSession, updateTrainingBlock } from "@/lib/training/session";
+import { cancelTrainingSession, finishTrainingSession, moveTrainingBlockLater, restoreTrainingQueue, sameDaySessions, setTrainingFocus, skipTrainingBlock, startTrainingSession, updateTrainingBlock } from "@/lib/training/session";
 import { changedLoads } from "@/lib/training/loads";
 import { normalizeLoad } from "@/lib/training/loads";
 import { withSyncStatus } from "@/lib/training/sync-state";
 import { updateExerciseNote } from "@/lib/training/exercise-notes";
 import { extendRest, pauseRest, resumeRest, skipRest, startRest } from "@/lib/training/rest-timer";
 import { trainingStorage } from "@/lib/training/storage";
+import { flushSocialOutbox, queueSocialActivity } from "@/lib/social/client";
 import type { ImportedTraining, SourceSyncStatus, TrainingData, TrainingSession, TrainingSource } from "@/types/training";
 
 interface AppContextValue {
   data: TrainingData | null;
   error: string | null;
   start(planId: string, workoutId: string): TrainingSession | null;
+  cancel(sessionId: string): boolean;
   updateBlock(sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }): void;
   moveBlockLater(sessionId: string, blockId: string): void;
   restoreQueue(sessionId: string, queueOrder: string[], focusBlockId?: string): void;
@@ -58,6 +60,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (loaded.error) setError(loaded.error);
   }, []);
 
+  useEffect(() => {
+    const retry = () => { if (document.visibilityState === "visible") void flushSocialOutbox(); };
+    window.addEventListener("online", retry);
+    document.addEventListener("visibilitychange", retry);
+    return () => { window.removeEventListener("online", retry); document.removeEventListener("visibilitychange", retry); };
+  }, []);
+
   const commit = useCallback((change: (current: TrainingData) => TrainingData): boolean => {
     if (!dataRef.current) return false;
     if (storageBlocked.current) {
@@ -84,6 +93,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return commit(() => ({ ...result.data, restTimer: result.data.restTimer?.sessionId === result.session.id ? result.data.restTimer : undefined })) ? result.session : null;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not start workout."); return null; }
   }, [commit]);
+
+  const cancel = useCallback((sessionId: string) => commit((current) => cancelTrainingSession(current, sessionId)), [commit]);
 
   const updateBlock = useCallback((sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }) => {
     commit((current) => updateTrainingBlock(current, sessionId, blockId, change));
@@ -147,6 +158,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!saved) return false;
     const completedId = choice === "replace" ? previous?.id ?? sessionId : sessionId;
     const session = dataRef.current?.sessions.find((item) => item.id === completedId);
+    if (session?.status === "completed") queueSocialActivity(session);
     const plan = dataRef.current?.plans.find((item) => item.id === session?.planId);
     const source = plan?.source;
     if (plan && session?.status === "completed" && source?.kind === "google" && source.syncEnabled &&
@@ -264,7 +276,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not restore local data."); return false; }
   }, []);
 
-  return <AppContext.Provider value={{ data, error, start, updateBlock, moveBlockLater, restoreQueue, skipBlock, setFocus, correctSessionLoad, finish,
+  return <AppContext.Provider value={{ data, error, start, cancel, updateBlock, moveBlockLater, restoreQueue, skipBlock, setFocus, correctSessionLoad, finish,
     saveExerciseNote, startRestTimer, pauseRestTimer, resumeRestTimer, extendRestTimer, skipRestTimer,
     addPlan, refreshPlan, migrateGooglePlan,
     setActivePlan, renamePlan, removePlan, updateSource, setSyncStatus, setSessionSync, applySourceLoads,

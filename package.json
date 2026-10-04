@@ -3,7 +3,9 @@
   "version": "0.2.0",
   "private": true,
   "packageManager": "pnpm@10.34.6",
-  "engines": { "node": "24.x" },
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "next dev",
     "dev:lan": "node scripts/dev-lan.mjs",
@@ -13,13 +15,18 @@
     "typecheck": "tsc --noEmit",
     "test": "node scripts/run-tests.mjs",
     "test:excel": "node scripts/run-tests.mjs --excel",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "db:check": "node scripts/social-db.mjs check",
+    "db:migrate": "node scripts/social-db.mjs migrate",
+    "db:smoke": "node scripts/social-db.mjs smoke",
+    "db:integration": "node scripts/social-integration.mjs"
   },
   "dependencies": {
     "fast-xml-parser": "^5.2.5",
     "google-auth-library": "^11.1.0",
     "jszip": "^3.10.1",
     "next": "^16.3.7",
+    "postgres": "^3.4.9",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

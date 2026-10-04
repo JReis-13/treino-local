@@ -30,6 +30,14 @@ export function startTrainingSession(data: TrainingData, planId: string, workout
   return { data: { ...data, sessions: [session, ...data.sessions] }, session };
 }
 
+export function cancelTrainingSession(data: TrainingData, sessionId: string): TrainingData {
+  if (!data.sessions.some((session) => session.id === sessionId && session.status === "inProgress")) {
+    throw new Error("No in-progress workout was found.");
+  }
+  return { ...data, sessions: data.sessions.filter((session) => session.id !== sessionId),
+    restTimer: data.restTimer?.sessionId === sessionId ? undefined : data.restTimer };
+}
+
 export function updateTrainingBlock(data: TrainingData, sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }): TrainingData {
   return { ...data, sessions: data.sessions.map((session) => session.id === sessionId && session.status === "inProgress"
     ? (() => {

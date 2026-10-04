@@ -6,6 +6,7 @@ import { useApp } from "@/components/app-provider";
 import { formatLocalDate } from "@/lib/dates";
 import { activePlan } from "@/lib/training/session";
 import type { TrainingWorkout } from "@/types/training";
+import { SocialHomeCard } from "@/components/social-home-card";
 
 export default function HomePage() {
   const router = useRouter();
@@ -14,6 +15,7 @@ export default function HomePage() {
   const plan = activePlan(data);
   if (!plan) return <div className="page-stack home-page"><section className="hero"><p className="eyebrow">YOUR TRAINING STARTS HERE</p><h1>Choose your<br /><em>training.</em></h1><p>Import once. Your workouts and progress stay on this device for everyday use.</p></section>
     {error && <div className="alert" role="alert">{error}</div>}
+    <SocialHomeCard />
     <div className="source-choice"><Link className="source-choice-card" href="/plans/?source=google"><strong>Connect Google Sheet</strong><span>Connect your Google account, then paste each training Sheet URL.</span><b>Continue →</b></Link><Link className="source-choice-card" href="/plans/?source=excel"><strong>Import Excel file</strong><span>Choose an .xlsx workbook from this device.</span><b>Continue →</b></Link></div></div>;
   const own = data.sessions.filter((session) => session.planId === plan.id && session.status === "completed");
   const legacy = plan.legacyCompletions.filter((entry) => !own.some((session) => session.workoutId === entry.workoutId && session.localDate === entry.date));
@@ -39,5 +41,6 @@ export default function HomePage() {
     </article>)}</div>
     <div className="overview-grid"><Link className="mini-panel" href="/history/"><span className="mini-icon">◷</span><span className="mini-label">HISTORY</span><strong>{latest ? latest.workoutSnapshot.title : legacy.length ? "Imported workouts" : "No sessions yet"}</strong><small>{latest?.localDate ? formatLocalDate(latest.localDate) : `${legacy.length} source dates`}</small></Link>
       <Link className="mini-panel" href="/source/"><span className="mini-icon">▦</span><span className="mini-label">SOURCE STATUS</span><strong>{plan.source.kind === "google" ? "Google Sheets" : plan.source.kind === "excel" ? "Excel file" : "Local plan"}</strong><small>{waiting} workout{waiting === 1 ? "" : "s"} waiting to sync</small></Link></div>
+    <SocialHomeCard />
   </div>;
 }

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createBackup, parseBackup } from "../lib/training/backup";
 import { currentFocusId, remainingExerciseOrder, sessionExerciseOrder } from "../lib/training/queue";
-import { finishTrainingSession, moveTrainingBlockLater, restoreTrainingQueue, setTrainingFocus, skipTrainingBlock, startTrainingSession, updateTrainingBlock } from "../lib/training/session";
+import { cancelTrainingSession, finishTrainingSession, moveTrainingBlockLater, restoreTrainingQueue, setTrainingFocus, skipTrainingBlock, startTrainingSession, updateTrainingBlock } from "../lib/training/session";
+import { startRest } from "../lib/training/rest-timer";
 import { parseTrainingData } from "../lib/training/storage";
 import { historyEntries, loadProgression, statsOverview } from "../lib/training/statistics";
 import { shareSummaryFromSession } from "../lib/training/share-summary";
@@ -16,6 +17,27 @@ const plan: TrainingPlanRecord = { id: "p", name: "Plan", source: { kind: "built
 const base = (): TrainingData => ({ schemaVersion: 5, plans: [structuredClone(plan)], activePlanId: "p", sessions: [], exerciseNotes: [] });
 const start = () => startTrainingSession(base(), "p", "w", new Date("2026-10-03T08:00:00Z"), "s").data;
 const active = (data: TrainingData) => data.sessions.find((session) => session.id === "s")!;
+
+test("cancel discards only the active draft and timer, preserving plan, notes and completed history", () => {
+  const before = finishTrainingSession(start(), "s", "2026-10-03", new Date("2026-10-03T08:40:00Z"));
+  let data = startTrainingSession(before, "p", "w", new Date("2026-10-04T08:00:00Z"), "draft").data;
+  data = updateTrainingBlock(data, "draft", "A", { actualLoad: "22", completed: true });
+  data = skipTrainingBlock(data, "draft", "B", true);
+  data = moveTrainingBlockLater(data, "draft", "C");
+  data = startRest(data, "draft", 120);
+  const cancelled = cancelTrainingSession(data, "draft");
+  assert.equal(cancelled.sessions.length, 1);
+  assert.equal(cancelled.sessions[0].status, "completed");
+  assert.equal(cancelled.restTimer, undefined);
+  assert.deepEqual(cancelled.plans, before.plans);
+  assert.deepEqual(cancelled.exerciseNotes, before.exerciseNotes);
+  assert.deepEqual(cancelled.sessions[0], before.sessions[0]);
+  const restarted = startTrainingSession(cancelled, "p", "w", new Date("2026-10-04T09:00:00Z"), "fresh").session;
+  assert.equal(restarted.blocks[0].actualLoad, "5");
+  assert.equal(restarted.blocks.every((block) => !block.completed && !block.skipped), true);
+  assert.deepEqual(restarted.queueOrder, ids);
+  assert.throws(() => cancelTrainingSession(cancelled, "draft"));
+});
 
 test("session queue moves only today's pending exercise and preserves future plan order", () => {
   let data = start();

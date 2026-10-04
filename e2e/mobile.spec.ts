@@ -260,7 +260,8 @@ test("PWA update prompt cannot reload an in-progress workout", async ({ page }) 
   await expect(page.getByText(/reload after your workout/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Reload" })).toBeDisabled();
   await page.reload();
-  await expect(page.getByText(/IN PROGRESS/).first()).toBeVisible();
+  await expect(page.locator(".active-workout-header h1")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2") ?? "{}").sessions?.some((session: { status: string }) => session.status === "inProgress"))).toBe(true);
 });
 
 test("fresh mobile user connects, imports by Sheet URL, finishes locally and syncs", async ({ page }, testInfo) => {
