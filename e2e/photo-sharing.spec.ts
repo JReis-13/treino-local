@@ -132,6 +132,53 @@ test("invalid, unreadable, and oversized selections return to the normal card", 
   await expect(page.getByRole("button", { name: /Download card|Save image/i })).toHaveCount(0);
 });
 
+test("one tap makes one activation-safe image share attempt and a fresh tap retries as text", async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = window as unknown as { shareAttempts: Array<{ active: boolean; text: string; fileType?: string; fileSize?: number; signature?: number[] }>; capabilityChecks: Array<{ files: boolean; text: string }>; shareMode: "reject" | "fileOnly" };
+    state.shareAttempts = []; state.capabilityChecks = []; state.shareMode = "reject";
+    Object.defineProperty(navigator, "canShare", { configurable: true, value: (data: ShareData) => {
+      state.capabilityChecks.push({ files: Boolean(data.files?.length), text: data.text ?? "" });
+      return Boolean(data.files?.length && (state.shareMode === "fileOnly" ? !data.text : data.text));
+    } });
+    Object.defineProperty(navigator, "share", { configurable: true, value: async (data: ShareData) => {
+      const file = data.files?.[0];
+      const active = navigator.userActivation.isActive;
+      const signature = file ? Array.from(new Uint8Array(await file.slice(0, 8).arrayBuffer())) : undefined;
+      state.shareAttempts.push({ active, text: data.text ?? "", fileType: file?.type, fileSize: file?.size, signature });
+      if (file && state.shareMode === "reject") throw new DOMException("Image target rejected", "NotAllowedError");
+    } });
+  });
+  await importPlan(page);
+  await completeWorkout(page);
+  await choosePhoto(page, await raster(page, 700, 900, "#2859bb"), "activation.png");
+  await page.getByRole("textbox", { name: /MESSAGE/ }).fill("Edited workout text 💪");
+  await page.getByRole("button", { name: "Share workout" }).tap();
+  await expect(page.getByRole("button", { name: "Share text instead" })).toBeVisible();
+  let state = await page.evaluate(() => ({ attempts: (window as unknown as { shareAttempts: unknown[] }).shareAttempts,
+    checks: (window as unknown as { capabilityChecks: unknown[] }).capabilityChecks }));
+  expect(state.attempts).toHaveLength(1);
+  expect(state.attempts[0]).toMatchObject({ active: true, text: "Edited workout text 💪", fileType: "image/png", signature: [137, 80, 78, 71, 13, 10, 26, 10] });
+  expect((state.attempts[0] as { fileSize: number }).fileSize).toBeGreaterThan(1000);
+  expect(state.checks[0]).toEqual({ files: true, text: "Edited workout text 💪" });
+  await page.getByRole("button", { name: "Share text instead" }).tap();
+  state = await page.evaluate(() => ({ attempts: (window as unknown as { shareAttempts: unknown[] }).shareAttempts,
+    checks: (window as unknown as { capabilityChecks: unknown[] }).capabilityChecks }));
+  expect(state.attempts).toHaveLength(2);
+  expect(state.attempts[1]).toMatchObject({ active: true, text: "Edited workout text 💪" });
+  expect((state.attempts[1] as { fileType?: string }).fileType).toBeUndefined();
+  await expect(page.getByText("Share sheet closed. Your workout remains saved.")).toBeVisible();
+  await page.evaluate(() => { (window as unknown as { shareMode: string }).shareMode = "fileOnly"; });
+  await choosePhoto(page, await raster(page, 800, 700, "#238e62"), "file-only.png");
+  await page.getByRole("button", { name: "Share workout" }).tap();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { shareAttempts: unknown[] }).shareAttempts.length)).toBe(3);
+  state = await page.evaluate(() => ({ attempts: (window as unknown as { shareAttempts: unknown[] }).shareAttempts,
+    checks: (window as unknown as { capabilityChecks: unknown[] }).capabilityChecks }));
+  expect(state.attempts).toHaveLength(3);
+  expect(state.attempts[2]).toMatchObject({ active: true, text: "", fileType: "image/png" });
+  expect(state.checks.slice(-2)).toEqual([{ files: true, text: "Edited workout text 💪" }, { files: true, text: "" }]);
+  await expect(page.getByText("Image sharing opened. This device could not include the workout text.")).toBeVisible();
+});
+
 test("photo processing bounds large dimensions and honors browser EXIF orientation", async ({ page }) => {
   await page.goto("/");
   const source = await readFile(resolve("lib/training/share-photo.ts"), "utf8");

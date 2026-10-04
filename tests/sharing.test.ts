@@ -84,18 +84,46 @@ test("card has fixed square dimensions, escapes untrusted names, and omits unava
 test("native image and text, text-only, cancellation and unsupported-share behavior", async () => {
   const file = new File(["image"], "card.png", { type: "image/png" });
   const calls: unknown[] = [];
-  assert.equal(await shareWorkout("edited", file, { canShare: () => true, share: async (data) => { calls.push(data); } }), "shared");
+  assert.equal(await shareWorkout("edited", file, { canShare: () => true, share: async (data) => { calls.push(data); } }), "sharedImage");
   assert.deepEqual(calls[0], { files: [file], text: "edited" });
-  assert.equal(await shareWorkout("text", file, { canShare: () => false, share: async (data) => { calls.push(data); } }), "shared");
+  assert.equal(await shareWorkout("text", file, { canShare: () => false, share: async (data) => { calls.push(data); } }), "sharedText");
   assert.deepEqual(calls[1], { text: "text" });
   let attempts = 0;
   assert.equal(await shareWorkout("retry", file, { canShare: () => true, share: async (data) => {
     attempts++;
     if (data.files) throw new Error("Image attachment unsupported");
-  } }), "shared");
-  assert.equal(attempts, 2);
+  } }), "imageFailed");
+  assert.equal(attempts, 1);
   assert.equal(await shareWorkout("cancel", file, { share: async () => { throw new DOMException("Cancel", "AbortError"); } }), "cancelled");
   assert.equal(await shareWorkout("error", file, { share: async () => { throw new Error("Unavailable"); } }), "failed");
-  assert.equal(await shareWorkout("error", file, { canShare: () => { throw new Error("bad"); }, share: async () => {} }), "shared");
+  assert.equal(await shareWorkout("error", file, { canShare: () => { throw new Error("bad"); }, share: async () => {} }), "sharedText");
   assert.equal(await shareWorkout("none", undefined, {}), "unsupported");
+});
+
+test("a rejected image share never retries native sharing after the tap is consumed", async () => {
+  const file = new File(["image"], "card.png", { type: "image/png" });
+  const calls: ShareData[] = [];
+  const result = await shareWorkout("Edited message", file, {
+    canShare: (data) => Boolean(data.files?.length),
+    share: async (data) => {
+      calls.push(data);
+      if (calls.length === 1) throw new DOMException("Target rejected image", "NotAllowedError");
+      throw new DOMException("User activation was consumed", "NotAllowedError");
+    },
+  });
+  assert.equal(result, "imageFailed");
+  assert.deepEqual(calls, [{ files: [file], text: "Edited message" }]);
+});
+
+test("file-only native support keeps the photo when the target rejects files plus text", async () => {
+  const file = new File(["image"], "card.png", { type: "image/png" });
+  const checks: ShareData[] = [];
+  const calls: ShareData[] = [];
+  const result = await shareWorkout("Edited message", file, {
+    canShare: (data) => { checks.push(data); return Boolean(data.files?.length && !data.text); },
+    share: async (data) => { calls.push(data); },
+  });
+  assert.equal(result, "sharedImageOnly");
+  assert.deepEqual(checks, [{ files: [file], text: "Edited message" }, { files: [file] }]);
+  assert.deepEqual(calls, [{ files: [file] }]);
 });

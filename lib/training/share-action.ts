@@ -1,4 +1,4 @@
-export type ShareResult = "shared" | "cancelled" | "unsupported" | "failed";
+export type ShareResult = "sharedImage" | "sharedImageOnly" | "sharedText" | "imageFailed" | "cancelled" | "unsupported" | "failed";
 
 export interface ShareCapabilities {
   share?: (data: ShareData) => Promise<void>;
@@ -10,16 +10,20 @@ function cancelled(error: unknown): boolean {
     typeof error === "object" && error !== null && "name" in error && error.name === "AbortError";
 }
 
-/** Calls native share before the first await, preserving the tap's user activation. */
+/** Exactly one native share call per tap: a failed share consumes transient activation. */
 export async function shareWorkout(text: string, file: File | undefined, capabilities: ShareCapabilities): Promise<ShareResult> {
   if (!capabilities.share) return "unsupported";
-  let filesSupported = false;
-  try { filesSupported = Boolean(file && capabilities.canShare?.({ files: [file] })); }
-  catch { filesSupported = false; }
-  if (file && filesSupported) {
-    try { await capabilities.share({ files: [file], text }); return "shared"; }
-    catch (error) { if (cancelled(error)) return "cancelled"; }
+  let imagePayload: ShareData | undefined;
+  if (file && file.size > 0 && file.type === "image/png") {
+    try { if (capabilities.canShare?.({ files: [file], text })) imagePayload = { files: [file], text }; }
+    catch { /* File-only capability may still work. */ }
+    if (!imagePayload) try { if (capabilities.canShare?.({ files: [file] })) imagePayload = { files: [file] }; }
+    catch { /* Use text-only sharing below. */ }
   }
-  try { await capabilities.share({ text }); return "shared"; }
+  if (imagePayload) {
+    try { await capabilities.share(imagePayload); return imagePayload.text === undefined ? "sharedImageOnly" : "sharedImage"; }
+    catch (error) { return cancelled(error) ? "cancelled" : "imageFailed"; }
+  }
+  try { await capabilities.share({ text }); return "sharedText"; }
   catch (error) { return cancelled(error) ? "cancelled" : "failed"; }
 }

@@ -62,7 +62,7 @@ test("mobile first launch, workout actions, reload, back/forward and history", a
   await expect(page.getByText(/in progress/)).toBeVisible();
   await page.goForward();
   await page.reload();
-  await expect(page.getByText("1 of 11 blocks completed")).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Workout progress" })).toHaveAttribute("aria-valuenow", "1");
   await expect(page.getByRole("textbox", { name: "Actual load for Agachamento goblet" })).toHaveValue("9");
   await page.getByRole("link", { name: /Finish workout/ }).tap();
   await expect(page.getByRole("heading", { name: "Nice work." })).toBeVisible();
@@ -135,7 +135,7 @@ test("mobile plan switching isolates history and renders cardio instructions", a
   await expect(page.getByRole("heading", { name: "Workout Cardio" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Semana 1" })).toBeVisible();
   await page.getByRole("checkbox", { name: /Complete Semana 1/ }).first().tap();
-  await expect(page.getByText("1 of 3 blocks completed")).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Workout progress" })).toHaveAttribute("aria-valuenow", "1");
 });
 
 test("very long training names stay inside a small phone viewport", async ({ page }) => {
@@ -161,7 +161,7 @@ test("production PWA keeps the imported workout usable offline", async ({ page, 
   await page.getByRole("button", { name: "Start workout" }).first().tap();
   await page.getByRole("checkbox", { name: /Complete/ }).first().tap();
   await page.reload();
-  await expect(page.getByText("1 of 11 blocks completed")).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Workout progress" })).toHaveAttribute("aria-valuenow", "1");
   await page.getByRole("link", { name: /Finish workout/ }).tap();
   await page.getByRole("button", { name: /Save workout/ }).tap();
   await expect(page.getByRole("heading", { name: /Workout completed/ })).toBeVisible();
@@ -323,6 +323,7 @@ test("fresh mobile user connects, imports by Sheet URL, finishes locally and syn
   await page.getByRole("button", { name: /Save workout/ }).tap();
   await expect.poll(() => operations.filter((item) => item === "sync").length).toBe(1);
   await page.getByRole("link", { name: "Not now" }).tap();
+  await page.locator(".history-list a.history-card").first().tap();
   await expect(page.getByText(/Synced/)).toBeVisible();
   await page.getByRole("link", { name: "Plans", exact: true }).tap();
   await page.getByRole("button", { name: /\+ Add training/ }).tap();

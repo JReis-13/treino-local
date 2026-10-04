@@ -1,5 +1,15 @@
 # OAuth production deployment checklist
 
+## Short real-phone check for this bug-bash release
+
+Use a disposable workout with at least four exercises and one grouped pair. Do not use a canonical Sheet or workbook for test writes.
+
+1. Enter Focus, navigate to the second exercise, and tap Complete **once**. Switch to List: only that exercise should be complete. Return to Focus, undo it, and confirm all other states stayed unchanged.
+2. Complete one member of the grouped pair. Confirm its partner is still pending and its load is unchanged.
+3. On different exercises, use Do later, Skip today, and Complete. Reload or reopen the installed PWA and check the exact queue, completion, skip, load, note, and timer state.
+4. Finish a test workout. Add a real phone photo, wait for the preview, then tap Share workout. Confirm the native sheet opens; choose WhatsApp and verify the image is attached where this phone/target supports files. Cancel before sending if desired. If image sharing fails, tap Share text instead once and confirm text sharing opens.
+5. Return to History and confirm the workout and its note remain saved. During this run, check that List and Focus feel calm, the Complete action is easy to reach, Details holds video/notes, and the bottom navigation and timer do not cover controls.
+
 ## Real-phone gym smoke test for this release
 
 Use the installed PWA on a phone and a **disposable copy** of a supported Sheet for source-write checks. Do not use the canonical training Sheet as a test target.

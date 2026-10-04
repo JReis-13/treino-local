@@ -21,6 +21,40 @@ const initial = {
       { blockId: "c", completed: false }, { blockId: "d", completed: false }], queueOrder: ["a", "b", "c", "d"], syncStatus: "notApplicable" }],
 };
 
+test("Focus completion changes only the selected grouped member across List and reload", async ({ page }) => {
+  await page.addInitScript((seed) => {
+    if (localStorage.getItem("treino-local:v2")) return;
+    const copy = JSON.parse(JSON.stringify(seed));
+    // A previously saved source row may have reused B's ID for its partner.
+    copy.plans[0].workouts[0].blocks[2].id = "b";
+    copy.sessions[0].workoutSnapshot.blocks[2].id = "b";
+    copy.sessions[0].blocks[2].blockId = "b";
+    copy.sessions[0].queueOrder = ["a", "b", "b", "d"];
+    localStorage.setItem("treino-local:v2", JSON.stringify(copy));
+  }, initial);
+  await page.goto("/workout/?id=A");
+  await page.getByRole("button", { name: "Focus", exact: true }).click();
+  await page.getByRole("button", { name: "Next →" }).click();
+  await expect(page.locator(".focus-name")).toHaveText("Seated row");
+  await page.getByRole("button", { name: /Complete Seated row/ }).click();
+  await expect(page.locator(".focus-name")).toContainText("Single leg Romanian deadlift");
+  await page.getByRole("button", { name: "List", exact: true }).click();
+  await expect(page.locator(".exercise-card.is-complete")).toHaveCount(1);
+  await expect(page.locator(".exercise-card.is-complete")).toContainText("Seated row");
+  await expect(page.locator(".exercise-card").filter({ hasText: "Single leg Romanian deadlift" })).not.toHaveClass(/is-complete/);
+  await page.reload();
+  await expect(page.locator(".exercise-card.is-complete")).toHaveCount(1);
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2")!));
+  expect(stored.sessions[0].blocks.map((block: { completed: boolean }) => block.completed)).toEqual([false, true, false, false]);
+  expect(new Set(stored.sessions[0].blocks.map((block: { blockId: string }) => block.blockId)).size).toBe(4);
+  await page.locator(".exercise-card.is-complete").getByRole("checkbox", { name: /Reopen Seated row/ }).click();
+  await expect(page.locator(".exercise-card.is-complete")).toHaveCount(0);
+  await page.getByRole("button", { name: "Focus", exact: true }).click();
+  await expect(page.locator(".focus-name")).toContainText("Single leg Romanian deadlift");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2")!).sessions[0].blocks.map((block: { completed: boolean }) => block.completed)))
+    .toEqual([false, false, false, false]);
+});
+
 test("phone Focus and List share loads, queue, skips, timer and saved outcome", async ({ page, context }, testInfo) => {
   await page.addInitScript((seed) => { if (!localStorage.getItem("treino-local:v2")) localStorage.setItem("treino-local:v2", JSON.stringify(seed)); }, initial);
   await page.goto("/workout/?id=A");
@@ -31,7 +65,7 @@ test("phone Focus and List share loads, queue, skips, timer and saved outcome", 
   await page.goBack();
   await expect(page.getByRole("button", { name: "List", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Focus", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Watch execution" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Exercise details" })).toBeVisible();
   const viewport = page.viewportSize()!;
   await page.setViewportSize({ ...viewport, height: 420 });
   await page.getByRole("textbox", { name: "Actual load for Lat pulldown" }).focus();
@@ -43,14 +77,16 @@ test("phone Focus and List share loads, queue, skips, timer and saved outcome", 
   await page.locator(".exercise-card").filter({ hasText: "Lat pulldown" }).getByRole("textbox", { name: "Actual load for Lat pulldown" }).fill("38 kg");
   await page.getByRole("button", { name: "Focus", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Actual load for Lat pulldown" })).toHaveValue("38 kg");
+  await page.getByText("More actions", { exact: true }).click();
   await page.getByRole("button", { name: "Do later" }).click();
   await expect(page.locator(".focus-name")).toHaveText("Seated row");
   await expect(page.getByText("Next: Single leg Romanian deadlift", { exact: false })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Details & notes · Note/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Exercise details · Note/ })).toBeVisible();
   await page.getByRole("button", { name: /Complete Seated row/ }).click();
   await expect(page.locator(".focus-name")).toContainText("Single leg Romanian deadlift");
   await page.getByRole("button", { name: /Start 2:00 rest/ }).click();
   await expect(page.getByRole("group", { name: "Rest timer" })).toBeVisible();
+  await page.getByText("More actions", { exact: true }).click();
   await page.getByRole("button", { name: "Skip today" }).click();
   await expect(page.getByRole("dialog", { name: /Skip Single leg Romanian deadlift/ })).toBeVisible();
   await page.getByRole("dialog", { name: /Skip Single leg Romanian deadlift/ }).getByRole("button", { name: "Skip today" }).click();
@@ -67,7 +103,10 @@ test("phone Focus and List share loads, queue, skips, timer and saved outcome", 
   await expect(page.locator(".focus-name")).toHaveText("Calf raise");
   await context.setOffline(true);
   await page.getByRole("button", { name: /Complete Calf raise/ }).click();
+  await expect(page.locator(".focus-name")).toHaveText("Lat pulldown");
+  await page.getByRole("button", { name: "← Previous" }).click();
   await expect(page.locator(".focus-name")).toContainText("Single leg Romanian deadlift");
+  await page.getByText("More actions", { exact: true }).click();
   await page.getByRole("button", { name: "Skip today" }).click();
   await page.getByRole("dialog", { name: /Skip Single leg Romanian deadlift/ }).getByRole("button", { name: "Skip today" }).click();
   await expect(page.locator(".focus-name")).toHaveText("Lat pulldown");

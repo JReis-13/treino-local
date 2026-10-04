@@ -16,6 +16,7 @@ test("original workbook imports two ordered workouts without overview data", asy
   const plan = await parse("TREINO 1 JONATHA.xlsx");
   assert.deepEqual(plan.workouts.map((workout) => workout.id), ["A", "B"]);
   assert.deepEqual(plan.workouts.map((workout) => workout.blocks.length), [11, 11]);
+  for (const workout of plan.workouts) assert.equal(new Set(workout.blocks.map((block) => block.id)).size, workout.blocks.length);
   assert.equal(plan.legacyCompletions.length, 0);
   assert.equal(plan.source.kind, "excel");
   assert(!JSON.stringify(plan).includes("JONATHA!"));
@@ -36,6 +37,7 @@ test("Milena imports three workouts, triple groups, challenge, cardio and dated 
   const plan = await parse("TREINO 4 MILENA.xlsx");
   assert.deepEqual(plan.workouts.map((workout) => workout.id), ["A", "B", "C"]);
   assert.deepEqual(plan.workouts.map((workout) => workout.blocks.length), [15, 16, 3]);
+  for (const workout of plan.workouts) assert.equal(new Set(workout.blocks.map((block) => block.id)).size, workout.blocks.length);
   assert(plan.workouts[0].blocks.some((block) => block.kind === "exercise" && block.section === "Challenge"));
   assert(plan.workouts[1].blocks.some((block) => block.kind === "instruction" && block.text.includes("config flexora")));
   assert(plan.workouts[2].blocks.every((block) => block.kind === "instruction"));

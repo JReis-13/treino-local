@@ -3,7 +3,7 @@ import type { TrainingData, TrainingPlanRecord, TrainingSession, TrainingWorkout
 import { lastUsedLoad, normalizeLoad } from "@/lib/training/loads";
 import { changedLoads } from "@/lib/training/loads";
 import { withSyncStatus } from "@/lib/training/sync-state";
-import { currentFocusId, moveExerciseLater, planExerciseOrder, remainingExerciseOrder, setExerciseSkipped } from "@/lib/training/queue";
+import { currentFocusId, moveExerciseLater, planExerciseOrder, remainingExerciseOrder, sessionExerciseOrder, setExerciseSkipped } from "@/lib/training/queue";
 
 export function activePlan(data: TrainingData): TrainingPlanRecord | undefined {
   return data.plans.find((plan) => plan.id === data.activePlanId);
@@ -16,6 +16,9 @@ export function startTrainingSession(data: TrainingData, planId: string, workout
   const plan = data.plans.find((item) => item.id === planId);
   const workout = plan?.workouts.find((item) => item.id === workoutId);
   if (!plan || !workout) throw new Error("This training or workout is unavailable.");
+  if (new Set(workout.blocks.map((block) => block.id)).size !== workout.blocks.length) {
+    throw new Error("This workout has repeated exercise IDs. Reopen the app to repair saved training data.");
+  }
   const session: TrainingSession = {
     id, planId, planVersion: plan.version, workoutId, workoutSnapshot: structuredClone(workout),
     status: "inProgress", startedAt: now.toISOString(),
@@ -30,11 +33,18 @@ export function startTrainingSession(data: TrainingData, planId: string, workout
 export function updateTrainingBlock(data: TrainingData, sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }): TrainingData {
   return { ...data, sessions: data.sessions.map((session) => session.id === sessionId && session.status === "inProgress"
     ? (() => {
+      if (session.blocks.filter((block) => block.blockId === blockId).length !== 1 ||
+        session.workoutSnapshot.blocks.filter((block) => block.id === blockId).length !== 1) {
+        throw new Error("This exercise has an ambiguous saved ID. Reopen the app to repair it safely.");
+      }
       const blocks = session.blocks.map((block) => block.blockId === blockId ? { ...block, ...change,
         ...(change.completed ? { skipped: false } : {}) } : block);
       const next = { ...session, blocks };
-      return change.completed && currentFocusId(session) === blockId
-        ? { ...next, focusBlockId: remainingExerciseOrder(next)[0] } : next;
+      if (!change.completed || currentFocusId(session) !== blockId) return next;
+      const order = sessionExerciseOrder(next);
+      const pending = remainingExerciseOrder(next);
+      const completedPosition = order.indexOf(blockId);
+      return { ...next, focusBlockId: pending.find((id) => order.indexOf(id) > completedPosition) ?? pending[0] };
     })() : session) };
 }
 

@@ -46,14 +46,16 @@ test("exercise detail, lazy video, local notes, timer and workout note work on a
     await expect(detail.getByRole("textbox", { name: "EXERCISE NOTE" })).toHaveValue("Seat position 4; narrower grip next time.");
     await detail.getByRole("button", { name: "Close exercise details" }).tap();
     await context.setOffline(true);
-    await squat.getByRole("button", { name: "Watch execution" }).tap();
+    await squat.getByRole("button", { name: "Details" }).tap();
+    await detail.getByRole("button", { name: "Watch execution" }).tap();
     await expect(detail.getByText("Video requires an internet connection.")).toBeVisible();
     await expect(detail.getByRole("link", { name: /Open in YouTube/ })).toHaveAttribute("href", /youtube\.com\/watch\?v=/);
     await expect(detail.locator("iframe")).toHaveCount(0);
     await detail.getByRole("button", { name: "Close exercise details" }).tap();
     await context.setOffline(false);
     await page.route("https://www.youtube-nocookie.com/**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>Video test</body></html>" }));
-    await squat.getByRole("button", { name: "Watch execution" }).tap();
+    await squat.getByRole("button", { name: "Details" }).tap();
+    await detail.getByRole("button", { name: "Watch execution" }).tap();
     await expect(detail.locator("iframe")).toHaveCount(1);
     await expect(detail.locator("iframe")).toHaveAttribute("src", /youtube-nocookie\.com\/embed\//);
     await page.setViewportSize({ width: 640, height: 320 });

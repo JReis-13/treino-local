@@ -63,8 +63,7 @@ function validSession(value: unknown): value is TrainingSession {
     value.blocks.every((item: unknown) => record(item) && typeof item.blockId === "string" &&
       typeof item.completed === "boolean" && (item.skipped === undefined || (typeof item.skipped === "boolean" && !(item.skipped && item.completed))) &&
       (item.actualLoad === undefined || typeof item.actualLoad === "string")) &&
-    (value.queueOrder === undefined || (Array.isArray(value.queueOrder) && value.queueOrder.every((id: unknown) => typeof id === "string") &&
-      new Set(value.queueOrder).size === value.queueOrder.length)) &&
+    (value.queueOrder === undefined || (Array.isArray(value.queueOrder) && value.queueOrder.every((id: unknown) => typeof id === "string"))) &&
     (value.focusBlockId === undefined || typeof value.focusBlockId === "string") &&
     (value.focusMode === undefined || typeof value.focusMode === "boolean") &&
     (value.completionSyncStatus === undefined || validSyncStatus(value.completionSyncStatus)) &&
@@ -85,6 +84,47 @@ function validSession(value: unknown): value is TrainingSession {
 
 function validSyncStatus(value: unknown): boolean {
   return ["notApplicable", "pending", "synced", "conflict", "authRequired", "sourceUnavailable", "failed"].includes(String(value));
+}
+
+/** Older or externally restored data may reuse a source-row ID for several logical exercises. */
+function uniqueBlockIds(blocks: WorkoutBlock[]): { blocks: WorkoutBlock[]; ids: string[] } {
+  const reserved = new Set(blocks.map((block) => block.id));
+  const seen = new Set<string>();
+  const ids = blocks.map((block, index) => {
+    if (!seen.has(block.id)) { seen.add(block.id); return block.id; }
+    let candidate = `${block.id}~${index + 1}`;
+    while (reserved.has(candidate)) candidate += "~";
+    reserved.add(candidate);
+    seen.add(candidate);
+    return candidate;
+  });
+  return { blocks: blocks.map((block, index) => ids[index] === block.id ? block : { ...block, id: ids[index] }), ids };
+}
+
+function repairSessionIds(session: TrainingSession): TrainingSession {
+  const original = session.workoutSnapshot.blocks;
+  const { blocks: snapshotBlocks, ids } = uniqueBlockIds(original);
+  const replacements = new Map<string, string[]>();
+  original.forEach((block, index) => {
+    if (block.kind !== "exercise") return;
+    replacements.set(block.id, [...(replacements.get(block.id) ?? []), ids[index]]);
+  });
+  const progressOccurrences = new Map<string, number>();
+  const progress = session.blocks.map((block, index) => {
+    const matchingIndex = original[index]?.id === block.blockId ? index : -1;
+    const occurrence = progressOccurrences.get(block.blockId) ?? 0;
+    progressOccurrences.set(block.blockId, occurrence + 1);
+    const replacement = matchingIndex >= 0 ? ids[matchingIndex] :
+      original.flatMap((item, position) => item.id === block.blockId ? [ids[position]] : [])[occurrence];
+    return replacement && replacement !== block.blockId ? { ...block, blockId: replacement } : block;
+  });
+  const exerciseIds = snapshotBlocks.filter((block) => block.kind === "exercise").map((block) => block.id);
+  const queueOrder = [...new Set((session.queueOrder ?? original.filter((block) => block.kind === "exercise").map((block) => block.id))
+    .flatMap((id) => replacements.get(id) ?? [id]).filter((id) => exerciseIds.includes(id)))];
+  queueOrder.push(...exerciseIds.filter((id) => !queueOrder.includes(id)));
+  return { ...session, workoutSnapshot: { ...session.workoutSnapshot, blocks: snapshotBlocks }, blocks: progress,
+    queueOrder, ...(session.focusBlockId === undefined ? {} :
+      { focusBlockId: replacements.get(session.focusBlockId)?.[0] ?? session.focusBlockId }) };
 }
 
 export function parseTrainingData(raw: string): TrainingData {
@@ -110,8 +150,9 @@ export function parseTrainingData(raw: string): TrainingData {
     throw new Error("Saved training data is invalid. It was left untouched.");
   }
   return { ...value, schemaVersion: 5, exerciseNotes: value.exerciseNotes ?? [],
-    sessions: (value.sessions as TrainingSession[]).map((session) => ({ ...session,
-      queueOrder: session.queueOrder ?? session.workoutSnapshot.blocks.filter((block) => block.kind === "exercise").map((block) => block.id) })) } as TrainingData;
+    plans: (value.plans as TrainingPlanRecord[]).map((plan) => ({ ...plan, workouts: plan.workouts.map((workout) => ({
+      ...workout, blocks: uniqueBlockIds(workout.blocks).blocks })) })),
+    sessions: (value.sessions as TrainingSession[]).map(repairSessionIds) } as TrainingData;
 }
 
 export function migrateV1(raw: string, now = new Date().toISOString()): TrainingData {

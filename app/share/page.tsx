@@ -8,6 +8,12 @@ import { shareWorkout, type ShareResult } from "@/lib/training/share-action";
 import { processSharePhoto } from "@/lib/training/share-photo";
 import { defaultShareText, shareDate, shareMetrics, shareSummaryFromLegacy, shareSummaryFromSession, type WorkoutShareSummary } from "@/lib/training/share-summary";
 
+async function validPng(file: File): Promise<boolean> {
+  if (file.type !== "image/png" || file.size < 8 || !file.name.toLowerCase().endsWith(".png")) return false;
+  const signature = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+  return [137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => signature[index] === byte);
+}
+
 function ShareComposer({ summary, afterSave, backHref }: { summary: WorkoutShareSummary; afterSave: boolean; backHref: string }) {
   const [message, setMessage] = useState(() => defaultShareText(summary));
   const [photo, setPhoto] = useState<Blob>();
@@ -17,6 +23,7 @@ function ShareComposer({ summary, afterSave, backHref }: { summary: WorkoutShare
   const [cardError, setCardError] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [sharing, setSharing] = useState(false);
+  const [textOnlyRetry, setTextOnlyRetry] = useState(false);
   const selectionVersion = useRef(0);
   const summaryKey = JSON.stringify(summary);
   const svg = useMemo(() => createShareCardSvg(summary), [summary]);
@@ -24,7 +31,8 @@ function ShareComposer({ summary, afterSave, backHref }: { summary: WorkoutShare
   const preview = readyCard?.previewUrl ?? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   useEffect(() => {
     let active = true;
-    createShareCardFile(summary, photo).then((created) => {
+    createShareCardFile(summary, photo).then(async (created) => {
+      if (!await validPng(created)) throw new Error("Invalid card export");
       if (active) setCard({ file: created, photo, summaryKey, previewUrl: photo ? URL.createObjectURL(created) : undefined });
     }).catch(() => {
       if (active) {
@@ -44,6 +52,7 @@ function ShareComposer({ summary, afterSave, backHref }: { summary: WorkoutShare
     const version = ++selectionVersion.current;
     setPhotoBusy(true);
     setPhotoError("");
+    setTextOnlyRetry(false);
     try {
       const processed = await processSharePhoto(selected);
       if (version === selectionVersion.current) setPhoto(processed);
@@ -62,6 +71,7 @@ function ShareComposer({ summary, afterSave, backHref }: { summary: WorkoutShare
     setPhotoBusy(false);
     setPhoto(undefined);
     setPhotoError("");
+    setTextOnlyRetry(false);
   }
 
   async function share() {
@@ -70,12 +80,19 @@ function ShareComposer({ summary, afterSave, backHref }: { summary: WorkoutShare
     setFeedback("");
     const navigatorShare = typeof navigator.share === "function" ? navigator.share.bind(navigator) : undefined;
     const navigatorCanShare = typeof navigator.canShare === "function" ? navigator.canShare.bind(navigator) : undefined;
-    const result: ShareResult = await shareWorkout(message, readyCard?.file, {
+    const result: ShareResult = await shareWorkout(message, textOnlyRetry ? undefined : readyCard?.file, {
       share: navigatorShare,
       canShare: navigatorCanShare,
     });
     setSharing(false);
-    setFeedback({ shared: "Share sheet closed. Your workout remains saved.", cancelled: "Share cancelled. Your workout remains saved.", unsupported: "Native sharing is unavailable in this browser. Your workout remains saved.", failed: "The share sheet could not open. Your workout remains saved; please try again." }[result]);
+    if (result === "imageFailed") setTextOnlyRetry(true);
+    setFeedback({ sharedImage: "Share sheet closed. Your workout remains saved.",
+      sharedImageOnly: "Image sharing opened. This device could not include the workout text.",
+      sharedText: readyCard && !textOnlyRetry ? "This device could not share the image. Workout text was shared instead." : "Share sheet closed. Your workout remains saved.",
+      imageFailed: "This device could not share the image. Tap Share text instead to try again.",
+      cancelled: "Share cancelled. Your workout remains saved.",
+      unsupported: "Native sharing is unavailable in this browser. Your workout remains saved.",
+      failed: "The share sheet could not open. Your workout remains saved; please try again." }[result]);
   }
 
   const metrics = shareMetrics(summary);
@@ -90,9 +107,9 @@ function ShareComposer({ summary, afterSave, backHref }: { summary: WorkoutShare
     {photoBusy && <p className="share-photo-status" role="status">Preparing photo…</p>}
     {photo && !photoBusy && <p className="share-photo-status" role="status">Photo selected for this share only.</p>}
     {photoError && <p className="share-photo-error" role="status">{photoError}</p>}
-    <label className="date-field share-message"><span>MESSAGE <small>edit before sharing</small></span><textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={4} maxLength={2000} /></label>
-    <button type="button" className="primary-button share-main-action" onClick={share} disabled={sharing || photoBusy || Boolean(photo && !readyCard)}>{sharing ? "Opening share…" : photoBusy || (photo && !readyCard) ? "Preparing card…" : "Share workout"}</button>
-    <p className="share-hint">Your phone chooses the app and recipient. {!readyCard && !cardError && !photo ? "Preparing the image; sharing now uses text only. " : ""}If image sharing is unsupported, the share sheet receives text only.</p>
+    <label className="date-field share-message"><span>MESSAGE <small>edit before sharing</small></span><textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={2} maxLength={2000} /></label>
+    <button type="button" className="primary-button share-main-action" onClick={share} disabled={sharing || photoBusy || Boolean(photo && !readyCard)}>{sharing ? "Opening share…" : photoBusy || (photo && !readyCard) ? "Preparing card…" : textOnlyRetry ? "Share text instead" : "Share workout"}</button>
+    <p className="share-hint">Your phone chooses the app and recipient. {!readyCard && !cardError && !photo ? "Preparing the image. " : ""}If image sharing is unavailable, workout text is shared instead.</p>
     {cardError && <p className="quiet-note" role="status">Card export is unavailable on this device. Text sharing still works.</p>}
     {feedback && <p className="share-feedback" role="status" aria-live="polite">{feedback}</p>}
     <Link className="share-dismiss" href={backHref}>{afterSave ? "Not now" : "Cancel"}</Link>

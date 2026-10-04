@@ -92,3 +92,72 @@ test("skip is not completion in history, stats, load trend or public sharing", (
   assert.deepEqual([shareSummaryFromSession(session).completedExercises, shareSummaryFromSession(session).totalExercises], [2, 4]);
   assert.equal(JSON.stringify(shareSummaryFromSession(session)).includes("skipped"), false);
 });
+
+test("duplicate saved block IDs cannot complete two logical exercises", () => {
+  const data = start();
+  const saved = structuredClone(data);
+  saved.sessions[0].workoutSnapshot.blocks[2].id = saved.sessions[0].workoutSnapshot.blocks[1].id;
+  saved.sessions[0].blocks[2].blockId = saved.sessions[0].blocks[1].blockId;
+  saved.sessions[0].queueOrder = ["A", "B", "B", "D"];
+  const loaded = parseTrainingData(JSON.stringify(saved));
+  const updated = updateTrainingBlock(loaded, "s", "B", { completed: true });
+  assert.deepEqual(updated.sessions[0].blocks.map((block) => block.completed), [false, true, false, false]);
+  assert.deepEqual(sessionExerciseOrder(updated.sessions[0]), ["A", "B", "B~3", "D"]);
+  assert.equal(updated.sessions[0].workoutSnapshot.blocks[2].id, "B~3");
+  assert.equal(updated.sessions[0].blocks[2].blockId, "B~3");
+  assert.deepEqual(parseTrainingData(JSON.stringify(updated)).sessions[0].blocks.map((block) => block.completed), [false, true, false, false]);
+});
+
+test("new session repairs duplicate plan IDs before a grouped member can be completed", () => {
+  const source = base();
+  source.plans[0].workouts[0].blocks[2].id = "B";
+  const loaded = parseTrainingData(JSON.stringify(source));
+  const started = startTrainingSession(loaded, "p", "w", new Date("2026-10-03T08:00:00Z"), "s").data;
+  const updated = updateTrainingBlock(started, "s", "B", { completed: true });
+  assert.deepEqual(active(updated).blocks.map((block) => block.completed), [false, true, false, false]);
+  assert.equal(active(updated).blocks[2].blockId, "B~3");
+});
+
+for (const group of [[], ["B", "C"], ["B", "C", "D"]]) {
+  test(`${group.length || "ungrouped"} logical exercises retain independent completion, undo, history and stats`, () => {
+    const source = base();
+    for (const block of source.plans[0].workouts[0].blocks) {
+      if (block.kind === "exercise" && group.includes(block.id)) block.groupId = "source-row-26";
+    }
+    let data = startTrainingSession(source, "p", "w", new Date("2026-10-03T08:00:00Z"), "s").data;
+    const selected = group.length === 3 ? "C" : "B";
+    data = updateTrainingBlock(data, "s", selected, { completed: true, actualLoad: "12,5" });
+    assert.deepEqual(active(data).blocks.map((block) => block.completed), ids.map((id) => id === selected));
+    data = parseTrainingData(JSON.stringify(data));
+    assert.deepEqual(active(data).blocks.map((block) => block.completed), ids.map((id) => id === selected));
+    assert.equal(currentFocusId(active(data)), "A");
+    const finished = finishTrainingSession(data, "s", "2026-10-03", new Date("2026-10-03T08:42:00Z"));
+    assert.equal(statsOverview(historyEntries(finished), "all", "2026-10-03").exercisesCompleted, 1);
+    assert.deepEqual([shareSummaryFromSession(finished.sessions[0]).completedExercises,
+      shareSummaryFromSession(finished.sessions[0]).totalExercises], [1, 4]);
+    data = updateTrainingBlock(data, "s", selected, { completed: false });
+    assert.deepEqual(active(data).blocks.map((block) => block.completed), [false, false, false, false]);
+  });
+}
+
+test("Do later, skip, completion and undo keep exact state and queue through reload", () => {
+  let data = start();
+  data = moveTrainingBlockLater(data, "s", "B");
+  data = skipTrainingBlock(data, "s", "C", true);
+  data = updateTrainingBlock(data, "s", "A", { completed: true });
+  data = parseTrainingData(JSON.stringify(data));
+  assert.deepEqual(sessionExerciseOrder(active(data)), ["A", "C", "D", "B"]);
+  assert.deepEqual(remainingExerciseOrder(active(data)), ["D", "B"]);
+  assert.deepEqual(active(data).blocks.map((block) => [block.completed, Boolean(block.skipped)]),
+    [[true, false], [false, false], [false, true], [false, false]]);
+  data = updateTrainingBlock(data, "s", "A", { completed: false });
+  data = skipTrainingBlock(data, "s", "C", false);
+  assert.deepEqual(remainingExerciseOrder(active(data)), ["A", "C", "D", "B"]);
+});
+
+test("Focus continues after a completed middle exercise instead of jumping to the first pending one", () => {
+  let data = setTrainingFocus(start(), "s", true, "B");
+  data = updateTrainingBlock(data, "s", "B", { completed: true });
+  assert.deepEqual(active(data).blocks.map((block) => block.completed), [false, true, false, false]);
+  assert.equal(currentFocusId(active(data)), "C");
+});

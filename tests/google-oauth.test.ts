@@ -35,7 +35,7 @@ test("authenticated flow cookie rejects tampering, expiry and wrong purpose", ()
   const request = new Request("http://localhost:3000", { headers: { cookie: `${FLOW_COOKIE}=${value}` } });
   assert.equal(readFlow(request)?.state, "a");
   assert.equal(unseal(value, SESSION_COOKIE), null);
-  assert.equal(unseal(value.slice(0, -1) + "z", FLOW_COOKIE), null);
+  assert.equal(unseal(value.slice(0, 20) + (value[20] === "a" ? "b" : "a") + value.slice(21), FLOW_COOKIE), null);
   const expired = seal({ state: "a", verifier: "b", returnTo: "/plans", createdAt: Date.now() - 700_000 }, FLOW_COOKIE);
   assert.equal(readFlow(new Request("http://localhost:3000", { headers: { cookie: `${FLOW_COOKIE}=${expired}` } })), null);
 });
