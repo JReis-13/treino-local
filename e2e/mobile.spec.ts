@@ -165,31 +165,19 @@ test("production PWA keeps the imported workout usable offline", async ({ page, 
   await page.getByRole("link", { name: /Finish workout/ }).tap();
   await page.getByRole("button", { name: /Save workout/ }).tap();
   await expect(page.getByRole("heading", { name: /Workout completed/ })).toBeVisible();
-  await expect(page.locator(".share-card-preview img")).toBeVisible();
-  await expect(page.getByText("Add photo")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Share workout" })).toBeVisible();
+  await expect(page.getByLabel("Choose workout photo")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Download card|Save image/i })).toHaveCount(0);
-  const offlinePhoto = await page.evaluate(() => {
-    const canvas = document.createElement("canvas"); canvas.width = canvas.height = 80;
-    const context = canvas.getContext("2d")!; context.fillStyle = "#168658"; context.fillRect(0, 0, 80, 80);
-    return canvas.toDataURL("image/png").split(",")[1];
-  });
-  await page.getByLabel("Choose workout photo").setInputFiles({ name: "offline.png", mimeType: "image/png", buffer: Buffer.from(offlinePhoto, "base64") });
-  await expect(page.getByText("Photo selected for this share only.")).toBeVisible();
-  await expect(page.locator(".share-card-preview img")).toHaveAttribute("src", /^blob:/);
   await page.getByRole("link", { name: "Not now" }).tap();
   await expect(page.getByText(/1\/11 done/)).toBeVisible();
 });
 
-test("saved workout shares edited text and a local PNG, then can be shared again from History", async ({ page }, testInfo) => {
+test("saved workout shares edited text, then can be shared again from History", async ({ page }, testInfo) => {
   await page.addInitScript(() => {
-    const state = window as unknown as { treinoShares: Array<{ text: string; type?: string; width?: number; height?: number }> };
+    const state = window as unknown as { treinoShares: Array<{ text: string; files: number; active: boolean }> };
     state.treinoShares = [];
-    Object.defineProperty(navigator, "canShare", { configurable: true, value: (data: ShareData) => Boolean(data.files?.length) });
     Object.defineProperty(navigator, "share", { configurable: true, value: async (data: ShareData) => {
-      const file = data.files?.[0];
-      const bitmap = file ? await createImageBitmap(file) : undefined;
-      state.treinoShares.push({ text: data.text ?? "", type: file?.type, width: bitmap?.width, height: bitmap?.height });
-      bitmap?.close();
+      state.treinoShares.push({ text: data.text ?? "", files: data.files?.length ?? 0, active: navigator.userActivation.isActive });
     } });
   });
   await page.goto("/");
@@ -201,7 +189,7 @@ test("saved workout shares edited text and a local PNG, then can be shared again
   await expect(page.getByRole("heading", { name: /Workout completed/ })).toBeVisible();
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2")!).sessions.filter((item: { status: string }) => item.status === "completed").length);
   expect(saved).toBe(1);
-  await expect(page.getByText("Add photo")).toBeVisible();
+  await expect(page.getByLabel("Choose workout photo")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Download card|Save image/i })).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
   if (testInfo.project.name === "Narrow phone Chrome") await page.screenshot({ path: testInfo.outputPath("share-preview-320.png"), animations: "disabled", fullPage: true });
@@ -210,7 +198,7 @@ test("saved workout shares edited text and a local PNG, then can be shared again
   await message.fill("My edited workout update 💪");
   await page.getByRole("button", { name: "Share workout" }).tap();
   await expect.poll(() => page.evaluate(() => (window as unknown as { treinoShares: unknown[] }).treinoShares.length)).toBe(1);
-  expect(await page.evaluate(() => (window as unknown as { treinoShares: unknown[] }).treinoShares[0])).toEqual({ text: "My edited workout update 💪", type: "image/png", width: 1080, height: 1080 });
+  expect(await page.evaluate(() => (window as unknown as { treinoShares: unknown[] }).treinoShares[0])).toEqual({ text: "My edited workout update 💪", files: 0, active: true });
   await page.getByRole("link", { name: "Not now" }).tap();
   await page.locator(".history-list a.history-card").first().tap();
   await page.getByRole("link", { name: "Share workout" }).tap();
@@ -220,7 +208,7 @@ test("saved workout shares edited text and a local PNG, then can be shared again
   await expect(page.getByRole("heading", { name: "Workout A" })).toBeVisible();
 });
 
-test("date-only History uses a reduced card and unsupported-share message", async ({ page }) => {
+test("date-only History uses a reduced share message and unsupported-share feedback", async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "share", { configurable: true, value: undefined });
   });

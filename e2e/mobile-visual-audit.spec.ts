@@ -34,24 +34,18 @@ test("capture the eight core phone surfaces without horizontal overflow", async 
   await capture("workout-list");
   await page.getByRole("button", { name: "Focus", exact: true }).click();
   await capture("workout-focus");
-  await page.getByRole("button", { name: "Exercise details" }).click();
+  await page.getByRole("button", { name: "Add note & history" }).click();
   await expect(page.getByRole("dialog", { name: "Goblet squat" })).toBeVisible();
   await capture("exercise-detail");
   await page.getByRole("button", { name: "Close exercise details" }).click();
-  await page.getByRole("button", { name: /Complete Goblet squat/ }).click();
+  await page.getByRole("button", { name: "Mark complete" }).click();
   await page.getByRole("button", { name: /Start 2:00 rest/ }).click();
   await capture("active-timer");
   await page.getByRole("group", { name: "Rest timer" }).getByRole("button", { name: "Skip" }).click();
   await page.goto("/share/?id=visual-history&from=history");
   await expect(page.getByRole("heading", { name: /Share workout/ })).toBeVisible();
-  const base64 = await page.evaluate(() => {
-    const canvas = document.createElement("canvas"); canvas.width = 640; canvas.height = 800;
-    const context = canvas.getContext("2d")!; context.fillStyle = "#4d79c8"; context.fillRect(0, 0, 640, 800);
-    return canvas.toDataURL("image/png").split(",")[1];
-  });
-  await page.getByLabel("Choose workout photo").setInputFiles({ name: "visual.png", mimeType: "image/png", buffer: Buffer.from(base64, "base64") });
-  await expect(page.locator(".share-card-preview img")).toHaveAttribute("src", /^blob:/);
-  await capture("share-photo");
+  await expect(page.getByLabel("Choose workout photo")).toHaveCount(0);
+  await capture("share-workout");
   await page.goto("/history/");
   await expect(page.getByRole("heading", { name: /History/ })).toBeVisible();
   await capture("history");

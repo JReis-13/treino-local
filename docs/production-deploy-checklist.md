@@ -1,14 +1,14 @@
 # OAuth production deployment checklist
 
-## Short real-phone check for this bug-bash release
+## Short real-phone check for the Focus and sharing correction
 
 Use a disposable workout with at least four exercises and one grouped pair. Do not use a canonical Sheet or workbook for test writes.
 
-1. Enter Focus, navigate to the second exercise, and tap Complete **once**. Switch to List: only that exercise should be complete. Return to Focus, undo it, and confirm all other states stayed unchanged.
-2. Complete one member of the grouped pair. Confirm its partner is still pending and its load is unchanged.
-3. On different exercises, use Do later, Skip today, and Complete. Reload or reopen the installed PWA and check the exact queue, completion, skip, load, note, and timer state.
-4. Finish a test workout. Add a real phone photo, wait for the preview, then tap Share workout. Confirm the native sheet opens; choose WhatsApp and verify the image is attached where this phone/target supports files. Cancel before sending if desired. If image sharing fails, tap Share text instead once and confirm text sharing opens.
-5. Return to History and confirm the workout and its note remain saved. During this run, check that List and Focus feel calm, the Complete action is easy to reach, Details holds video/notes, and the bottom navigation and timer do not cover controls.
+1. Open a workout and enter Focus. Check that the current exercise, load, references, video/note access, and **Mark complete** appear high on the screen without immediate scrolling. A pending exercise must not look completed.
+2. Tap **Mark complete** once. Check the distinct **Completed** state, navigate Previous/Next back to it, then Undo. Only that exercise should change. Complete one grouped member and check that its partner remains pending.
+3. Check a loaded and a no-load exercise: Today, Plan, and Last should be compact, and no-load exercises should have no large empty field. Check video, note preview/editing, rest, and deeper History/Notes in Exercise Detail.
+4. Use Do later and Skip today on different exercises, reload or reopen the installed PWA, and confirm queue, completion, skip, load, note, and timer state.
+5. Finish and save. Confirm there is no **Add photo** control, edit the share message, and tap **Share workout**. Check that the native sheet opens for WhatsApp or another recipient. Cancel before sending if desired; return and confirm the session is intact in History.
 
 ## Real-phone gym smoke test for this release
 
@@ -67,16 +67,15 @@ Check portrait and landscape video, the phone keyboard with note/load fields, lo
 
 ## Workout sharing phone check
 
-Use a disposable workout in a normal phone browser, then repeat the share-sheet check from the installed PWA. The phone chooses the share destination and recipient; browser and OS support for sending an image together with text varies.
+Use a disposable workout in a normal phone browser, then repeat the share-sheet check from the installed PWA. The phone chooses the share destination and recipient.
 
 1. Complete a test workout and save it. Confirm the share screen appears only after the session is already present in History.
-2. Inspect the card and default message: name, local date, actual duration and exercise count where available. Confirm loads, notes, account and source details are absent. Confirm there is no download/save-card action.
-3. Tap **Add photo** and use the phone's camera/gallery chooser. Check a portrait, landscape, and square photo, then **Change photo** and **Remove photo**. The card should crop centrally without distortion; your edited message must stay unchanged.
-4. Edit the message and tap **Share workout**. Confirm the native share sheet opens, choose WhatsApp manually, then choose a recipient manually. Check whether this device sends both PNG and text; some targets accept only one.
-5. Cancel before sending and return to Treino Local. Confirm the workout remains saved. Open its History detail and share the same workout again with a new transient photo.
-6. Save another workout and tap **Not now**. Confirm no later share prompt appears and no photo is stored in History or backup.
-7. Go offline and open a saved workout's share view. Confirm the card, photo processing, and message work. If Web Share is unavailable, confirm the app shows a calm unsupported message without a download action.
-8. Inspect an imported date-only History entry. Its card must omit duration and exercise counts. Check long workout names, accents, emoji, 320px width, keyboard opening and bottom safe area.
+2. Inspect the default message: name, local date, actual duration and exercise count where available. Confirm loads, notes, account and source details are absent. Confirm there is no photo picker or download/save-card action.
+3. Edit the message and tap **Share workout**. Confirm the native share sheet opens and offers WhatsApp or another destination. The recipient is chosen in the phone's share flow.
+4. Cancel before sending and return to Treino Local. Confirm the workout remains saved. Open its History detail and share the same workout again.
+5. Save another workout and tap **Not now**. Confirm no later share prompt appears.
+6. Go offline and open a saved workout's share view. Confirm the message remains available. If Web Share is unavailable, confirm a calm unsupported message.
+7. Inspect an imported date-only History entry. Its message must omit duration and exercise counts. Check long workout names, accents, emoji, 320px width, keyboard opening and bottom safe area.
 
 ## Focus and session queue phone check
 

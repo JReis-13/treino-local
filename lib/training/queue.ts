@@ -41,5 +41,9 @@ export function setExerciseSkipped(session: TrainingSession, blockId: string, sk
   if (!state || (skipped && state.completed)) return session;
   const blocks = session.blocks.map((block) => block.blockId === blockId ? { ...block, skipped } : block);
   const updated = { ...session, blocks };
-  return { ...updated, focusBlockId: skipped ? remainingExerciseOrder(updated)[0] : blockId };
+  if (!skipped) return { ...updated, focusBlockId: blockId };
+  const order = sessionExerciseOrder(updated);
+  const pending = remainingExerciseOrder(updated);
+  const skippedPosition = order.indexOf(blockId);
+  return { ...updated, focusBlockId: pending.find((id) => order.indexOf(id) > skippedPosition) ?? pending[0] };
 }

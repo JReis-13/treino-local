@@ -17,12 +17,12 @@ function LoadTrend({ values }: { values: number[] }) {
   return <svg className="detail-trend" viewBox="0 0 200 64" role="img" aria-label="Recent comparable loads, oldest to newest"><polyline points={points} fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />{points.split(" ").map((point, index) => { const [cx, cy] = point.split(","); return <circle key={index} cx={cx} cy={cy} r="3" fill="currentColor" />; })}</svg>;
 }
 
-export function ExerciseDetail({ block, session, actualLoad, previousLoad, completed, launchVideo, onLoad, onComplete, onClose }: {
+export function ExerciseDetail({ block, session, actualLoad, previousLoad, completed, launchVideo, launchNotes = false, onLoad, onComplete, onClose }: {
   block: ExerciseBlock; session: TrainingSession; actualLoad?: string; previousLoad?: string; completed: boolean;
-  launchVideo: boolean; onLoad: (value: string) => void; onComplete: () => void; onClose: () => void;
+  launchVideo: boolean; launchNotes?: boolean; onLoad: (value: string) => void; onComplete: () => void; onClose: () => void;
 }) {
   const { data, saveExerciseNote } = useApp();
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab>(launchNotes ? "notes" : "overview");
   const [videoRequested, setVideoRequested] = useState(launchVideo);
   const [videoFailed, setVideoFailed] = useState(false);
   const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);

@@ -36,7 +36,7 @@ test("Focus completion changes only the selected grouped member across List and 
   await page.getByRole("button", { name: "Focus", exact: true }).click();
   await page.getByRole("button", { name: "Next →" }).click();
   await expect(page.locator(".focus-name")).toHaveText("Seated row");
-  await page.getByRole("button", { name: /Complete Seated row/ }).click();
+  await page.getByRole("button", { name: "Mark complete" }).click();
   await expect(page.locator(".focus-name")).toContainText("Single leg Romanian deadlift");
   await page.getByRole("button", { name: "List", exact: true }).click();
   await expect(page.locator(".exercise-card.is-complete")).toHaveCount(1);
@@ -65,7 +65,7 @@ test("phone Focus and List share loads, queue, skips, timer and saved outcome", 
   await page.goBack();
   await expect(page.getByRole("button", { name: "List", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Focus", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Exercise details" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "▶ Watch execution" })).toBeVisible();
   const viewport = page.viewportSize()!;
   await page.setViewportSize({ ...viewport, height: 420 });
   await page.getByRole("textbox", { name: "Actual load for Lat pulldown" }).focus();
@@ -81,8 +81,8 @@ test("phone Focus and List share loads, queue, skips, timer and saved outcome", 
   await page.getByRole("button", { name: "Do later" }).click();
   await expect(page.locator(".focus-name")).toHaveText("Seated row");
   await expect(page.getByText("Next: Single leg Romanian deadlift", { exact: false })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Exercise details · Note/ })).toBeVisible();
-  await page.getByRole("button", { name: /Complete Seated row/ }).click();
+  await expect(page.getByRole("button", { name: /Note: Keep shoulders down/ })).toBeVisible();
+  await page.getByRole("button", { name: "Mark complete" }).click();
   await expect(page.locator(".focus-name")).toContainText("Single leg Romanian deadlift");
   await page.getByRole("button", { name: /Start 2:00 rest/ }).click();
   await expect(page.getByRole("group", { name: "Rest timer" })).toBeVisible();
@@ -102,8 +102,11 @@ test("phone Focus and List share loads, queue, skips, timer and saved outcome", 
   await expect(page.getByRole("button", { name: "Focus", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".focus-name")).toHaveText("Calf raise");
   await context.setOffline(true);
-  await page.getByRole("button", { name: /Complete Calf raise/ }).click();
+  await page.getByRole("button", { name: "Mark complete" }).click();
   await expect(page.locator(".focus-name")).toHaveText("Lat pulldown");
+  await page.getByRole("button", { name: "← Previous" }).click();
+  await expect(page.locator(".focus-name")).toHaveText("Calf raise");
+  await expect(page.getByText("✓ Completed")).toBeVisible();
   await page.getByRole("button", { name: "← Previous" }).click();
   await expect(page.locator(".focus-name")).toContainText("Single leg Romanian deadlift");
   await page.getByText("More actions", { exact: true }).click();
@@ -177,6 +180,109 @@ test("Focus keeps warm-up rest behavior consistent with List", async ({ page }) 
   await page.goto("/workout/?id=A");
   await expect(page.locator(".focus-name")).toHaveText("Lat pulldown");
   await expect(page.getByText("Rest guidance:")).toHaveCount(0);
-  await page.getByRole("button", { name: /Complete Lat pulldown/ }).click();
+  await page.getByRole("button", { name: "Mark complete" }).click();
   await expect(page.getByRole("button", { name: /Start 2:00 rest/ })).toHaveCount(0);
+});
+
+test("Focus uses distinct pending, completed and skipped states with compact inline context", async ({ page }, testInfo) => {
+  await page.addInitScript((seed) => {
+    const copy = JSON.parse(JSON.stringify(seed));
+    copy.sessions[0].focusMode = true;
+    copy.sessions[0].startedAt = new Date().toISOString();
+    copy.sessions[0].workoutSnapshot.blocks[3].section = "Warm-up";
+    copy.plans[0].workouts[0].blocks[3].section = "Warm-up";
+    copy.sessions.push({ ...structuredClone(copy.sessions[0]), id: "previous-session", status: "completed", startedAt: "2026-10-01T08:00:00Z",
+      completedAt: "2026-10-01T08:40:00Z", localDate: "2026-10-01", focusMode: false,
+      blocks: copy.sessions[0].blocks.map((block: { blockId: string }) => ({ ...block, completed: true, actualLoad: block.blockId === "a" ? "30 kg" : undefined })) });
+    localStorage.setItem("treino-local:v2", JSON.stringify(copy));
+  }, initial);
+  await page.goto("/workout/?id=A");
+  const focus = page.getByRole("region", { name: "Focus mode" });
+  const capture = async (name: string) => {
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`${name}.png`), animations: "disabled" });
+  };
+  await expect(focus.getByRole("heading", { name: "Lat pulldown" })).toBeVisible();
+  await expect(focus.getByText("Machine", { exact: false })).toBeVisible();
+  await expect(focus.getByText(/Plan 35 kg/)).toBeVisible();
+  await expect(focus.getByText(/Last 30 kg/)).toBeVisible();
+  await expect(focus.getByRole("button", { name: "▶ Watch execution" })).toBeVisible();
+  await expect(page.locator("iframe")).toHaveCount(0);
+  await focus.getByRole("button", { name: "▶ Watch execution" }).click();
+  await expect(page.getByRole("dialog", { name: "Lat pulldown" }).locator("iframe")).toHaveCount(1);
+  await page.getByRole("button", { name: "Close exercise details" }).click();
+  await expect(page.locator("iframe")).toHaveCount(0);
+  await expect(focus.getByRole("button", { name: "Mark complete" })).toBeVisible();
+  await expect(focus.getByText("✓ Completed")).toHaveCount(0);
+  if (testInfo.project.name !== "Narrow phone Chrome") {
+    const action = await focus.getByRole("button", { name: "Mark complete" }).boundingBox();
+    const nav = await page.locator(".bottom-nav").boundingBox();
+    expect(action && nav && action.y + action.height <= nav.y).toBeTruthy();
+  }
+  await capture("focus-pending-load-video");
+  await focus.getByRole("button", { name: "Mark complete" }).click();
+  await expect(focus.getByRole("heading", { name: "Seated row" })).toBeVisible();
+  await expect(focus.getByRole("button", { name: /Note: Keep shoulders down/ })).toBeVisible();
+  await capture("focus-note-after-complete");
+  await focus.getByRole("button", { name: "Start 2:00 rest" }).click();
+  await expect(page.getByRole("group", { name: "Rest timer" })).toBeVisible();
+  await capture("focus-rest-running");
+  await page.getByRole("group", { name: "Rest timer" }).getByRole("button", { name: "Skip" }).click();
+  await focus.getByRole("button", { name: "← Previous" }).click();
+  await expect(focus.getByText("✓ Completed")).toBeVisible();
+  await expect(focus.getByRole("button", { name: "Mark complete" })).toHaveCount(0);
+  await capture("focus-completed-review");
+  await focus.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(focus.getByRole("button", { name: "Mark complete" })).toBeVisible();
+  await expect(focus.getByText("✓ Completed")).toHaveCount(0);
+  await focus.getByRole("button", { name: "Next →" }).click();
+  await focus.getByRole("button", { name: /Note: Keep shoulders down/ }).click();
+  await expect(page.getByRole("tab", { name: "Notes" })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "Close exercise details" }).click();
+  await capture("focus-with-note");
+  await focus.getByText("More actions").click();
+  await focus.getByRole("button", { name: "Skip today" }).click();
+  await page.getByRole("dialog", { name: /Skip Seated row/ }).getByRole("button", { name: "Skip today" }).click();
+  await focus.getByRole("button", { name: "← Previous" }).click();
+  await expect(focus.getByText("Skipped today")).toBeVisible();
+  await expect(focus.getByRole("button", { name: "Mark complete" })).toHaveCount(0);
+  await capture("focus-skipped-review");
+  await focus.getByRole("button", { name: "Undo skip" }).click();
+  await expect(focus.getByRole("button", { name: "Mark complete" })).toBeVisible();
+  await focus.getByRole("button", { name: "Next →" }).click();
+  await expect(focus.getByRole("heading", { name: /Single leg Romanian deadlift/ })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await expect(focus.getByRole("button", { name: "Add load (optional)" })).toBeVisible();
+  await capture("focus-long-name-no-load");
+  await focus.getByRole("button", { name: "Next →" }).click();
+  await expect(focus.getByRole("heading", { name: "Calf raise" })).toBeVisible();
+  await expect(focus.getByRole("button", { name: "Add load (optional)" })).toHaveCount(0);
+  await capture("focus-warmup-no-load");
+});
+
+test("Portuguese warm-up name keeps the action visible without an empty load field", async ({ page }, testInfo) => {
+  await page.addInitScript((seed) => {
+    const copy = JSON.parse(JSON.stringify(seed));
+    copy.sessions[0].focusMode = true;
+    copy.sessions[0].startedAt = new Date().toISOString();
+    copy.sessions[0].workoutSnapshot.blocks[0].name = "Caminhada lateral com miniband";
+    copy.sessions[0].workoutSnapshot.blocks[0].section = "Warm-up";
+    copy.sessions[0].workoutSnapshot.blocks[0].prescription = "10 passos/lado";
+    copy.sessions[0].workoutSnapshot.blocks[0].equipment = "Miniband";
+    copy.sessions[0].workoutSnapshot.blocks[0].videoUrl = undefined;
+    copy.sessions[0].workoutSnapshot.blocks[0].defaultLoad = undefined;
+    copy.sessions[0].blocks[0].actualLoad = undefined;
+    localStorage.setItem("treino-local:v2", JSON.stringify(copy));
+  }, initial);
+  await page.goto("/workout/?id=A");
+  const focus = page.getByRole("region", { name: "Focus mode" });
+  await expect(focus.getByRole("heading", { name: "Caminhada lateral com miniband" })).toBeVisible();
+  await expect(focus.locator(".focus-load")).toHaveCount(0);
+  await expect(focus.getByRole("button", { name: "Mark complete" })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("focus-portuguese-warmup.png"), animations: "disabled" });
+  if (testInfo.project.name === "Pixel 7 Chrome") {
+    await page.setViewportSize({ width: 430, height: 932 });
+    await expect(focus.getByRole("button", { name: "Mark complete" })).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath("focus-large-android.png"), animations: "disabled" });
+  }
 });

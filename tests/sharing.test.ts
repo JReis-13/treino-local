@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createShareCardSvg, SHARE_CARD_SIZE } from "../lib/training/share-card";
 import { shareWorkout } from "../lib/training/share-action";
 import { defaultShareText, shareDate, shareSummaryFromLegacy, shareSummaryFromSession } from "../lib/training/share-summary";
 import type { TrainingSession } from "../types/training";
@@ -24,7 +23,6 @@ test("share summary uses actual local date, duration and exercise-only partial c
   assert.equal(defaultShareText(summary), "Treino rápido 💪 completed 💪\n42 min · 1/2 exercises completed\n03 Oct 2026");
   assert.equal(shareDate("2026-10-03"), "03 Oct 2026");
   assert.match(defaultShareText({ ...summary, durationMinutes: 0 }), /under 1 min/);
-  assert.match(createShareCardSvg({ ...summary, durationMinutes: 0 }), /&lt;1/);
 });
 
 test("normal, same-day, older, missing-duration and date-only summaries remain honest", () => {
@@ -53,77 +51,24 @@ test("six completed and two skipped share as 6/8 without exposing skip details",
   const summary = shareSummaryFromSession(source);
   assert.deepEqual([summary.completedExercises, summary.totalExercises], [6, 8]);
   assert.match(defaultShareText(summary), /6\/8 exercises completed/);
-  assert.doesNotMatch(JSON.stringify(summary) + createShareCardSvg(summary), /skip|Exercise 6|Exercise 7/i);
+  assert.doesNotMatch(JSON.stringify(summary) + defaultShareText(summary), /skip|Exercise 6|Exercise 7/i);
 });
 
 test("public representation excludes private session, load, notes, source and identity data", () => {
   const privateSession = { ...session(), googleEmail: "PRIVATE-EMAIL", spreadsheetUrl: "PRIVATE-SHEET-URL", excelFilename: "PRIVATE-XLSX", oauthToken: "PRIVATE-OAUTH", exerciseNotes: "PRIVATE-PERSISTENT-NOTE" };
   const summary = shareSummaryFromSession(privateSession);
-  const publicOutput = JSON.stringify(summary) + defaultShareText(summary) + createShareCardSvg(summary);
+  const publicOutput = JSON.stringify(summary) + defaultShareText(summary);
   for (const secret of ["PRIVATE-ACTUAL-LOAD", "PRIVATE-PLAN-LOAD", "PRIVATE-EXERCISE-NOTE", "PRIVATE-SESSION-NOTE", "PRIVATE-PERSISTENT-NOTE", "PRIVATE-EMAIL", "PRIVATE-SHEET-ID", "PRIVATE-SHEET-URL", "PRIVATE-XLSX", "PRIVATE-SYNC-STATUS", "PRIVATE-OAUTH", "private-id", "private-plan"]) {
     assert.equal(publicOutput.includes(secret), false, secret);
   }
   assert.deepEqual(Object.keys(summary).sort(), ["completedExercises", "durationMinutes", "localDate", "totalExercises", "workoutName"]);
 });
 
-test("card has fixed square dimensions, escapes untrusted names, and omits unavailable metrics", () => {
-  const summary = shareSummaryFromLegacy({ id: "one", workoutId: "A", date: "2026-10-03", sourceSlot: "E5" }, `<script>alert("bad")</script> & Café 💪\u0000`);
-  const svg = createShareCardSvg(summary);
-  assert.match(svg, new RegExp(`width="${SHARE_CARD_SIZE}" height="${SHARE_CARD_SIZE}"`));
-  assert.doesNotMatch(svg, /<script>|0<\/text>|exercises<\/text>/);
-  assert.match(svg, /&lt;script&gt;/);
-  assert.match(svg, /Café/);
-  assert.doesNotMatch(svg, /\u0000/);
-  const long = createShareCardSvg({ ...summary, workoutName: "Muito longo 🏋️ ".repeat(30), durationMinutes: 38, completedExercises: 6, totalExercises: 8 });
-  assert.match(long, /6 \/ 8 completed/);
-  assert.match(long, /38/);
-  assert.match(long, /…/);
-  assert.equal((long.match(/<tspan x="96"/g) ?? []).length, 3);
-});
-
-test("native image and text, text-only, cancellation and unsupported-share behavior", async () => {
-  const file = new File(["image"], "card.png", { type: "image/png" });
+test("native text sharing preserves edited text, cancellation and errors", async () => {
   const calls: unknown[] = [];
-  assert.equal(await shareWorkout("edited", file, { canShare: () => true, share: async (data) => { calls.push(data); } }), "sharedImage");
-  assert.deepEqual(calls[0], { files: [file], text: "edited" });
-  assert.equal(await shareWorkout("text", file, { canShare: () => false, share: async (data) => { calls.push(data); } }), "sharedText");
-  assert.deepEqual(calls[1], { text: "text" });
-  let attempts = 0;
-  assert.equal(await shareWorkout("retry", file, { canShare: () => true, share: async (data) => {
-    attempts++;
-    if (data.files) throw new Error("Image attachment unsupported");
-  } }), "imageFailed");
-  assert.equal(attempts, 1);
-  assert.equal(await shareWorkout("cancel", file, { share: async () => { throw new DOMException("Cancel", "AbortError"); } }), "cancelled");
-  assert.equal(await shareWorkout("error", file, { share: async () => { throw new Error("Unavailable"); } }), "failed");
-  assert.equal(await shareWorkout("error", file, { canShare: () => { throw new Error("bad"); }, share: async () => {} }), "sharedText");
-  assert.equal(await shareWorkout("none", undefined, {}), "unsupported");
-});
-
-test("a rejected image share never retries native sharing after the tap is consumed", async () => {
-  const file = new File(["image"], "card.png", { type: "image/png" });
-  const calls: ShareData[] = [];
-  const result = await shareWorkout("Edited message", file, {
-    canShare: (data) => Boolean(data.files?.length),
-    share: async (data) => {
-      calls.push(data);
-      if (calls.length === 1) throw new DOMException("Target rejected image", "NotAllowedError");
-      throw new DOMException("User activation was consumed", "NotAllowedError");
-    },
-  });
-  assert.equal(result, "imageFailed");
-  assert.deepEqual(calls, [{ files: [file], text: "Edited message" }]);
-});
-
-test("file-only native support keeps the photo when the target rejects files plus text", async () => {
-  const file = new File(["image"], "card.png", { type: "image/png" });
-  const checks: ShareData[] = [];
-  const calls: ShareData[] = [];
-  const result = await shareWorkout("Edited message", file, {
-    canShare: (data) => { checks.push(data); return Boolean(data.files?.length && !data.text); },
-    share: async (data) => { calls.push(data); },
-  });
-  assert.equal(result, "sharedImageOnly");
-  assert.deepEqual(checks, [{ files: [file], text: "Edited message" }, { files: [file] }]);
-  assert.deepEqual(calls, [{ files: [file] }]);
+  assert.equal(await shareWorkout("edited 💪", { share: async (data) => { calls.push(data); } }), "shared");
+  assert.deepEqual(calls, [{ text: "edited 💪" }]);
+  assert.equal(await shareWorkout("cancel", { share: async () => { throw new DOMException("Cancel", "AbortError"); } }), "cancelled");
+  assert.equal(await shareWorkout("error", { share: async () => { throw new Error("Unavailable"); } }), "failed");
+  assert.equal(await shareWorkout("none", {}), "unsupported");
 });

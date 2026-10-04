@@ -40,6 +40,15 @@ test("session queue moves only today's pending exercise and preserves future pla
   assert.equal(fresh.blocks.some((block) => block.skipped), false);
 });
 
+test("skipping a middle Focus exercise advances to the next pending member", () => {
+  let data = setTrainingFocus(start(), "s", true, "B");
+  data = skipTrainingBlock(data, "s", "B", true);
+  assert.equal(currentFocusId(active(data)), "C");
+  assert.deepEqual(active(data).blocks.map((block) => Boolean(block.skipped)), [false, true, false, false]);
+  data = skipTrainingBlock(data, "s", "B", false);
+  assert.equal(currentFocusId(active(data)), "B");
+});
+
 test("focus, skip and queue survive storage and backup migration; legacy sessions gain original queue", () => {
   let data = start();
   data = setTrainingFocus(data, "s", true, "B");
