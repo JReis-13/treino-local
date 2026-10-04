@@ -26,7 +26,10 @@ const PRECACHE = ${JSON.stringify(precache)};
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(PRECACHE)));
 });
-self.addEventListener("message", (event) => { if (event.data === "SKIP_WAITING") self.skipWaiting(); });
+self.addEventListener("message", (event) => {
+  if (event.data === "SKIP_WAITING") event.waitUntil(self.skipWaiting());
+  if (event.data === "GET_BUILD_ID") event.ports[0]?.postMessage("${version}");
+});
 self.addEventListener("activate", (event) => {
   event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("treino-") && key !== CACHE).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
 });

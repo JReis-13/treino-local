@@ -224,7 +224,7 @@ test("date-only History uses a reduced share message and unsupported-share feedb
   await expectNoHorizontalOverflow(page);
 });
 
-test("production connector requests bypass PWA cache and update notice waits for a tap", async ({ page }) => {
+test("production connector requests bypass PWA cache and a controller event cannot invent an update", async ({ page }) => {
   test.skip(process.env.E2E_PRODUCTION !== "1", "Production Next.js runtime only");
   await page.goto("/debug");
   const build = await page.getByText("BUILD", { exact: true }).locator("..").locator("strong").textContent();
@@ -244,11 +244,11 @@ test("production connector requests bypass PWA cache and update notice waits for
   expect(result).toEqual({ status: 400, cachedApi: false });
   await page.reload();
   await page.evaluate(() => navigator.serviceWorker.dispatchEvent(new Event("controllerchange")));
-  await expect(page.getByText("New version available")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Reload" })).toBeVisible();
+  await expect(page.getByText("New version available")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Update now" })).toHaveCount(0);
 });
 
-test("PWA update prompt cannot reload an in-progress workout", async ({ page }) => {
+test("a synthetic controller event cannot block or reload an in-progress workout", async ({ page }) => {
   test.skip(process.env.E2E_PRODUCTION !== "1", "Production Next.js runtime only");
   await page.goto("/");
   await importFile(page, jonatha);
@@ -256,9 +256,9 @@ test("PWA update prompt cannot reload an in-progress workout", async ({ page }) 
   await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
   await page.reload();
   await page.getByRole("button", { name: "Start workout" }).first().tap();
+  await expect(page.locator(".active-workout-header h1")).toBeVisible();
   await page.evaluate(() => navigator.serviceWorker.dispatchEvent(new Event("controllerchange")));
-  await expect(page.getByText(/reload after your workout/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Reload" })).toBeDisabled();
+  await expect(page.getByText(/update after this workout/)).toHaveCount(0);
   await page.reload();
   await expect(page.locator(".active-workout-header h1")).toBeVisible();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2") ?? "{}").sessions?.some((session: { status: string }) => session.status === "inProgress"))).toBe(true);

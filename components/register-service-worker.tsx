@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useApp } from "@/components/app-provider";
+import { hasActiveWorkout } from "@/lib/training/active-workout";
+import { getPwaUpdateSnapshot, PwaUpdateManager, subscribePwaUpdate, updateBannerLabel } from "@/lib/pwa/update-manager";
+
+const serverSnapshot = { phase: "idle", lastResult: "none", registration: "checking", controller: "none",
+  installing: "none", waiting: "none", active: "none" } as const;
 
 export function RegisterServiceWorker() {
-  const [update, setUpdate] = useState(false);
   const [oldDevCache, setOldDevCache] = useState(false);
-  const [waiting, setWaiting] = useState<ServiceWorker | null>(null);
+  const [online, setOnline] = useState(true);
+  const manager = useRef<PwaUpdateManager | null>(null);
+  const update = useSyncExternalStore(subscribePwaUpdate, getPwaUpdateSnapshot, () => serverSnapshot);
   const { data } = useApp();
-  const workoutInProgress = data?.sessions.some((session) => session.status === "inProgress") ?? false;
+  const workoutInProgress = hasActiveWorkout(data);
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     if (process.env.NODE_ENV !== "production") {
@@ -21,25 +27,31 @@ export function RegisterServiceWorker() {
       }).catch(() => {});
       return;
     }
-    const hadController = Boolean(navigator.serviceWorker.controller);
-    const changed = () => { if (hadController) setUpdate(true); };
-    const check = () => { if (document.visibilityState === "visible") navigator.serviceWorker.getRegistration().then((registration) => registration?.update()).catch(() => {}); };
-    const observe = (registration: ServiceWorkerRegistration) => {
-      if (registration.waiting && navigator.serviceWorker.controller) { setWaiting(registration.waiting); setUpdate(true); }
-      registration.addEventListener("updatefound", () => {
-        const worker = registration.installing;
-        worker?.addEventListener("statechange", () => {
-          if (worker.state === "installed" && navigator.serviceWorker.controller) { setWaiting(worker); setUpdate(true); }
-        });
-      });
-    };
-    navigator.serviceWorker.addEventListener("controllerchange", changed);
+    const instance = new PwaUpdateManager(navigator.serviceWorker, () => window.location.reload());
+    manager.current = instance;
+    void instance.start();
+    const check = () => { if (document.visibilityState === "visible") void instance.check(); };
+    const connected = () => { setOnline(true); void instance.check(); };
+    const disconnected = () => setOnline(false);
+    setOnline(navigator.onLine);
     document.addEventListener("visibilitychange", check);
-    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then(observe).catch(() => {});
+    window.addEventListener("online", connected);
+    window.addEventListener("offline", disconnected);
     return () => {
-      navigator.serviceWorker.removeEventListener("controllerchange", changed);
+      instance.dispose();
+      manager.current = null;
       document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("online", connected);
+      window.removeEventListener("offline", disconnected);
     };
   }, []);
-  return update || oldDevCache ? <div className="update-banner" role="status"><span>{oldDevCache ? "Old development cache removed" : workoutInProgress ? "New version available — reload after your workout" : "New version available"}</span><button type="button" disabled={workoutInProgress} onClick={() => { if (workoutInProgress) return; if (waiting) { navigator.serviceWorker.addEventListener("controllerchange", () => window.location.reload(), { once: true }); waiting.postMessage("SKIP_WAITING"); } else window.location.reload(); }}>Reload</button></div> : null;
+  if (oldDevCache) return <div className="update-banner" role="status"><span>Old development cache removed</span>
+    <button type="button" onClick={() => window.location.reload()}>Reload</button></div>;
+  if (update.phase === "idle") return null;
+  const busy = update.phase === "updating";
+  const label = updateBannerLabel(update.phase, workoutInProgress, online);
+  return <div className="update-banner" role="status" aria-live="polite"><span>{label}</span>
+    {!workoutInProgress && <button type="button" disabled={busy || data === null}
+      onClick={() => void manager.current?.apply()}>{busy ? "Updating…" : update.phase === "error" ? "Retry" : "Update now"}</button>}
+  </div>;
 }

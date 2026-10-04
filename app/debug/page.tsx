@@ -1,16 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useApp } from "@/components/app-provider";
+import { hasActiveWorkout } from "@/lib/training/active-workout";
+import { getPwaUpdateSnapshot, subscribePwaUpdate } from "@/lib/pwa/update-manager";
 import { loadDeviceConnector } from "@/lib/connector/credentials";
 import { readDiagnostics, safeDiagnostic, type DiagnosticsState } from "@/lib/diagnostics";
+
+const serverUpdateSnapshot = { phase: "idle", lastResult: "none", registration: "checking", controller: "none",
+  installing: "none", waiting: "none", active: "none" } as const;
 
 export default function DebugPage() {
   const { data, error } = useApp();
   const [diagnostics, setDiagnostics] = useState<DiagnosticsState>({});
   const [environment, setEnvironment] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
+  const update = useSyncExternalStore(subscribePwaUpdate, getPwaUpdateSnapshot, () => serverUpdateSnapshot);
   useEffect(() => {
     let storage = "available";
     try { const key = "treino-local:probe"; localStorage.setItem(key, "1"); localStorage.removeItem(key); }
@@ -20,11 +26,25 @@ export default function DebugPage() {
       Version: "0.2.0", Build: process.env.NEXT_PUBLIC_TREINO_BUILD_ID ?? "development",
       "Built at": process.env.NEXT_PUBLIC_TREINO_BUILT_AT ?? "development", Path: window.location.pathname, Origin: window.location.origin,
       "Secure context": String(window.isSecureContext), Online: String(navigator.onLine), "Local storage": storage,
+      "SW supported": String("serviceWorker" in navigator),
       "Service worker": navigator.serviceWorker?.controller?.scriptURL ?? "not controlling this page",
+      "Controller build ID": navigator.serviceWorker?.controller ? "unavailable from older worker" : "none",
       "Direct file access": String(Boolean(window.isSecureContext && "showOpenFilePicker" in window)),
       "Web Share": String("share" in navigator), "Google Sheets": "available after server-side Google OAuth connection",
       "PWA standalone": String(window.matchMedia("(display-mode: standalone)").matches),
     });
+    const controller = navigator.serviceWorker?.controller;
+    if (controller) {
+      const channel = new MessageChannel();
+      const timer = setTimeout(() => channel.port1.close(), 1500);
+      channel.port1.onmessage = (event) => {
+        clearTimeout(timer);
+        setEnvironment((current) => ({ ...current, "Controller build ID": typeof event.data === "string" ? event.data : "unknown" }));
+        channel.port1.close();
+      };
+      try { controller.postMessage("GET_BUILD_ID", [channel.port2]); }
+      catch { clearTimeout(timer); channel.port1.close(); }
+    }
     loadDeviceConnector().then((connector) => setEnvironment((current) => ({ ...current,
       "Device connector version": connector?.version ? String(connector.version) : "not configured" }))).catch(() => {});
   }, []);
@@ -40,7 +60,12 @@ export default function DebugPage() {
     catch { setMessage("Clipboard unavailable. Use the values shown above."); }
   }
   return <div className="page-stack"><div className="page-heading"><p className="eyebrow">LOCAL TROUBLESHOOTING</p><h1>Diagnostics.</h1><p>Use this on your phone when a button appears to do nothing. No credentials are shown here.</p></div>
-    <div className="debug-grid">{Object.entries({ ...environment, "Active plan ID": plan?.id ?? "none", "Active session ID": session?.id ?? "none", "Last action": diagnostics.lastAction ?? "none", "Last client error": diagnostics.lastError ?? error ?? "none" }).map(([key, value]) => <div key={key}><small>{key.toUpperCase()}</small><strong>{value}</strong></div>)}</div>
+    <div className="debug-grid">{Object.entries({ ...environment,
+      "SW registration": update.registration, "SW controller": update.controller,
+      "SW installing": update.installing, "SW waiting": update.waiting, "SW active": update.active,
+      "Update UI state": update.phase, "Active workout detected": String(hasActiveWorkout(data)),
+      "Last update result": update.lastResult,
+      "Active plan ID": plan?.id ?? "none", "Active session ID": session?.id ?? "none", "Last action": diagnostics.lastAction ?? "none", "Last client error": diagnostics.lastError ?? error ?? "none" }).map(([key, value]) => <div key={key}><small>{key.toUpperCase()}</small><strong>{value}</strong></div>)}</div>
     {message && <p className="context-note" role="status">{message}</p>}
     <button type="button" className="secondary-button" onClick={() => { setDiagnostics(readDiagnostics()); setEnvironment((current) => ({ ...current, Online: String(navigator.onLine), Path: window.location.pathname })); }}>Refresh diagnostics</button>
     <button type="button" className="secondary-button" onClick={() => void copyReport()}>Copy safe diagnostic report</button>

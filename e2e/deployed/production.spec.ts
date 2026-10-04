@@ -53,6 +53,18 @@ test("production build and read-only navigation", async ({ page }) => {
   }
   await page.goto(origin);
   await expect(page.getByRole("region", { name: "Friends" })).toBeVisible();
+  await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+  await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
+  await page.reload();
+  await expect(page.locator(".update-banner")).toHaveCount(0);
+  await page.goto(new URL("debug/", origin).toString());
+  const diagnostic = (name: string) => page.locator(".debug-grid > div").filter({ has: page.locator("small", { hasText: new RegExp(`^${name}$`) }) }).locator("strong");
+  const buildId = await diagnostic("BUILD").textContent();
+  await expect(diagnostic("SW REGISTRATION")).toHaveText("registered");
+  await expect(diagnostic("CONTROLLER BUILD ID")).toHaveText(buildId ?? "");
+  await expect(diagnostic("SW WAITING")).toHaveText("none");
+  await expect(diagnostic("UPDATE UI STATE")).toHaveText("idle");
+  await expect(diagnostic("ACTIVE WORKOUT DETECTED")).toHaveText("false");
   expect(errors).toEqual([]);
 });
 

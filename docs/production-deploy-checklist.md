@@ -1,5 +1,11 @@
 # OAuth production deployment checklist
 
+## PWA update recovery on a physical phone
+
+1. With no workout open, open Home and wait for a newer deployment. The compact banner should say **New version available** with **Update now**, never “after this workout.” Tap it and confirm **Updating…**, one reload, a changed **Build** on `/debug`, matching **Controller build ID**, and no remaining banner. Plans and History should still be present.
+2. With a disposable workout in progress, wait for an update. The banner should defer. Finish and save, or cancel the workout; **Update now** should then appear without deleting or reimporting a plan. Do not expect an automatic reload on the finish/share screen.
+3. If activation fails, use **Retry** after reconnecting. `/debug` shows the registration, installing/waiting/active worker states, current controller, update UI state, active-workout detection, and last result. A waiting worker means an update is genuinely ready; no waiting worker with `idle` means the old banner has self-healed. Keep phone data intact; clearing site data also erases local workout records.
+
 ## Source-sync verification after deployment
 
 On the new `/debug` build, use an isolated browser and a temporary workbook copy. Finish one workout with a changed load, download the Excel safe copy from Source, reconnect the downloaded copy, and confirm Source has no waiting workout. Open History detail and reload: it must still show Synced. For Google, use only an authenticated disposable Sheet; finish offline, reconnect, retry from Source, verify the date/load readback, and confirm no duplicate date on repeated retry. Never write to canonical workbooks or Sheets during automated checks.
