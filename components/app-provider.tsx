@@ -5,11 +5,12 @@ import { addTraining, migrateGoogleTraining, refreshTraining, removeTraining, re
 import { cancelTrainingSession, finishTrainingSession, moveTrainingBlockLater, restoreTrainingQueue, sameDaySessions, setTrainingFocus, skipTrainingBlock, startTrainingSession, updateTrainingBlock } from "@/lib/training/session";
 import { changedLoads } from "@/lib/training/loads";
 import { normalizeLoad } from "@/lib/training/loads";
-import { withSyncStatus } from "@/lib/training/sync-state";
+import { completionState, loadState, withSyncStatus } from "@/lib/training/sync-state";
 import { updateExerciseNote } from "@/lib/training/exercise-notes";
 import { extendRest, pauseRest, resumeRest, skipRest, startRest } from "@/lib/training/rest-timer";
 import { trainingStorage } from "@/lib/training/storage";
 import { flushSocialOutbox, queueSocialActivity } from "@/lib/social/client";
+import { plannedCompletionSlot } from "@/lib/sync/logic";
 import type { ImportedTraining, SourceSyncStatus, TrainingData, TrainingSession, TrainingSource } from "@/types/training";
 
 interface AppContextValue {
@@ -50,6 +51,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<TrainingData | null>(null);
   const dataRef = useRef<TrainingData | null>(null);
   const storageBlocked = useRef(false);
+  const reconciling = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -167,6 +169,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // The completed session has already been committed locally. Remote sync is best-effort.
       void (async () => {
         let currentPlan = plan;
+        let intendedSlot: string | undefined;
         if (source.authMode === "oauth") {
           try {
             const { refreshGoogleSheet } = await import("@/lib/google/client");
@@ -174,6 +177,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             if (![imported.sourceFingerprint, imported.legacyFingerprint].includes(plan.sourceFingerprint) ||
                 imported.warnings.some((warning) => warning.severity === "activationBlocker")) throw new Error("The Sheet changed; review it before syncing.");
             applySourceLoads(plan.id, imported);
+            intendedSlot = plannedCompletionSlot(imported, session.workoutId);
             currentPlan = dataRef.current?.plans.find((item) => item.id === plan.id) ?? plan;
           } catch (cause) {
             setSessionSync(completedId, { completionSyncStatus: "failed", loadSyncStatus: "failed",
@@ -188,7 +192,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             if (currentSource.kind === "google" && currentSource.authMode === "oauth") {
               const { syncGoogleDate } = await import("@/lib/google/client");
               if (session.duplicateDateAllowed && session.completionAttempted) throw new Error("Duplicate date sync needs review before retrying.");
-              if (session.duplicateDateAllowed) setSessionSync(completedId, { completionAttempted: true });
+              setSessionSync(completedId, { completionAttempted: true, preparedCompletionSlot: intendedSlot });
               result = await syncGoogleDate(currentSource.spreadsheetId!, currentPlan.sourceFingerprint!, currentSource.sourceProof!,
                 session.workoutId, localDate, session.duplicateDateAllowed);
             } else {
@@ -202,6 +206,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               source.connectorVersion === 2 ? source.spreadsheetId : undefined);
             }
             setSessionSync(completedId, { completionSyncStatus: result.status === "synced" ? "synced" : "conflict",
+              preparedCompletionSlot: result.status === "synced" ? undefined : intendedSlot,
               completionReceipt: result.status === "synced" && result.sourceSlot ? { sourceKind: "google",
                 sourceId: currentSource.kind === "google" ? currentSource.spreadsheetId ?? "legacy" : "legacy", workoutId: session.workoutId,
                 slot: result.sourceSlot, syncedAt: new Date().toISOString() } : undefined,
@@ -237,6 +242,96 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     return true;
   }, [commit, applySourceLoads, setSessionSync]);
+
+  const reconcilePendingGoogle = useCallback(async () => {
+    if (!navigator.onLine || !dataRef.current || storageBlocked.current) return;
+    const { refreshGoogleSheet, syncGoogleDate, syncGoogleLoads } = await import("@/lib/google/client");
+    const snapshot = dataRef.current;
+    for (const plan of snapshot.plans) {
+      const source = plan.source;
+      if (source.kind !== "google" || source.authMode !== "oauth" || !source.syncEnabled ||
+          !source.spreadsheetId || !source.sourceProof || !plan.sourceFingerprint ||
+          plan.importWarnings.some((warning) => warning.severity === "syncBlocker")) continue;
+      const waiting = snapshot.sessions.filter((session) => session.planId === plan.id && session.status === "completed" &&
+        !["synced", "notApplicable"].includes(withSyncStatus(session, {}).syncStatus) && !reconciling.current.has(session.id));
+      if (!waiting.length) continue;
+      for (const session of waiting) reconciling.current.add(session.id);
+      try {
+        const { imported } = await refreshGoogleSheet(source.spreadsheetId, plan.sourceFingerprint, source.sourceProof);
+        if (![imported.sourceFingerprint, imported.legacyFingerprint].includes(plan.sourceFingerprint) || imported.source.kind !== "google" ||
+            !imported.source.sourceProof) throw new Error("Sheet structure changed; review the plan before syncing.");
+        applySourceLoads(plan.id, imported);
+        for (const snapshotSession of waiting) {
+          const session = dataRef.current?.sessions.find((item) => item.id === snapshotSession.id) ?? snapshotSession;
+          if (!session.localDate) continue;
+          try {
+            if (completionState(session) !== "synced") {
+              const matching = session.completionAttempted && session.preparedCompletionSlot ? imported.legacyCompletions.filter((entry) =>
+                entry.workoutId === session.workoutId && entry.date === session.localDate &&
+                entry.sourceSlot === session.preparedCompletionSlot &&
+                !dataRef.current?.sessions.some((other) => other.id !== session.id && other.completionReceipt?.sourceKind === "google" &&
+                  other.completionReceipt.sourceId === source.spreadsheetId && other.completionReceipt.slot === entry.sourceSlot)) : [];
+              if (matching.length === 1) {
+                setSessionSync(session.id, { completionSyncStatus: "synced", preparedCompletionSlot: undefined, completionReceipt: { sourceKind: "google",
+                  sourceId: source.spreadsheetId, workoutId: session.workoutId, slot: matching[0].sourceSlot,
+                  syncedAt: new Date().toISOString() }, syncMessage: "Completion date verified in Sheet." });
+              } else if (session.duplicateDateAllowed && session.completionAttempted) {
+                setSessionSync(session.id, { completionSyncStatus: "conflict", syncMessage: "Same-day date needs review before retrying." });
+              } else {
+                setSessionSync(session.id, { completionSyncStatus: "syncing", completionAttempted: true,
+                  preparedCompletionSlot: plannedCompletionSlot(imported, session.workoutId) });
+                const result = await syncGoogleDate(source.spreadsheetId, imported.sourceFingerprint, imported.source.sourceProof,
+                  session.workoutId, session.localDate, session.duplicateDateAllowed);
+                setSessionSync(session.id, result.status === "synced" && result.sourceSlot ? { completionSyncStatus: "synced", preparedCompletionSlot: undefined,
+                  completionReceipt: { sourceKind: "google", sourceId: source.spreadsheetId, workoutId: session.workoutId,
+                    slot: result.sourceSlot, syncedAt: new Date().toISOString() }, syncMessage: "Completion date verified in Sheet." } :
+                  { completionSyncStatus: "conflict", syncMessage: "Completion date needs source review." });
+              }
+            }
+            if (loadState(session) === "synced" || loadState(session) === "notApplicable") continue;
+            const workout = imported.workouts.find((item) => item.id === session.workoutId);
+            const changes = session.loadCorrectionPending ? session.blocks.flatMap((state) => {
+              const block = workout?.blocks.find((item) => item.kind === "exercise" && item.id === state.blockId);
+              return state.completed && block?.kind === "exercise" && state.actualLoad?.trim() &&
+                normalizeLoad(state.actualLoad) !== normalizeLoad(block.defaultLoad ?? "") ?
+                [{ blockId: state.blockId, load: normalizeLoad(state.actualLoad) }] : [];
+            }) : changedLoads(session);
+            if (session.loadCorrectionPending && !changes.length) {
+              setSessionSync(session.id, { loadSyncStatus: "synced", loadCorrectionPending: false });
+              continue;
+            }
+            const mapped = changes.filter((change) => workout?.blocks.some((block) => block.kind === "exercise" && block.id === change.blockId && block.loadSource));
+            if (mapped.length !== changes.length) setSessionSync(session.id, { loadSyncStatus: "conflict", syncMessage: "Some load destinations need review." });
+            if (!mapped.length) continue;
+            if (mapped.length === changes.length) setSessionSync(session.id, { loadSyncStatus: "syncing" });
+            const requests = mapped.map((change) => ({ ...change, expected: session.loadCorrectionPending ?
+              (workout?.blocks.find((block) => block.kind === "exercise" && block.id === change.blockId) as { defaultLoad?: string } | undefined)?.defaultLoad ?? "" :
+              (session.workoutSnapshot.blocks.find((block) => block.kind === "exercise" && block.id === change.blockId) as { defaultLoad?: string } | undefined)?.defaultLoad ?? "" }));
+            const result = await syncGoogleLoads(source.spreadsheetId, imported.sourceFingerprint, imported.source.sourceProof,
+              session.workoutId, requests);
+            applySourceLoads(plan.id, result.imported);
+            if (mapped.length === changes.length) setSessionSync(session.id, { loadSyncStatus: "synced", loadCorrectionPending: false,
+              syncMessage: "Completion and loads verified in Sheet." });
+            else setSessionSync(session.id, { loadSyncStatus: "conflict", syncMessage: "Some load destinations need review." });
+          } catch (cause) {
+            const message = cause instanceof Error ? cause.message : "Source sync failed; local workout is safe.";
+            setSessionSync(session.id, { completionSyncStatus: completionState(session) === "synced" ? "synced" : "failed",
+              loadSyncStatus: loadState(session) === "synced" || loadState(session) === "notApplicable" ? loadState(session) : "failed",
+              syncMessage: message });
+          }
+        }
+      } catch { /* A disconnected source stays locally saved and can be retried from Source. */ }
+      finally { for (const session of waiting) reconciling.current.delete(session.id); }
+    }
+  }, [applySourceLoads, setSessionSync]);
+
+  useEffect(() => {
+    const retry = () => { if (document.visibilityState === "visible") void reconcilePendingGoogle(); };
+    window.addEventListener("online", retry);
+    document.addEventListener("visibilitychange", retry);
+    retry();
+    return () => { window.removeEventListener("online", retry); document.removeEventListener("visibilitychange", retry); };
+  }, [reconcilePendingGoogle]);
   const addPlan = useCallback((imported: ImportedTraining, name?: string) => {
     const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     return commit((current) => addTraining(current, imported, name, new Date().toISOString(), id)) ? id : null;
@@ -262,7 +357,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setSyncStatus = useCallback((sessionIds: string[], status: SourceSyncStatus, message?: string) => {
     const ids = new Set(sessionIds);
     commit((current) => ({ ...current, sessions: current.sessions.map((session) => ids.has(session.id)
-      ? { ...session, syncStatus: status, syncMessage: message } : session) }));
+      ? withSyncStatus(session, { completionSyncStatus: completionState(session) === "synced" ? "synced" : status,
+        loadSyncStatus: loadState(session) === "synced" || loadState(session) === "notApplicable" ? loadState(session) : status,
+        syncMessage: message }) : session) }));
   }, [commit]);
 
   const restoreData = useCallback((restored: TrainingData): boolean => {

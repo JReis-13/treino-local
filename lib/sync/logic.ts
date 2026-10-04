@@ -1,4 +1,5 @@
-import type { CompletionMapping, TrainingSession } from "@/types/training";
+import type { CompletionMapping, ImportedTraining, TrainingSession } from "@/types/training";
+import { aggregateSync } from "@/lib/training/sync-state";
 
 export type SyncDecision = { kind: "write"; slot: string } | { kind: "duplicate" | "full"; message: string };
 
@@ -12,6 +13,13 @@ export function chooseCompletionSlot(mapping: CompletionMapping, dates: Array<st
 
 export function sessionsWaitingForSource(sessions: TrainingSession[], planId: string): TrainingSession[] {
   return sessions.filter((session) => session.planId === planId && session.status === "completed" &&
-    session.syncStatus !== "synced" && session.syncStatus !== "notApplicable")
+    !["synced", "notApplicable"].includes(aggregateSync(session)))
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+}
+
+/** Persist the intended empty occurrence before a Google write, so an interrupted retry can verify that exact slot. */
+export function plannedCompletionSlot(imported: ImportedTraining, workoutId: string): string | undefined {
+  if (imported.source.kind !== "google") return undefined;
+  const occupied = new Set(imported.legacyCompletions.filter((entry) => entry.workoutId === workoutId).map((entry) => entry.sourceSlot));
+  return imported.source.mappings[workoutId]?.slots.find((slot) => !occupied.has(slot));
 }

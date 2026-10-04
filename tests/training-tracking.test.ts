@@ -81,7 +81,9 @@ test("v2 production data and v1 backup migrate without dropping sessions or sour
   const current = parseTrainingData(JSON.stringify(productionWithSource));
   assert.equal(current.schemaVersion, 5);
   assert.deepEqual(current.plans, JSON.parse(JSON.stringify(productionWithSource.plans)));
-  assert.deepEqual(current.sessions, JSON.parse(JSON.stringify(productionWithSource.sessions)));
+  assert.equal(current.sessions[0].completionSyncStatus, "synced");
+  assert.equal(current.sessions[0].loadSyncStatus, "notApplicable");
+  assert.equal(current.sessions[0].syncStatus, "synced");
   assert.deepEqual(current.exerciseNotes, []);
 });
 

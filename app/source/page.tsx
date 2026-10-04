@@ -11,7 +11,7 @@ import { loadDeviceConnector, loadPlanConnectorKey } from "@/lib/connector/crede
 import { loadFileHandle, saveFileHandle } from "@/lib/import/file-handles";
 import { snapshotFromXlsx } from "@/lib/import/snapshot";
 import { parseTrainingSnapshot } from "@/lib/import/template-parser";
-import { sessionsWaitingForSource } from "@/lib/sync/logic";
+import { plannedCompletionSlot, sessionsWaitingForSource } from "@/lib/sync/logic";
 import { prepareXlsxSync } from "@/lib/sync/xlsx";
 import { activePlan } from "@/lib/training/session";
 import { changedLoads } from "@/lib/training/loads";
@@ -93,9 +93,10 @@ export default function SourcePage() {
       updateSource(currentPlan.id, { ...currentPlan.source, filename: file.name, mode });
       applySourceLoads(currentPlan.id, imported);
       if (handle) await saveFileHandle(currentPlan.id, handle).catch(() => setMessage("Connected, but this browser could not remember the handle. Reconnect after reopening the app."));
-      for (const session of pending.filter((item) => item.syncMessage?.startsWith("Copy prepared"))) {
-        const verifiedDate = imported.legacyCompletions.find((entry) => entry.workoutId === session.workoutId && entry.date === session.localDate &&
-          (session.preparedCompletionSlot ? entry.sourceSlot === session.preparedCompletionSlot : !session.duplicateDateAllowed));
+      for (const session of pending) {
+        const verifiedDate = session.preparedCompletionSlot && imported.legacyCompletions.find((entry) =>
+          entry.workoutId === session.workoutId && entry.date === session.localDate &&
+          entry.sourceSlot === session.preparedCompletionSlot);
         if (verifiedDate) {
           setSessionSync(session.id, { completionSyncStatus: "synced", preparedCompletionSlot: undefined,
             completionReceipt: { sourceKind: "excel", sourceId: file.name, workoutId: session.workoutId,
@@ -104,7 +105,7 @@ export default function SourcePage() {
         }
         const loads = session.loadCorrectionPending ? session.blocks.filter((state) => state.completed && state.actualLoad?.trim())
           .map((state) => ({ blockId: state.blockId, load: state.actualLoad!.trim() })) : changedLoads(session);
-        if (loads.length && loads.every((change) => imported.workouts.find((item) => item.id === session.workoutId)?.blocks.some((block) =>
+        if (session.loadSyncStatus !== "synced" && loads.length && loads.every((change) => imported.workouts.find((item) => item.id === session.workoutId)?.blocks.some((block) =>
           block.kind === "exercise" && block.id === change.blockId && block.defaultLoad === change.load)))
           setSessionSync(session.id, { loadSyncStatus: "synced", loadCorrectionPending: false, syncMessage: "Saved workbook copy was reconnected and loads verified." });
       }
@@ -211,6 +212,7 @@ export default function SourcePage() {
     try {
       if (plan!.source.authMode === "oauth") {
         if (!plan!.source.spreadsheetId || !plan!.source.sourceProof || !plan!.sourceFingerprint) throw new Error("Google source identity is missing. Refresh this training.");
+        const spreadsheetId = plan!.source.spreadsheetId;
         let synced = 0;
         const { imported } = await refreshGoogleSheet(plan!.source.spreadsheetId, plan!.sourceFingerprint, plan!.source.sourceProof);
         if (![imported.sourceFingerprint, imported.legacyFingerprint].includes(plan!.sourceFingerprint)) throw new Error("Sheet structure changed; review the plan before syncing.");
@@ -220,13 +222,25 @@ export default function SourcePage() {
         for (const session of pending) {
           if (!session.localDate) continue;
           if (session.completionSyncStatus !== "synced" && !session.completionReceipt) {
-            if (session.duplicateDateAllowed && session.completionAttempted) {
+            const matching = session.completionAttempted && session.preparedCompletionSlot ? imported.legacyCompletions.filter((entry) =>
+              entry.workoutId === session.workoutId && entry.date === session.localDate &&
+              entry.sourceSlot === session.preparedCompletionSlot &&
+              !data!.sessions.some((other) => other.id !== session.id && other.completionReceipt?.sourceKind === "google" &&
+                other.completionReceipt.sourceId === spreadsheetId && other.completionReceipt.slot === entry.sourceSlot)) : [];
+            if (matching.length === 1) {
+              synced++;
+              setSessionSync(session.id, { completionSyncStatus: "synced", preparedCompletionSlot: undefined,
+                completionReceipt: { sourceKind: "google",
+                sourceId: spreadsheetId, workoutId: session.workoutId, slot: matching[0].sourceSlot,
+                syncedAt: new Date().toISOString() }, syncMessage: "Date verified in Sheet after reconnecting." });
+            } else if (session.duplicateDateAllowed && session.completionAttempted) {
               setSessionSync(session.id, { completionSyncStatus: "conflict", syncMessage: "Duplicate date needs manual review before retrying." });
             } else {
-              if (session.duplicateDateAllowed) setSessionSync(session.id, { completionAttempted: true });
+              setSessionSync(session.id, { completionAttempted: true,
+                preparedCompletionSlot: plannedCompletionSlot(imported, session.workoutId) });
               const result = await syncGoogleDate(plan!.source.spreadsheetId, imported.sourceFingerprint, proof, session.workoutId,
                 session.localDate, session.duplicateDateAllowed);
-              if (result.status === "synced" && result.sourceSlot) { synced++; setSessionSync(session.id, { completionSyncStatus: "synced",
+              if (result.status === "synced" && result.sourceSlot) { synced++; setSessionSync(session.id, { completionSyncStatus: "synced", preparedCompletionSlot: undefined,
                 completionReceipt: { sourceKind: "google", sourceId: plan!.source.spreadsheetId, workoutId: session.workoutId,
                   slot: result.sourceSlot, syncedAt: new Date().toISOString() }, syncMessage: "Date verified in Sheet." }); }
               else setSessionSync(session.id, { completionSyncStatus: "conflict", syncMessage: result.status === "duplicate" ? "Date already exists; review before retrying." : "Completion slots are full." });

@@ -9,9 +9,9 @@ import { inspectWorkbook, prepareWorkbookCopy, dateToExcelSerial, writeCompletio
 import { SOURCE_WORKBOOK_SHA256 } from "../lib/excel/mapping";
 import { startSession, finishSession } from "../lib/session";
 import type { AppData, WorkoutId, WorkoutSession } from "../types/workout";
-import { fixturePath } from "./fixture-path";
+import { reviewedJonathaPath } from "./fixture-path";
 
-const source = process.env.WORKBOOK_FIXTURE || fixturePath("TREINO 1 JONATHA.xlsx");
+const source = process.env.WORKBOOK_FIXTURE || reviewedJonathaPath();
 
 async function disposable<T>(run: (bytes: Uint8Array, tempPath: string) => Promise<T>): Promise<T> {
   const before = createHash("sha256").update(await readFile(source!)).digest("hex").toUpperCase();

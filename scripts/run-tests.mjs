@@ -8,7 +8,7 @@ if (!folder.startsWith(resolve(process.cwd()) + sep)) throw new Error("Unsafe te
 try {
   const entries = (await readdir("tests")).filter((name) => name.endsWith(".test.ts") &&
     (!process.argv.includes("--excel") || name === "excel.test.ts"));
-  await build({ entryPoints: entries.map((name) => resolve("tests", name)), outdir: folder, bundle: true,
+  await build({ entryPoints: entries.map((name) => `./tests/${name}`), outdir: ".test-build", bundle: true,
     absWorkingDir: process.cwd(), tsconfig: "./tsconfig.json", platform: "node", format: "cjs", target: "node24", outExtension: { ".js": ".cjs" }, logLevel: "warning" });
   const outputs = entries.map((name) => join(folder, name.replace(/\.ts$/, ".cjs")));
   const result = spawnSync(process.execPath, ["--test", ...outputs], { stdio: "inherit", env: process.env });

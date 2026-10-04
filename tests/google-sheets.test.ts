@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { dateToSerial, snapshotFromXlsx, type GoogleGrid } from "../lib/import/snapshot";
 import { readGoogleTraining, registerCompletion, sourceProof, writeGoogleLoads } from "../lib/google/sheets";
-import { fixturePath } from "./fixture-path";
+import { fixturePath, reviewedJonathaPath } from "./fixture-path";
 
 process.env.APP_BASE_URL = "http://localhost:3000";
 process.env.GOOGLE_OAUTH_CLIENT_ID = "test-client";
@@ -12,7 +12,7 @@ process.env.GOOGLE_OAUTH_SESSION_SECRET = "a".repeat(64);
 const spreadsheetId = "a".repeat(44);
 
 async function fixtureGrid(filename = "TREINO 1 JONATHA.xlsx"): Promise<GoogleGrid> {
-  const snapshot = await snapshotFromXlsx(new Uint8Array(await readFile(fixturePath(filename))));
+  const snapshot = await snapshotFromXlsx(new Uint8Array(await readFile(filename === "TREINO 1 JONATHA.xlsx" ? reviewedJonathaPath() : fixturePath(filename))));
   return { sheets: snapshot.sheets.filter((sheet) => /^TREINO\s/i.test(sheet.name)).map((sheet) => {
     const rows: Array<{ values: Array<Record<string, unknown>> }> = Array.from({ length: 45 }, () => ({ values: Array.from({ length: 13 }, () => ({})) }));
     for (const value of Object.values(sheet.cells)) {

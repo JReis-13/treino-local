@@ -1,5 +1,9 @@
 # OAuth production deployment checklist
 
+## Source-sync verification after deployment
+
+On the new `/debug` build, use an isolated browser and a temporary workbook copy. Finish one workout with a changed load, download the Excel safe copy from Source, reconnect the downloaded copy, and confirm Source has no waiting workout. Open History detail and reload: it must still show Synced. For Google, use only an authenticated disposable Sheet; finish offline, reconnect, retry from Source, verify the date/load readback, and confirm no duplicate date on repeated retry. Never write to canonical workbooks or Sheets during automated checks.
+
 ## Short real-phone check for the Focus and sharing correction
 
 Use a disposable workout with at least four exercises and one grouped pair. Do not use a canonical Sheet or workbook for test writes.

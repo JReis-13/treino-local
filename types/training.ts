@@ -1,5 +1,5 @@
 export type SourceKind = "builtin" | "excel" | "google";
-export type SourceSyncStatus = "notApplicable" | "pending" | "synced" | "conflict" | "authRequired" | "sourceUnavailable" | "failed";
+export type SourceSyncStatus = "notApplicable" | "pending" | "syncing" | "synced" | "partial" | "conflict" | "authRequired" | "sourceUnavailable" | "failed";
 
 export interface ImportWarning {
   code: string;

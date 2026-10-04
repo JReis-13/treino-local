@@ -1,4 +1,5 @@
 import { isLocalDate } from "@/lib/dates";
+import { withSyncStatus } from "@/lib/training/sync-state";
 import { legacyPlan, migrateLegacySession } from "@/lib/training/builtin";
 import { parseStoredData } from "@/lib/storage";
 import type { TrainingData, TrainingPlanRecord, TrainingSession, WorkoutBlock } from "@/types/training";
@@ -77,13 +78,13 @@ function validSession(value: unknown): value is TrainingSession {
       ["google", "excel"].includes(String(value.completionReceipt.sourceKind)) &&
       typeof value.completionReceipt.sourceId === "string" && typeof value.completionReceipt.workoutId === "string" &&
       typeof value.completionReceipt.slot === "string" && typeof value.completionReceipt.syncedAt === "string")) &&
-    ["notApplicable", "pending", "synced", "conflict", "authRequired", "sourceUnavailable", "failed"].includes(String(value.syncStatus)) &&
+    ["notApplicable", "pending", "syncing", "synced", "partial", "conflict", "authRequired", "sourceUnavailable", "failed"].includes(String(value.syncStatus)) &&
     (value.status !== "completed" || (typeof value.localDate === "string" && isLocalDate(value.localDate) &&
       typeof value.completedAt === "string" && Number.isFinite(Date.parse(value.completedAt))));
 }
 
 function validSyncStatus(value: unknown): boolean {
-  return ["notApplicable", "pending", "synced", "conflict", "authRequired", "sourceUnavailable", "failed"].includes(String(value));
+  return ["notApplicable", "pending", "syncing", "synced", "partial", "conflict", "authRequired", "sourceUnavailable", "failed"].includes(String(value));
 }
 
 /** Older or externally restored data may reuse a source-row ID for several logical exercises. */
@@ -152,7 +153,7 @@ export function parseTrainingData(raw: string): TrainingData {
   return { ...value, schemaVersion: 5, exerciseNotes: value.exerciseNotes ?? [],
     plans: (value.plans as TrainingPlanRecord[]).map((plan) => ({ ...plan, workouts: plan.workouts.map((workout) => ({
       ...workout, blocks: uniqueBlockIds(workout.blocks).blocks })) })),
-    sessions: (value.sessions as TrainingSession[]).map(repairSessionIds) } as TrainingData;
+    sessions: (value.sessions as TrainingSession[]).map(repairSessionIds).map((session) => session.status === "completed" ? withSyncStatus(session, {}) : session) } as TrainingData;
 }
 
 export function migrateV1(raw: string, now = new Date().toISOString()): TrainingData {

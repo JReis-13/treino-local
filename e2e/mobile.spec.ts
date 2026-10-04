@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { snapshotFromXlsx } from "../lib/import/snapshot";
 import { parseTrainingSnapshot } from "../lib/import/template-parser";
-import { fixturePath } from "../tests/fixture-path";
+import { fixturePath, reviewedJonathaPath } from "../tests/fixture-path";
 
 let folder: string;
 let jonatha: string;
@@ -14,7 +14,7 @@ test.beforeEach(async () => {
   folder = await mkdtemp(join(tmpdir(), "treino-mobile-e2e-"));
   jonatha = join(folder, "TREINO 1 JONATHA.xlsx");
   milena = join(folder, "TREINO 4 MILENA.xlsx");
-  await copyFile(fixturePath("TREINO 1 JONATHA.xlsx"), jonatha);
+  await copyFile(reviewedJonathaPath(), jonatha);
   await copyFile(fixturePath("TREINO 4 MILENA.xlsx"), milena);
 });
 test.afterEach(async () => { await rm(folder, { recursive: true, force: true }); });

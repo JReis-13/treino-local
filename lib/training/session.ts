@@ -2,7 +2,7 @@ import { isLocalDate } from "@/lib/dates";
 import type { TrainingData, TrainingPlanRecord, TrainingSession, TrainingWorkout } from "@/types/training";
 import { lastUsedLoad, normalizeLoad } from "@/lib/training/loads";
 import { changedLoads } from "@/lib/training/loads";
-import { withSyncStatus } from "@/lib/training/sync-state";
+import { aggregateSync, withSyncStatus } from "@/lib/training/sync-state";
 import { currentFocusId, moveExerciseLater, planExerciseOrder, remainingExerciseOrder, sessionExerciseOrder, setExerciseSkipped } from "@/lib/training/queue";
 
 export function activePlan(data: TrainingData): TrainingPlanRecord | undefined {
@@ -119,5 +119,5 @@ export function planSessions(data: TrainingData, planId: string): TrainingSessio
 
 export function pendingPlanSessions(data: TrainingData, planId: string): TrainingSession[] {
   return planSessions(data, planId).filter((session) => session.status === "completed" &&
-    session.syncStatus !== "synced" && session.syncStatus !== "notApplicable");
+    !["synced", "notApplicable"].includes(aggregateSync(session)));
 }

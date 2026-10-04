@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useApp } from "@/components/app-provider";
 import { formatLocalDate } from "@/lib/dates";
 import { activePlan } from "@/lib/training/session";
+import { aggregateSync } from "@/lib/training/sync-state";
 import type { TrainingWorkout } from "@/types/training";
 import { SocialHomeCard } from "@/components/social-home-card";
 
@@ -21,7 +22,7 @@ export default function HomePage() {
   const legacy = plan.legacyCompletions.filter((entry) => !own.some((session) => session.workoutId === entry.workoutId && session.localDate === entry.date));
   const latest = [...own].sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""))[0];
   const inProgress = data.sessions.find((session) => session.planId === plan.id && session.status === "inProgress");
-  const waiting = own.filter((session) => !["synced", "notApplicable"].includes(session.syncStatus)).length;
+  const waiting = own.filter((session) => !["synced", "notApplicable"].includes(aggregateSync(session))).length;
 
   function begin(workout: TrainingWorkout) {
     const session = start(plan!.id, workout.id);

@@ -12,6 +12,7 @@ public/sw.js
 *.env
 
 *.xlsx
+tests/fixtures/private/
 *.xls
 *.xlsm
 *.xlsb

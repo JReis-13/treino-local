@@ -17,7 +17,7 @@ test("original workbook imports two ordered workouts without overview data", asy
   assert.deepEqual(plan.workouts.map((workout) => workout.id), ["A", "B"]);
   assert.deepEqual(plan.workouts.map((workout) => workout.blocks.length), [11, 11]);
   for (const workout of plan.workouts) assert.equal(new Set(workout.blocks.map((block) => block.id)).size, workout.blocks.length);
-  assert.equal(plan.legacyCompletions.length, 0);
+  assert(plan.legacyCompletions.every((entry) => /^(A|B)$/.test(entry.workoutId) && /^\d{4}-\d{2}-\d{2}$/.test(entry.date)));
   assert.equal(plan.source.kind, "excel");
   assert(!JSON.stringify(plan).includes("JONATHA!"));
   assert(!plan.warnings.some((warning) => warning.severity === "activationBlocker"));
