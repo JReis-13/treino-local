@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { REACTIONS, type ReactionEmoji } from "@/lib/social/model";
-import { cacheSocialPreference, flushSocialOutbox, socialFetch, type SocialHome, type SocialMe } from "@/lib/social/client";
+import { cacheSocialPreference, flushSocialOutbox, recordSocialHomeFetch, socialFetch, socialPreferenceRevision, type SocialHome, type SocialMe } from "@/lib/social/client";
 
 const LABELS: Record<ReactionEmoji, string> = { "💪": "strong", "🔥": "fire", "👏": "applause", "😂": "laughing", "❤️": "heart" };
 function localDay(value: string) { try { return new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(new Date(`${value}T12:00:00`)); } catch { return value; } }
@@ -13,14 +13,21 @@ export function SocialHomeCard() {
   const [home, setHome] = useState<SocialHome | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "auth" | "unavailable">("loading");
   const [message, setMessage] = useState("");
+  const refreshSequence = useRef(0);
   const refresh = useCallback(async () => {
+    const sequence = ++refreshSequence.current;
+    const revision = socialPreferenceRevision();
     try {
       const identity = await socialFetch<SocialMe>("me");
-      setMe(identity); cacheSocialPreference(identity);
-      void flushSocialOutbox();
-      setHome(await socialFetch<SocialHome>("home"));
-      setState("ready");
-    } catch (cause) { setState((cause as { status?: number }).status === 401 ? "auth" : "unavailable"); }
+      cacheSocialPreference(identity, revision);
+      await flushSocialOutbox();
+      const result = await socialFetch<SocialHome>("home");
+      recordSocialHomeFetch(true);
+      if (sequence === refreshSequence.current) { setMe(identity); setHome(result); setState("ready"); }
+    } catch (cause) {
+      recordSocialHomeFetch(false, cause);
+      if (sequence === refreshSequence.current) setState((cause as { status?: number }).status === 401 ? "auth" : "unavailable");
+    }
   }, []);
   useEffect(() => {
     void refresh();

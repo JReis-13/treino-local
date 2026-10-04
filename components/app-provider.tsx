@@ -9,7 +9,7 @@ import { completionState, loadState, withSyncStatus } from "@/lib/training/sync-
 import { updateExerciseNote } from "@/lib/training/exercise-notes";
 import { extendRest, pauseRest, resumeRest, skipRest, startRest } from "@/lib/training/rest-timer";
 import { trainingStorage } from "@/lib/training/storage";
-import { flushSocialOutbox, queueSocialActivity } from "@/lib/social/client";
+import { flushSocialOutbox, queueSocialActivity, refreshSocialPreference } from "@/lib/social/client";
 import { plannedCompletionSlot } from "@/lib/sync/logic";
 import type { ImportedTraining, SourceSyncStatus, TrainingData, TrainingSession, TrainingSource } from "@/types/training";
 
@@ -63,6 +63,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    void refreshSocialPreference().then(() => flushSocialOutbox());
     const retry = () => { if (document.visibilityState === "visible") void flushSocialOutbox(); };
     window.addEventListener("online", retry);
     document.addEventListener("visibilitychange", retry);

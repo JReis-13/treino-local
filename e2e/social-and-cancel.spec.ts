@@ -124,3 +124,76 @@ test("two phone users request, accept, share one workout, react and see the rece
     await expect(page.getByText("B reacted 🔥 to your Workout A")).toBeVisible();
   } finally { await other.close(); }
 });
+
+test("Finish uses only final same-day IDs for social Add and Replace; Cancel and double tap publish nothing extra", async ({ page }) => {
+  await seedPlan(page);
+  const posts: Array<Record<string, string>> = [];
+  await page.route("**/api/social/**", async (route) => {
+    const request = route.request(), path = new URL(request.url()).pathname;
+    if (path.endsWith("/me")) return route.fulfill({ json: { email: "a@example.com", accountId: "account-a",
+      displayName: "A", sharingEnabled: true } });
+    if (path.endsWith("/activities") && request.method() === "POST") {
+      posts.push(request.postDataJSON());
+      return route.fulfill({ json: { ok: true } });
+    }
+    if (path.endsWith("/home")) return route.fulfill({ json: { friendCount: 0, activities: [], received: [] } });
+    return route.fulfill({ json: { friends: [] } });
+  });
+  const begin = async () => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Start workout" }).click();
+    await page.getByRole("link", { name: /Finish workout/ }).click();
+  };
+  await begin();
+  await page.getByRole("button", { name: /Save workout/ }).dblclick();
+  await expect.poll(() => posts.length).toBe(1);
+  const firstId = posts[0].clientSessionId;
+  await begin();
+  await page.getByRole("button", { name: /Save workout/ }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  expect(posts).toHaveLength(1);
+  await page.getByRole("button", { name: "Cancel" }).click();
+  expect(posts).toHaveLength(1);
+  await page.getByRole("button", { name: /Save workout/ }).click();
+  await page.getByRole("button", { name: /Add another workout/ }).dblclick();
+  await expect.poll(() => posts.length).toBe(2);
+  const secondId = posts[1].clientSessionId;
+  expect(secondId).not.toBe(firstId);
+  await begin();
+  await page.getByRole("button", { name: /Save workout/ }).click();
+  await page.getByLabel("SESSION TO REPLACE").selectOption(firstId);
+  await page.getByRole("button", { name: /Replace previous workout/ }).dblclick();
+  await expect.poll(() => posts.length).toBe(3);
+  expect(posts[2].clientSessionId).toBe(firstId);
+  expect(posts[2].completedAt).not.toBe(posts[0].completedAt);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2")!));
+  expect(saved.sessions.filter((item: { status: string }) => item.status === "completed")).toHaveLength(2);
+  expect(new Set(saved.sessions.map((item: { id: string }) => item.id))).toEqual(new Set([firstId, secondId]));
+});
+
+test("a pending social outbox item survives app reload and publishes once after reconnection", async ({ page }) => {
+  await seedPlan(page);
+  await page.addInitScript(() => {
+    if (localStorage.getItem("social-reload-seeded")) return;
+    localStorage.setItem("social-reload-seeded", "1");
+    localStorage.setItem("treino-social-preference-v1", JSON.stringify({ email: "a@example.com",
+      accountId: "account-a", sharingEnabled: true }));
+    localStorage.setItem("treino-social-outbox-v1", JSON.stringify([{ ownerEmail: "a@example.com", ownerAccountId: "account-a",
+      activity: { clientSessionId: "offline-session", workoutName: "Workout A", completedAt: "2026-10-04T08:40:00.000Z",
+        localDate: "2026-10-04", durationMinutes: 40, completedExercises: 1, totalExercises: 3 } }]));
+  });
+  let posts = 0;
+  await page.route("**/api/social/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/me")) return route.fulfill({ json: { email: "a@example.com", accountId: "account-a",
+      displayName: "A", sharingEnabled: true } });
+    if (path.endsWith("/activities")) { posts++; return route.fulfill({ json: { ok: true } }); }
+    return route.fulfill({ json: { friendCount: 0, activities: [], received: [] } });
+  });
+  await page.goto("/");
+  await expect.poll(() => posts).toBe(1);
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("treino-social-outbox-v1") ?? "[]").length)).toBe(0);
+  await page.reload();
+  await expect(page.getByRole("region", { name: "Friends" })).toBeVisible();
+  expect(posts).toBe(1);
+});

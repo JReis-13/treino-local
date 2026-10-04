@@ -128,3 +128,17 @@ Use two allowlisted Google accounts and disposable workouts. Open Settings → F
 5. A enables sharing and saves a disposable workout. B opens or foregrounds Home, sees A's latest workout name/date/duration/count, and reacts 🔥. A refreshes Home and sees B's reaction.
 6. Verify B cannot see exercise loads, notes or source details. Remove the friendship and confirm the shared workout disappears on B's next Home refresh.
 7. Repeat a local workout save while offline. Confirm History saves normally and the small social summary appears after reconnecting and opening Home, without a duplicate.
+
+## Social publish and same-day phone check
+
+Use two connected, allowlisted Google accounts and disposable workouts. Check `/debug` on A if a shared activity does not appear; it shows the cached sharing state, pending outbox count, last publish result, and last Friends Home fetch without revealing loads or notes.
+
+1. Both users open Settings → Friends and confirm the friendship says Connected.
+2. A confirms **Share completed workouts with friends** is ON.
+3. A starts a workout not yet done today and saves it. B opens Home and sees A's workout.
+4. B reacts 🔥. A foregrounds or reopens Home and sees the reaction.
+5. A performs the same workout again today, saves it, and chooses **Add another workout**. B refreshes Home and sees the second session as the latest workout.
+6. A performs it again, saves it, chooses **Replace previous workout**, and selects the intended session if there is more than one. B refreshes Home and sees the updated activity; the other session and its reaction remain intact.
+7. A starts another same-day attempt, reaches the Add/Replace dialog, and chooses **Cancel**. Confirm no new History or Friends activity appears; the unfinished workout remains available.
+8. Turn off A's phone network, save a disposable workout, and confirm History saved it. Reconnect and foreground Home. Check that `/debug` shows the outbox drained and B sees the workout once.
+9. Repeat the offline save, reload or update the installed PWA before reconnecting, then confirm the pending activity still publishes once.

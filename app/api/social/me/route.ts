@@ -4,7 +4,7 @@ import { validDisplayName } from "@/lib/social/model";
 
 export const runtime = "nodejs";
 export async function GET(request: Request) {
-  try { const user = await currentSocialUser(request); return socialResponse({ email: user.email, displayName: user.display_name, sharingEnabled: user.sharing_enabled }); }
+  try { const user = await currentSocialUser(request); return socialResponse({ accountId: user.id, email: user.email, displayName: user.display_name, sharingEnabled: user.sharing_enabled }); }
   catch (cause) { return socialFailure(cause); }
 }
 export async function PATCH(request: Request) {

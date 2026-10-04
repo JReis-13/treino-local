@@ -32,9 +32,9 @@ async function ready() {
   }
   throw new Error("Local test server did not become ready.");
 }
-async function call(index, path, method = "GET", body, origin = base) {
+async function call(index, path, method = "GET", body, origin = base, extraHeaders = {}) {
   const response = await fetch(`${base}/api/social/${path}`, { method, headers: { cookie: cookie(index),
-    ...(method === "GET" ? {} : { origin, "sec-fetch-site": "same-origin", "content-type": "application/json" }) },
+    ...(method === "GET" ? {} : { origin, "sec-fetch-site": "same-origin", "content-type": "application/json" }), ...extraHeaders },
     body: body === undefined ? undefined : JSON.stringify(body) });
   return { status: response.status, data: await response.json() };
 }
@@ -47,6 +47,9 @@ try {
   assert.equal((await call(0, "me")).status, 200);
   assert.equal((await call(1, "me")).status, 200);
   assert.equal((await call(2, "me")).status, 200);
+  const accountA = (await call(0, "me")).data.accountId;
+  const accountC = (await call(2, "me")).data.accountId;
+  assert(accountA && accountC && accountA !== accountC);
   assert.equal((await call(0, "friends", "POST", { email: emails[1] }, "https://evil.invalid")).status, 403);
   assert.equal((await call(0, "friends", "POST", { email: emails[1] })).status, 201);
   assert.equal((await call(0, "friends", "POST", { email: emails[1] })).status, 409);
@@ -54,7 +57,9 @@ try {
   const friendshipId = pending.data.friends[0].id;
   assert.equal(pending.data.friends[0].direction, "incoming");
   assert.equal((await call(0, "me", "PATCH", { sharingEnabled: true })).status, 200);
-  assert.equal((await call(0, "activities", "POST", activity)).status, 200);
+  assert.equal((await call(0, "activities", "POST", activity, base, { "x-treino-social-account": accountC })).status, 409);
+  assert.equal((await call(0, "activities", "POST", { ...activity, userId: accountC }, base,
+    { "x-treino-social-account": accountA })).status, 200);
   assert.equal((await call(1, "home")).data.activities.length, 0);
   assert.equal((await call(1, "friends", "PATCH", { id: friendshipId, action: "accept" })).status, 200);
   assert.equal((await call(1, "friends", "POST", { email: emails[0] })).status, 409);
@@ -71,21 +76,52 @@ try {
   assert.equal((await call(1, `activities/${id}/reaction`, "PUT", { emoji: "💪" })).status, 200);
   assert.equal((await call(1, "home")).data.activities[0].reactions["💪"], 1);
   assert.equal((await call(0, "home")).data.received[0].emoji, "💪");
-  assert.equal((await call(1, `activities/${id}/reaction`, "DELETE")).status, 200);
-  assert.equal((await call(0, "home")).data.received.length, 0);
-  assert.equal((await call(0, "activities", "POST", { ...activity, workoutName: "Workout A replaced", completedAt: "2026-10-04T09:40:00.000Z" })).status, 200);
+  const workoutB = { ...activity, clientSessionId: `${marker}-other-workout`, workoutName: "Workout B",
+    completedAt: "2026-10-04T09:40:00.000Z" };
+  assert.equal((await call(0, "activities", "POST", workoutB)).status, 200);
+  const afterB = await call(1, "home");
+  assert.equal(afterB.data.activities[0].workoutName, "Workout B");
+  const secondA = { ...activity, clientSessionId: `${marker}-second-A`, completedAt: "2026-10-04T18:40:00.000Z" };
+  assert.equal((await call(0, "activities", "POST", secondA)).status, 200);
+  const afterSecondA = await call(1, "home");
+  assert.equal(afterSecondA.data.activities[0].workoutName, "Workout A");
+  assert.equal(afterSecondA.data.activities[0].completedAt, secondA.completedAt);
+  const secondId = afterSecondA.data.activities[0].id;
+  assert.notEqual(secondId, id);
+  assert.equal((await call(1, `activities/${secondId}/reaction`, "PUT", { emoji: "🔥" })).status, 200);
+  assert.equal((await call(1, "home")).data.activities[0].reactions["🔥"], 1);
+  assert.equal((await call(0, "home")).data.received.some((item) => item.emoji === "🔥"), true);
+  assert.equal((await call(0, "activities", "POST", { ...activity, workoutName: "Workout A replaced",
+    completedAt: "2026-10-04T10:40:00.000Z", durationMinutes: 46 })).status, 200);
+  const replacedRows = await sql`select a.id, a.duration_minutes, a.user_id from treino_social.workout_activities a
+    where a.client_session_id = ${activity.clientSessionId}`;
+  assert.equal(replacedRows.length, 1);
+  assert.equal(replacedRows[0].id, id);
+  assert.equal(replacedRows[0].duration_minutes, 46);
+  assert.equal(replacedRows[0].user_id, accountA);
+  const allRows = await sql`select client_session_id from treino_social.workout_activities
+    where client_session_id in (${activity.clientSessionId}, ${workoutB.clientSessionId}, ${secondA.clientSessionId})`;
+  assert.equal(allRows.length, 3);
+  const reactions = await sql`select activity_id, emoji from treino_social.activity_reactions where activity_id in (${id}, ${secondId})`;
+  assert.equal(reactions.length, 2);
+  assert.equal(reactions.find((row) => row.activity_id === id)?.emoji, "💪");
+  assert.equal(reactions.find((row) => row.activity_id === secondId)?.emoji, "🔥");
   const replaced = await call(1, "home");
-  assert.equal(replaced.data.activities[0].id, id);
-  assert.equal(replaced.data.activities[0].workoutName, "Workout A replaced");
+  assert.equal(replaced.data.activities[0].id, secondId, "the 18:40 session remains latest");
+  assert.equal((await call(0, "activities", "POST", { ...activity, clientSessionId: `${marker}-backfill`,
+    completedAt: "2026-10-01T08:40:00.000Z", localDate: "2026-10-01" })).status, 200);
+  assert.equal((await call(1, "home")).data.activities[0].id, secondId, "offline backfill cannot replace latest");
   assert.equal((await call(0, "activities", "POST", activity)).status, 200);
-  assert.equal((await call(1, "home")).data.activities[0].workoutName, "Workout A replaced");
+  assert.equal((await call(1, "home")).data.activities[0].id, secondId);
+  assert.equal((await sql`select duration_minutes from treino_social.workout_activities
+    where client_session_id = ${activity.clientSessionId}`)[0].duration_minutes, 46, "late retry cannot undo Replace");
   assert.equal((await call(0, "me", "PATCH", { sharingEnabled: false })).status, 200);
   assert.equal((await call(1, "home")).data.activities.length, 0);
   assert.equal((await call(0, "me", "PATCH", { sharingEnabled: true })).status, 200);
   assert.equal((await call(0, "friends", "DELETE", { id: friendshipId })).status, 200);
   assert.equal((await call(1, "home")).data.activities.length, 0);
-  assert.equal((await call(1, `activities/${id}/reaction`, "PUT", { emoji: "🔥" })).status, 404);
-  console.log("Social API integration: OK (identity, CSRF, friendship, privacy, idempotency, reactions, removal)");
+  assert.equal((await call(1, `activities/${secondId}/reaction`, "PUT", { emoji: "🔥" })).status, 404);
+  console.log("Social API integration: OK (identity, CSRF, sharing, same-day Add/Replace, backfill, privacy, exact reactions, removal)");
 } catch (cause) { failure = cause; console.error(`Social API integration: FAILED (${cause instanceof assert.AssertionError ? "assertion" : cause?.code ?? "runtime"})`); }
 finally {
   try {

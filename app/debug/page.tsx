@@ -7,6 +7,7 @@ import { hasActiveWorkout } from "@/lib/training/active-workout";
 import { getPwaUpdateSnapshot, subscribePwaUpdate } from "@/lib/pwa/update-manager";
 import { loadDeviceConnector } from "@/lib/connector/credentials";
 import { readDiagnostics, safeDiagnostic, type DiagnosticsState } from "@/lib/diagnostics";
+import { readSocialDiagnostics } from "@/lib/social/client";
 
 const serverUpdateSnapshot = { phase: "idle", lastResult: "none", registration: "checking", controller: "none",
   installing: "none", waiting: "none", active: "none" } as const;
@@ -14,6 +15,7 @@ const serverUpdateSnapshot = { phase: "idle", lastResult: "none", registration: 
 export default function DebugPage() {
   const { data, error } = useApp();
   const [diagnostics, setDiagnostics] = useState<DiagnosticsState>({});
+  const [social, setSocial] = useState<ReturnType<typeof readSocialDiagnostics> | null>(null);
   const [environment, setEnvironment] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const update = useSyncExternalStore(subscribePwaUpdate, getPwaUpdateSnapshot, () => serverUpdateSnapshot);
@@ -22,6 +24,7 @@ export default function DebugPage() {
     try { const key = "treino-local:probe"; localStorage.setItem(key, "1"); localStorage.removeItem(key); }
     catch (cause) { storage = cause instanceof Error ? cause.message : "unavailable"; }
     setDiagnostics(readDiagnostics());
+    setSocial(readSocialDiagnostics());
     setEnvironment({
       Version: "0.2.0", Build: process.env.NEXT_PUBLIC_TREINO_BUILD_ID ?? "development",
       "Built at": process.env.NEXT_PUBLIC_TREINO_BUILT_AT ?? "development", Path: window.location.pathname, Origin: window.location.origin,
@@ -65,9 +68,15 @@ export default function DebugPage() {
       "SW installing": update.installing, "SW waiting": update.waiting, "SW active": update.active,
       "Update UI state": update.phase, "Active workout detected": String(hasActiveWorkout(data)),
       "Last update result": update.lastResult,
+      "Social account provisioned (cached)": social ? String(social.accountBound) : "unknown",
+      "Social sharing (cached)": social?.sharingCached ?? "unknown",
+      "Social outbox items": String(social?.outboxCount ?? "unknown"),
+      "Last social publish result": social?.lastPublishResult ?? "none",
+      "Last social publish at": social?.lastPublishAt ?? "none",
+      "Last Friends Home fetch": social?.lastHomeFetchResult ?? "none",
       "Active plan ID": plan?.id ?? "none", "Active session ID": session?.id ?? "none", "Last action": diagnostics.lastAction ?? "none", "Last client error": diagnostics.lastError ?? error ?? "none" }).map(([key, value]) => <div key={key}><small>{key.toUpperCase()}</small><strong>{value}</strong></div>)}</div>
     {message && <p className="context-note" role="status">{message}</p>}
-    <button type="button" className="secondary-button" onClick={() => { setDiagnostics(readDiagnostics()); setEnvironment((current) => ({ ...current, Online: String(navigator.onLine), Path: window.location.pathname })); }}>Refresh diagnostics</button>
+    <button type="button" className="secondary-button" onClick={() => { setDiagnostics(readDiagnostics()); setSocial(readSocialDiagnostics()); setEnvironment((current) => ({ ...current, Online: String(navigator.onLine), Path: window.location.pathname })); }}>Refresh diagnostics</button>
     <button type="button" className="secondary-button" onClick={() => void copyReport()}>Copy safe diagnostic report</button>
     <Link className="back-link" href="/">← Home</Link>
   </div>;
