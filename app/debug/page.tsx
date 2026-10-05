@@ -7,7 +7,36 @@ import { hasActiveWorkout } from "@/lib/training/active-workout";
 import { getPwaUpdateSnapshot, subscribePwaUpdate } from "@/lib/pwa/update-manager";
 import { loadDeviceConnector } from "@/lib/connector/credentials";
 import { readDiagnostics, safeDiagnostic, type DiagnosticsState } from "@/lib/diagnostics";
-import { readSocialDiagnostics } from "@/lib/social/client";
+import { localSocialPublishState, readSocialDiagnostics } from "@/lib/social/client";
+import { socialFetch, type SocialMe, type SocialFriend } from "@/lib/social/client";
+import { localDateString } from "@/lib/dates";
+import { planLineageKey, sameDayDecision, sessionPlanLineageKey, workoutLineageKey } from "@/lib/training/identity";
+import type { TrainingData } from "@/types/training";
+
+function short(value: string | undefined): string { return value ? `${value.slice(0, 8)}…` : "none"; }
+function fingerprint(value: string): string {
+  let hash = 2166136261;
+  for (const char of value) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+function sameDayReport(data: TrainingData | null) {
+  const date = localDateString();
+  const plan = data?.plans.find((item) => item.id === data.activePlanId);
+  const current = data?.sessions.find((item) => item.status === "inProgress" && item.planId === data.activePlanId);
+  const completed = (data?.sessions ?? []).filter((item) => item.status === "completed")
+    .sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""));
+  const recent = completed.slice(0, 10);
+  const rows = recent.map((item) => ({ session: short(item.id), date: item.localDate ?? "missing",
+    plan: short(item.planId), planLineage: fingerprint(sessionPlanLineageKey(data!, item)), version: item.planVersion,
+    workout: short(item.workoutId), workoutLineage: fingerprint(item.workoutLineageKey ?? item.workoutId),
+    name: item.workoutSnapshot.title.slice(0, 80),
+    decision: current ? sameDayDecision(data!, current, item, date) : { match: false, reason: "NO_ACTIVE_WORKOUT" } }));
+  return { date, activePlan: short(plan?.id), planLineage: plan ? fingerprint(planLineageKey(plan)) : "none",
+    planVersion: plan?.version ?? "none", currentWorkout: short(current?.workoutId),
+    workoutLineage: current ? fingerprint(current.workoutLineageKey ??
+      workoutLineageKey(current.workoutSnapshot)) : "none", currentName: current?.workoutSnapshot.title.slice(0, 80) ?? "none",
+    candidates: current ? completed.filter((item) => sameDayDecision(data!, current, item, date).match).length : 0, rows };
+}
 
 const serverUpdateSnapshot = { phase: "idle", lastResult: "none", registration: "checking", controller: "none",
   installing: "none", waiting: "none", active: "none" } as const;
@@ -16,6 +45,8 @@ export default function DebugPage() {
   const { data, error } = useApp();
   const [diagnostics, setDiagnostics] = useState<DiagnosticsState>({});
   const [social, setSocial] = useState<ReturnType<typeof readSocialDiagnostics> | null>(null);
+  const [socialServer, setSocialServer] = useState<{ authenticated: string; ready: string; sharing: string; friends: string }>({
+    authenticated: "unknown", ready: "unknown", sharing: "unknown", friends: "unknown" });
   const [environment, setEnvironment] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const update = useSyncExternalStore(subscribePwaUpdate, getPwaUpdateSnapshot, () => serverUpdateSnapshot);
@@ -25,6 +56,11 @@ export default function DebugPage() {
     catch (cause) { storage = cause instanceof Error ? cause.message : "unavailable"; }
     setDiagnostics(readDiagnostics());
     setSocial(readSocialDiagnostics());
+    void Promise.all([socialFetch<SocialMe>("me"), socialFetch<{ friends: SocialFriend[] }>("friends")])
+      .then(([me, friends]) => setSocialServer({ authenticated: "yes", ready: "yes",
+        sharing: String(me.sharingEnabled), friends: String(friends.friends.filter((friend) => friend.status === "accepted").length) }))
+      .catch((cause) => setSocialServer({ authenticated: (cause as { status?: number }).status === 401 ? "no" : "unknown",
+        ready: "unknown", sharing: "unknown", friends: "unknown" }));
     setEnvironment({
       Version: "0.2.0", Build: process.env.NEXT_PUBLIC_TREINO_BUILD_ID ?? "development",
       "Built at": process.env.NEXT_PUBLIC_TREINO_BUILT_AT ?? "development", Path: window.location.pathname, Origin: window.location.origin,
@@ -53,12 +89,16 @@ export default function DebugPage() {
   }, []);
   const plan = data?.plans.find((item) => item.id === data.activePlanId);
   const session = data?.sessions.find((item) => item.status === "inProgress" && item.planId === data.activePlanId);
+  const lastCompleted = data?.sessions.filter((item) => item.status === "completed")
+    .sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""))[0];
+  const sameDay = sameDayReport(data);
   async function copyReport() {
     const report = { build: environment.Build, builtAt: environment["Built at"], browser: navigator.userAgent,
       origin: window.location.origin, path: window.location.pathname, standalone: environment["PWA standalone"],
-      storageVersion: data?.schemaVersion ?? "unavailable", activePlanId: plan?.id ?? "none",
+      storageVersion: data?.schemaVersion ?? "unavailable", activePlanId: short(plan?.id),
       connectorVersion: environment["Device connector version"] ?? (plan?.source.kind === "google" ? plan.source.connectorVersion ?? 1 : "none"),
-      lastAction: safeDiagnostic(diagnostics.lastAction ?? "none"), lastError: safeDiagnostic(diagnostics.lastError ?? error ?? "none") };
+      lastAction: safeDiagnostic(diagnostics.lastAction ?? "none"), lastError: safeDiagnostic(diagnostics.lastError ?? error ?? "none"),
+      sameDay, social: { ...social, server: socialServer } };
     try { await navigator.clipboard.writeText(JSON.stringify(report, null, 2)); setMessage("Safe diagnostic report copied."); }
     catch { setMessage("Clipboard unavailable. Use the values shown above."); }
   }
@@ -71,13 +111,26 @@ export default function DebugPage() {
       "Social account provisioned (cached)": social ? String(social.accountBound) : "unknown",
       "Social sharing (cached)": social?.sharingCached ?? "unknown",
       "Social outbox items": String(social?.outboxCount ?? "unknown"),
+      "Last completed session": short(lastCompleted?.id),
+      "Last session Friends state": lastCompleted ? localSocialPublishState(lastCompleted.id) : "none",
+      "Social authenticated": socialServer.authenticated, "Social user ready": socialServer.ready,
+      "Friends connected": socialServer.friends, "Auto share on server": socialServer.sharing,
       "Last social publish result": social?.lastPublishResult ?? "none",
       "Last social publish at": social?.lastPublishAt ?? "none",
       "Last Friends Home fetch": social?.lastHomeFetchResult ?? "none",
-      "Active plan ID": plan?.id ?? "none", "Active session ID": session?.id ?? "none", "Last action": diagnostics.lastAction ?? "none", "Last client error": diagnostics.lastError ?? error ?? "none" }).map(([key, value]) => <div key={key}><small>{key.toUpperCase()}</small><strong>{value}</strong></div>)}</div>
+      "Same-day candidates": String(sameDay.candidates),
+      "Active plan ID": short(plan?.id), "Active session ID": short(session?.id), "Last action": diagnostics.lastAction ?? "none", "Last client error": diagnostics.lastError ?? error ?? "none" }).map(([key, value]) => <div key={key}><small>{key.toUpperCase()}</small><strong>{value}</strong></div>)}</div>
+    <section className="review-card"><p className="eyebrow">SAME-DAY MATCHING</p><h2>Phone History check</h2>
+      <p>Local date: {sameDay.date} · Plan: {sameDay.activePlan} · Lineage: {sameDay.planLineage} · Version: {sameDay.planVersion}</p>
+      <p>Current workout: {sameDay.currentName} · ID: {sameDay.currentWorkout} · Lineage: {sameDay.workoutLineage}</p>
+      <p>Same-day candidates: {sameDay.candidates}</p>
+      {sameDay.rows.map((row) => <p key={`${row.session}-${row.date}`} className="quiet-note">
+        {row.decision.match ? "MATCH" : "NO MATCH"} · {row.decision.reason} · {row.date} · {row.name} · session {row.session} · plan {row.plan} ({row.planLineage}, v{row.version}) · workout {row.workout} ({row.workoutLineage})
+      </p>)}
+    </section>
     {message && <p className="context-note" role="status">{message}</p>}
     <button type="button" className="secondary-button" onClick={() => { setDiagnostics(readDiagnostics()); setSocial(readSocialDiagnostics()); setEnvironment((current) => ({ ...current, Online: String(navigator.onLine), Path: window.location.pathname })); }}>Refresh diagnostics</button>
-    <button type="button" className="secondary-button" onClick={() => void copyReport()}>Copy safe diagnostic report</button>
+    <button type="button" className="secondary-button" onClick={() => void copyReport()}>Copy diagnostics</button>
     <Link className="back-link" href="/">← Home</Link>
   </div>;
 }

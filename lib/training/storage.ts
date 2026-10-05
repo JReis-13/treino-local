@@ -56,7 +56,10 @@ function validSource(value: unknown): boolean {
 
 function validSession(value: unknown): value is TrainingSession {
   return record(value) && typeof value.id === "string" && typeof value.planId === "string" &&
-    Number.isInteger(value.planVersion) && typeof value.workoutId === "string" &&
+    (value.planVersion === undefined || Number.isInteger(value.planVersion)) &&
+    (value.planLineageKey === undefined || typeof value.planLineageKey === "string") &&
+    typeof value.workoutId === "string" &&
+    (value.workoutLineageKey === undefined || typeof value.workoutLineageKey === "string") &&
     record(value.workoutSnapshot) && Array.isArray(value.workoutSnapshot.blocks) &&
     value.workoutSnapshot.blocks.every(validBlock) &&
     ["inProgress", "completed"].includes(String(value.status)) && typeof value.startedAt === "string" &&
@@ -153,7 +156,11 @@ export function parseTrainingData(raw: string): TrainingData {
   return { ...value, schemaVersion: 5, exerciseNotes: value.exerciseNotes ?? [],
     plans: (value.plans as TrainingPlanRecord[]).map((plan) => ({ ...plan, workouts: plan.workouts.map((workout) => ({
       ...workout, blocks: uniqueBlockIds(workout.blocks).blocks })) })),
-    sessions: (value.sessions as TrainingSession[]).map(repairSessionIds).map((session) => session.status === "completed" ? withSyncStatus(session, {}) : session) } as TrainingData;
+    sessions: (value.sessions as TrainingSession[]).map(repairSessionIds).map((session) => {
+      const plan = (value.plans as TrainingPlanRecord[]).find((item) => item.id === session.planId);
+      const compatible = { ...session, planVersion: session.planVersion ?? plan?.version ?? 1 };
+      return compatible.status === "completed" ? withSyncStatus(compatible, {}) : compatible;
+    }) } as TrainingData;
 }
 
 export function migrateV1(raw: string, now = new Date().toISOString()): TrainingData {

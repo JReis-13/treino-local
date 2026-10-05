@@ -142,3 +142,14 @@ Use two connected, allowlisted Google accounts and disposable workouts. Check `/
 7. A starts another same-day attempt, reaches the Add/Replace dialog, and chooses **Cancel**. Confirm no new History or Friends activity appears; the unfinished workout remains available.
 8. Turn off A's phone network, save a disposable workout, and confirm History saved it. Reconnect and foreground Home. Check that `/debug` shows the outbox drained and B sees the workout once.
 9. Repeat the offline save, reload or update the installed PWA before reconnecting, then confirm the pending activity still publishes once.
+
+## Targeted real-phone History and Friends diagnosis
+
+Use disposable workouts. A opens `/debug` and taps **Copy diagnostics** before and after the test; the report has match reasons and safe social status, without loads, notes, tokens or source URLs.
+
+1. On A and B, open Friends settings. Confirm **Connected** and that A's automatic sharing matches the server value in `/debug`.
+2. On A, start a workout already recorded today, finish it, and confirm Add/Replace/Cancel appears. Choose **Add another workout**. History must show two sessions; the result screen must show the Friends state.
+3. If the result is not Shared, tap **Share with friends**. Open the newest History session and check its Friends state.
+4. B opens Home, sees A's newest workout, and reacts 🔥. A refreshes Home and sees the reaction.
+5. A performs the same workout again, chooses **Replace previous workout**, and checks that History still has two sessions and the intended activity updates.
+6. If the dialog fails, copy `/debug` diagnostics again and send the safe report. It includes the plan/workout lineage fingerprints and a reason for each recent History candidate.

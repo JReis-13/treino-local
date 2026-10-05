@@ -1,11 +1,12 @@
 import type { ImportedTraining, TrainingData, TrainingPlanRecord } from "@/types/training";
+import { preserveWorkoutLineage } from "@/lib/training/identity";
 
 function id(): string { return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 
 export function addTraining(data: TrainingData, imported: ImportedTraining, name?: string, now = new Date().toISOString(), planId = id()): TrainingData {
   const plan: TrainingPlanRecord = {
     id: planId, name: name?.trim() || imported.name, source: imported.source, sourceFingerprint: imported.sourceFingerprint,
-    version: 1, importedAt: now, updatedAt: now, workouts: imported.workouts,
+    version: 1, importedAt: now, updatedAt: now, workouts: preserveWorkoutLineage([], imported.workouts),
     importWarnings: imported.warnings, legacyCompletions: imported.legacyCompletions,
   };
   return { ...data, plans: [...data.plans, plan], activePlanId: plan.id };
@@ -18,7 +19,7 @@ export function refreshTraining(data: TrainingData, planId: string, imported: Im
   for (const item of imported.legacyCompletions) oldLegacy.set(item.id, item);
   return { ...data, plans: data.plans.map((plan) => plan.id === planId ? {
     ...plan, source: imported.source, sourceFingerprint: imported.sourceFingerprint,
-    version: plan.version + 1, updatedAt: now, workouts: imported.workouts,
+    version: plan.version + 1, updatedAt: now, workouts: preserveWorkoutLineage(plan.workouts, imported.workouts),
     importWarnings: imported.warnings, legacyCompletions: [...oldLegacy.values()],
   } : plan) };
 }

@@ -53,6 +53,7 @@ export type WorkoutBlock = ExerciseBlock | InstructionBlock;
 
 export interface TrainingWorkout {
   id: string;
+  lineageKey?: string;
   title: string;
   description: string;
   duration?: string;
@@ -93,7 +94,9 @@ export interface TrainingSession {
   id: string;
   planId: string;
   planVersion: number;
+  planLineageKey?: string;
   workoutId: string;
+  workoutLineageKey?: string;
   workoutSnapshot: TrainingWorkout;
   status: "inProgress" | "completed";
   startedAt: string;

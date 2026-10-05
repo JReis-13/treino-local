@@ -117,6 +117,16 @@ try {
     where client_session_id = ${activity.clientSessionId}`)[0].duration_minutes, 46, "late retry cannot undo Replace");
   assert.equal((await call(0, "me", "PATCH", { sharingEnabled: false })).status, 200);
   assert.equal((await call(1, "home")).data.activities.length, 0);
+  const manualHistorical = { ...activity, clientSessionId: `${marker}-manual-history`, workoutName: "Historical workout",
+    completedAt: "2026-10-04T20:40:00.000Z", manualShare: true };
+  assert.equal((await call(0, "activities", "POST", { ...manualHistorical, manualShare: false })).status, 403);
+  assert.equal((await call(0, "activities", "POST", manualHistorical)).status, 200);
+  const manualStatus = await call(0, `activities?clientSessionId=${manualHistorical.clientSessionId}`);
+  assert.equal(manualStatus.data.shared, true);
+  const manualHome = await call(1, "home");
+  assert.equal(manualHome.data.activities[0].workoutName, "Historical workout");
+  assert.equal((await call(1, `activities/${manualHome.data.activities[0].id}/reaction`, "PUT", { emoji: "🔥" })).status, 200);
+  assert.equal((await call(0, "home")).data.received.some((item) => item.workoutName === "Historical workout"), true);
   assert.equal((await call(0, "me", "PATCH", { sharingEnabled: true })).status, 200);
   assert.equal((await call(0, "friends", "DELETE", { id: friendshipId })).status, 200);
   assert.equal((await call(1, "home")).data.activities.length, 0);

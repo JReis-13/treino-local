@@ -77,25 +77,36 @@ export async function changeFriend(userId: string, friendshipId: string, action:
     if (!rows.length) throw new SocialError("Pending request not found.", 404);
   }
 }
-export async function publishActivity(userId: string, item: PublishActivity) {
+export async function publishActivity(userId: string, item: PublishActivity, manual = false): Promise<string> {
   const sql = socialDb();
   const rows = await sql`insert into treino_social.workout_activities
-    (id, user_id, client_session_id, workout_name, completed_at, local_date, duration_minutes, completed_exercises, total_exercises)
+    (id, user_id, client_session_id, workout_name, completed_at, local_date, duration_minutes, completed_exercises, total_exercises, manual_shared)
     select ${randomUUID()}, id, ${item.clientSessionId}, ${item.workoutName}, ${item.completedAt}, ${item.localDate},
-      ${item.durationMinutes}, ${item.completedExercises}, ${item.totalExercises}
-    from treino_social.users where id = ${userId} and sharing_enabled = true
+      ${item.durationMinutes}, ${item.completedExercises}, ${item.totalExercises}, ${manual}
+    from treino_social.users where id = ${userId} and (sharing_enabled = true or ${manual})
     on conflict (user_id, client_session_id) do update set workout_name = excluded.workout_name,
       completed_at = excluded.completed_at, local_date = excluded.local_date,
       duration_minutes = excluded.duration_minutes, completed_exercises = excluded.completed_exercises,
-      total_exercises = excluded.total_exercises, updated_at = now()
+      total_exercises = excluded.total_exercises,
+      manual_shared = treino_social.workout_activities.manual_shared or excluded.manual_shared, updated_at = now()
       where treino_social.workout_activities.completed_at <= excluded.completed_at
     returning id`;
   if (!rows.length) {
     const existing = await sql`select a.id from treino_social.workout_activities a
-      join treino_social.users u on u.id = a.user_id and u.sharing_enabled = true
+      join treino_social.users u on u.id = a.user_id and (u.sharing_enabled = true or a.manual_shared = true)
       where a.user_id = ${userId} and a.client_session_id = ${item.clientSessionId}`;
-    if (!existing.length) throw new SocialError("Enable workout sharing in Friends settings first.", 403, "sharingDisabled");
+    if (!existing.length) throw new SocialError("Enable automatic sharing or use Share with friends.", 403, "sharingDisabled");
+    return existing[0].id as string;
   }
+  return rows[0].id as string;
+}
+export async function ownActivityStatus(userId: string, clientSessionId: string) {
+  const sql = socialDb();
+  const rows = await sql`select a.id, a.manual_shared, u.sharing_enabled from treino_social.workout_activities a
+    join treino_social.users u on u.id = a.user_id
+    where a.user_id = ${userId} and a.client_session_id = ${clientSessionId}`;
+  return rows.length ? { activityId: rows[0].id as string,
+    shared: Boolean(rows[0].manual_shared || rows[0].sharing_enabled) } : { activityId: null, shared: false };
 }
 export async function homeFor(userId: string): Promise<{ activities: SocialActivity[]; received: Array<{ displayName: string; emoji: ReactionEmoji; workoutName: string }> ; friendCount: number }> {
   const sql = socialDb();
@@ -106,8 +117,9 @@ export async function homeFor(userId: string): Promise<{ activities: SocialActiv
     a.duration_minutes, a.completed_exercises, a.total_exercises
     from treino_social.friendships f
     join treino_social.users u on u.id = case when f.requester_user_id = ${userId} then f.addressee_user_id else f.requester_user_id end
-    join lateral (select * from treino_social.workout_activities a where a.user_id = u.id order by a.completed_at desc limit 1) a on true
-    where f.status = 'accepted' and u.sharing_enabled = true and
+    join lateral (select * from treino_social.workout_activities a where a.user_id = u.id
+      and (u.sharing_enabled = true or a.manual_shared = true) order by a.completed_at desc limit 1) a on true
+    where f.status = 'accepted' and
       (f.requester_user_id = ${userId} or f.addressee_user_id = ${userId})
     order by a.completed_at desc limit 10`;
   const activities: SocialActivity[] = [];
@@ -129,6 +141,7 @@ export async function homeFor(userId: string): Promise<{ activities: SocialActiv
   const receivedRows = await sql`select u.display_name, r.emoji, a.workout_name
     from treino_social.activity_reactions r
     join treino_social.workout_activities a on a.id = r.activity_id
+    join treino_social.users owner on owner.id = a.user_id and (owner.sharing_enabled = true or a.manual_shared = true)
     join treino_social.users u on u.id = r.user_id
     join treino_social.friendships f on f.status = 'accepted' and
       ((f.requester_user_id = ${userId} and f.addressee_user_id = r.user_id) or
@@ -140,7 +153,7 @@ export async function homeFor(userId: string): Promise<{ activities: SocialActiv
 export async function setReaction(userId: string, activityId: string, emoji: ReactionEmoji | null) {
   const sql = socialDb();
   const allowed = await sql`select a.id from treino_social.workout_activities a
-    join treino_social.users owner on owner.id = a.user_id and owner.sharing_enabled = true
+    join treino_social.users owner on owner.id = a.user_id and (owner.sharing_enabled = true or a.manual_shared = true)
     join treino_social.friendships f on f.status = 'accepted' and
       ((f.requester_user_id = ${userId} and f.addressee_user_id = a.user_id) or
        (f.addressee_user_id = ${userId} and f.requester_user_id = a.user_id))
@@ -148,14 +161,14 @@ export async function setReaction(userId: string, activityId: string, emoji: Rea
   if (!allowed.length) throw new SocialError("Workout is unavailable.", 404);
   if (emoji === null) await sql`delete from treino_social.activity_reactions r where r.activity_id = ${activityId} and r.user_id = ${userId}
     and exists (select 1 from treino_social.workout_activities a join treino_social.users owner
-      on owner.id = a.user_id and owner.sharing_enabled = true
+      on owner.id = a.user_id and (owner.sharing_enabled = true or a.manual_shared = true)
       join treino_social.friendships f on f.status = 'accepted' and
         ((f.requester_user_id = ${userId} and f.addressee_user_id = a.user_id) or
          (f.addressee_user_id = ${userId} and f.requester_user_id = a.user_id))
       where a.id = r.activity_id)`;
   else await sql`insert into treino_social.activity_reactions (id, activity_id, user_id, emoji)
     select ${randomUUID()}, a.id, ${userId}, ${emoji} from treino_social.workout_activities a
-    join treino_social.users owner on owner.id = a.user_id and owner.sharing_enabled = true
+    join treino_social.users owner on owner.id = a.user_id and (owner.sharing_enabled = true or a.manual_shared = true)
     join treino_social.friendships f on f.status = 'accepted' and
       ((f.requester_user_id = ${userId} and f.addressee_user_id = a.user_id) or
        (f.addressee_user_id = ${userId} and f.requester_user_id = a.user_id))

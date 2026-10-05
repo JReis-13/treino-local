@@ -197,3 +197,99 @@ test("a pending social outbox item survives app reload and publishes once after 
   await expect(page.getByRole("region", { name: "Friends" })).toBeVisible();
   expect(posts).toBe(1);
 });
+
+test("migrated phone History with an old workout ID opens the real Add/Replace dialog", async ({ page }) => {
+  await page.addInitScript((base) => {
+    if (localStorage.getItem("treino-local:v2")) return;
+    const now = new Date();
+    const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const oldWorkout = { ...base.plans[0].workouts[0], id: "OLD123" };
+    const plan = { ...base.plans[0], version: 2, workouts: [{ ...base.plans[0].workouts[0], id: "NEW456" }] };
+    const prior = { id: "S1", planId: "p", planVersion: 1, workoutId: "OLD123", workoutSnapshot: oldWorkout,
+      status: "completed", startedAt: new Date(now.getTime() - 90 * 60000).toISOString(),
+      completedAt: new Date(now.getTime() - 50 * 60000).toISOString(), localDate,
+      blocks: oldWorkout.blocks.map((block) => ({ blockId: block.id, completed: true })), syncStatus: "notApplicable" };
+    localStorage.setItem("treino-local:v2", JSON.stringify({ ...base, schemaVersion: 3, plans: [plan], sessions: [prior] }));
+  }, seed);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start workout" }).click();
+  await page.getByRole("checkbox", { name: "Complete Squat" }).click();
+  await page.getByRole("link", { name: /Finish workout/ }).click();
+  await page.getByRole("button", { name: /Save workout/ }).click();
+  await expect(page.getByRole("dialog", { name: /already saved Workout A/ })).toBeVisible();
+  await page.getByRole("button", { name: /Add another workout/ }).click();
+  await page.goto("/history/");
+  await expect(page.locator(".history-list a.history-card")).toHaveCount(2);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start workout" }).click();
+  await page.getByRole("link", { name: /Finish workout/ }).click();
+  await page.getByRole("button", { name: /Save workout/ }).click();
+  await page.getByLabel("SESSION TO REPLACE").selectOption("S1");
+  await page.getByRole("button", { name: /Replace previous workout/ }).click();
+  await page.goto("/history/");
+  await expect(page.locator(".history-list a.history-card")).toHaveCount(2);
+});
+
+test("manual Share with friends publishes one session while automatic sharing stays off", async ({ page }) => {
+  await seedPlan(page);
+  let activityId: string | null = null;
+  let manualPosts = 0;
+  await page.route("**/api/social/**", (route) => {
+    const request = route.request(), url = new URL(request.url());
+    if (url.pathname.endsWith("/me")) return route.fulfill({ json: { email: "a@example.com", accountId: "account-a",
+      displayName: "A", sharingEnabled: false } });
+    if (url.pathname.endsWith("/activities") && request.method() === "GET")
+      return route.fulfill({ json: { activityId, shared: Boolean(activityId) } });
+    if (url.pathname.endsWith("/activities") && request.method() === "POST") {
+      const body = request.postDataJSON();
+      expect(body.manualShare).toBe(true);
+      expect(JSON.stringify(body)).not.toContain("actualLoad");
+      expect(JSON.stringify(body)).not.toContain("sessionNote");
+      manualPosts++;
+      activityId = "22222222-2222-4222-8222-222222222222";
+      return route.fulfill({ json: { ok: true, activityId } });
+    }
+    return route.fulfill({ json: { friendCount: 0, activities: [], received: [] } });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start workout" }).click();
+  await page.getByRole("link", { name: /Finish workout/ }).click();
+  await page.getByRole("button", { name: /Save workout/ }).click();
+  await expect(page.getByRole("region", { name: "Friends sharing" })).toContainText("Friends sharing is off");
+  expect(manualPosts).toBe(0);
+  await page.getByRole("button", { name: "Share with friends" }).click();
+  await expect(page.getByRole("region", { name: "Friends sharing" })).toContainText("Shared with friends");
+  expect(manualPosts).toBe(1);
+  await page.goto("/history/");
+  await page.locator(".history-list a.history-card").first().click();
+  await expect(page.getByRole("region", { name: "Friends sharing" })).toContainText("Shared with friends");
+  expect(manualPosts).toBe(1);
+});
+
+test("phone diagnostics explains a migrated same-day match without copying loads or notes", async ({ page }) => {
+  await page.addInitScript((base) => {
+    const now = new Date();
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const oldWorkout = { ...base.plans[0].workouts[0], id: "OLD123" };
+    const currentWorkout = { ...base.plans[0].workouts[0], id: "NEW456" };
+    const prior = { id: "S1", planId: "p", planVersion: 1, workoutId: "OLD123", workoutSnapshot: oldWorkout,
+      status: "completed", startedAt: new Date(now.getTime() - 90 * 60000).toISOString(),
+      completedAt: new Date(now.getTime() - 50 * 60000).toISOString(), localDate: date,
+      blocks: [{ blockId: "a", completed: true, actualLoad: "PRIVATE_LOAD_99" }],
+      sessionNote: "PRIVATE_NOTE_99", syncStatus: "notApplicable" };
+    const active = { ...prior, id: "S2", planVersion: 2, workoutId: "NEW456", workoutSnapshot: currentWorkout,
+      status: "inProgress", completedAt: undefined, localDate: undefined, sessionNote: undefined };
+    localStorage.setItem("treino-local:v2", JSON.stringify({ ...base, schemaVersion: 4,
+      plans: [{ ...base.plans[0], version: 2, workouts: [currentWorkout] }], sessions: [active, prior] }));
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+      writeText: async (value: string) => { (window as unknown as { copiedReport: string }).copiedReport = value; },
+    } });
+  }, seed);
+  await page.goto("/debug/");
+  await expect(page.getByText("MATCH_UNIQUE_TITLE")).toBeVisible();
+  await page.getByRole("button", { name: "Copy diagnostics" }).click();
+  const report = await page.evaluate(() => (window as unknown as { copiedReport: string }).copiedReport);
+  expect(report).toContain("MATCH_UNIQUE_TITLE");
+  expect(report).not.toContain("PRIVATE_LOAD_99");
+  expect(report).not.toContain("PRIVATE_NOTE_99");
+});

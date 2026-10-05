@@ -1,7 +1,15 @@
-import { currentSocialUser, publishActivity, socialBody, socialFailure, socialResponse, SocialError } from "@/lib/social/server";
+import { currentSocialUser, ownActivityStatus, publishActivity, socialBody, socialFailure, socialResponse, SocialError } from "@/lib/social/server";
 import { parsePublishActivity } from "@/lib/social/model";
 
 export const runtime = "nodejs";
+export async function GET(request: Request) {
+  try {
+    const user = await currentSocialUser(request);
+    const clientSessionId = new URL(request.url).searchParams.get("clientSessionId");
+    if (!clientSessionId || !/^[A-Za-z0-9_-]{1,100}$/.test(clientSessionId)) throw new SocialError("Invalid session ID.");
+    return socialResponse(await ownActivityStatus(user.id, clientSessionId));
+  } catch (cause) { return socialFailure(cause); }
+}
 export async function POST(request: Request) {
   try {
     const user = await currentSocialUser(request, true);
@@ -10,7 +18,7 @@ export async function POST(request: Request) {
     const body = await socialBody(request);
     const item = parsePublishActivity(body);
     if (!item) throw new SocialError("Invalid workout summary.");
-    await publishActivity(user.id, item);
-    return socialResponse({ ok: true });
+    const activityId = await publishActivity(user.id, item, body.manualShare === true);
+    return socialResponse({ ok: true, activityId });
   } catch (cause) { return socialFailure(cause); }
 }

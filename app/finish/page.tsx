@@ -46,10 +46,10 @@ export default function FinishPage() {
     const saveDate = dateEdited.current ? date : localDateString();
     const matches = sameDaySessions(data!, session!.id, saveDate);
     if (choice === "normal" && matches.length) { setDate(saveDate); setReplaceId(matches[0].id); setShowDuplicate(true); return; }
-    const finalId = choice === "replace" ? (matches.find((item) => item.id === replaceId)?.id ?? matches[0]?.id) : session!.id;
     submittingRef.current = true;
     setSubmitting(true);
-    if (finish(session!.id, saveDate, choice, replaceId || undefined, sessionNote) && finalId) router.push(`/share/?id=${encodeURIComponent(finalId)}`);
+    const finalSession = finish(session!.id, saveDate, choice, replaceId || undefined, sessionNote);
+    if (finalSession) router.push(`/share/?id=${encodeURIComponent(finalSession.id)}`);
     else { submittingRef.current = false; setSubmitting(false); }
   }
 

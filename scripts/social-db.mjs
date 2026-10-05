@@ -21,7 +21,11 @@ async function check() {
   console.log("Social schema browser access: denied");
   const migration = await sql`select version from treino_social.schema_migrations where version = '001_social_v1'`;
   console.log(`Migration 001: ${migration.length ? "applied" : "missing"}`);
-  return migration.length > 0;
+  const manualColumn = await sql`select column_name from information_schema.columns where table_schema = 'treino_social'
+    and table_name = 'workout_activities' and column_name = 'manual_shared'`;
+  const manualMigration = await sql`select version from treino_social.schema_migrations where version = '002_manual_social_share'`;
+  console.log(`Migration 002: ${manualMigration.length && manualColumn.length ? "applied" : "missing"}`);
+  return migration.length > 0 && manualMigration.length > 0 && manualColumn.length > 0;
 }
 async function migrate() {
   const [schema] = await sql`select to_regnamespace('treino_social') is not null as exists`;
@@ -29,12 +33,17 @@ async function migrate() {
     const [table] = await sql`select to_regclass('treino_social.schema_migrations') is not null as exists`;
     if (table.exists) {
       const applied = await sql`select version from treino_social.schema_migrations where version = '001_social_v1'`;
-      if (applied.length) { console.log("Migration 001: already applied"); return; }
+      if (applied.length) console.log("Migration 001: already applied");
+      else { await sql.unsafe(readFileSync("db/migrations/001_social_v1.sql", "utf8")); console.log("Migration 001: applied"); }
+    } else {
+      await sql.unsafe(readFileSync("db/migrations/001_social_v1.sql", "utf8")); console.log("Migration 001: applied");
     }
+  } else {
+    await sql.unsafe(readFileSync("db/migrations/001_social_v1.sql", "utf8")); console.log("Migration 001: applied");
   }
-  const migration = readFileSync("db/migrations/001_social_v1.sql", "utf8");
-  await sql.unsafe(migration);
-  console.log("Migration 001: applied");
+  const second = await sql`select version from treino_social.schema_migrations where version = '002_manual_social_share'`;
+  if (second.length) console.log("Migration 002: already applied");
+  else { await sql.unsafe(readFileSync("db/migrations/002_manual_social_share.sql", "utf8")); console.log("Migration 002: applied"); }
 }
 async function smoke() {
   if (!await check()) throw new Error("Schema is unavailable.");

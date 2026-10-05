@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { isReactionEmoji, parsePublishActivity, REACTIONS } from "../lib/social/model";
-import { buildSocialWorkoutActivity, cacheSocialPreference, flushSocialOutbox, queueSocialActivity,
-  readSocialDiagnostics, socialPreferenceRevision } from "../lib/social/client";
+import { buildSocialWorkoutActivity, cacheSocialPreference, flushSocialOutbox, queueSocialActivity, refreshSocialPreference,
+  readSocialDiagnostics, socialPreferenceRevision, shareSessionWithFriends, localSocialPublishState } from "../lib/social/client";
 import type { TrainingSession } from "../types/training";
 
 const session = (name = "Workout A", completedAt = "2026-10-04T08:40:00.000Z"): TrainingSession => ({
@@ -11,6 +11,55 @@ const session = (name = "Workout A", completedAt = "2026-10-04T08:40:00.000Z"): 
     blocks: [{ kind: "exercise", id: "squat", section: "Strength", name: "Secret exercise", prescription: "3x10", defaultLoad: "90 kg", videoUrl: "https://example.com/private" }] },
   blocks: [{ blockId: "squat", completed: true, actualLoad: "100 kg" }], sessionNote: "Private workout note",
   syncStatus: "notApplicable",
+});
+
+test("an unhydrated automatic share persists an eligibility record instead of discarding the saved session", async () => {
+  const values = new Map<string, string>();
+  const oldStorage = globalThis.localStorage, oldNavigator = globalThis.navigator, oldFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => values.delete(key) } });
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: false } });
+  globalThis.fetch = (async () => { throw new Error("offline"); }) as typeof fetch;
+  try {
+    assert.equal(queueSocialActivity(session()), true);
+    assert.equal(JSON.parse(values.get("treino-social-eligibility-v1") ?? "[]").length, 1);
+    assert.equal(localSocialPublishState("safe-session"), "eligibility_pending");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(JSON.parse(values.get("treino-social-eligibility-v1") ?? "[]").length, 1);
+  } finally {
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: oldStorage });
+    Object.defineProperty(globalThis, "navigator", { configurable: true, value: oldNavigator });
+    globalThis.fetch = oldFetch;
+  }
+});
+
+test("manual one-session share works with automatic sharing OFF without private payload fields", async () => {
+  const values = new Map<string, string>();
+  const oldStorage = globalThis.localStorage, oldNavigator = globalThis.navigator, oldFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => values.delete(key) } });
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: true } });
+  let posts = 0;
+  globalThis.fetch = (async (url: string, options?: RequestInit) => {
+    if (url.endsWith("/me")) return new Response(JSON.stringify({ email: "a@example.com", accountId: "account-a",
+      displayName: "A", sharingEnabled: false }), { status: 200 });
+    posts++;
+    const body = JSON.parse(String(options?.body));
+    assert.equal(body.manualShare, true);
+    assert(!JSON.stringify(body).includes("100 kg"));
+    assert(!JSON.stringify(body).includes("Private"));
+    return new Response(JSON.stringify({ ok: true, activityId: "activity-a" }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    assert.equal(await shareSessionWithFriends(session()), true);
+    assert.equal(posts, 1);
+    assert.equal(localSocialPublishState("safe-session"), "shared");
+    assert.equal(readSocialDiagnostics().sharingCached, "false");
+  } finally {
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: oldStorage });
+    Object.defineProperty(globalThis, "navigator", { configurable: true, value: oldNavigator });
+    globalThis.fetch = oldFetch;
+  }
 });
 
 test("activity input is allowlisted and validates bounds and emoji", () => {
@@ -97,7 +146,7 @@ test("stale sharing cache cannot suppress a verified ON account; reload, Add and
     assert.equal(queueSocialActivity(second), true);
     const replacingFirst = { ...session("Workout A revised", "2026-10-04T10:40:00.000Z"), id: first.id };
     assert.equal(queueSocialActivity(replacingFirst), true);
-    let queued = JSON.parse(values.get("treino-social-outbox-v1") ?? "[]");
+    let queued = JSON.parse(values.get("treino-social-eligibility-v1") ?? "[]");
     assert.equal(queued.length, 2);
     assert.deepEqual(new Set(queued.map((item: { activity: { clientSessionId: string } }) => item.activity.clientSessionId)),
       new Set([first.id, second.id]));
@@ -116,6 +165,7 @@ test("stale sharing cache cannot suppress a verified ON account; reload, Add and
       assert.equal((options?.headers as Record<string, string>)["X-Treino-Social-Account"], "account-a");
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }) as typeof fetch;
+    await refreshSocialPreference();
     await flushSocialOutbox();
     queued = JSON.parse(values.get("treino-social-outbox-v1") ?? "[]");
     assert.equal(queued.length, 0);

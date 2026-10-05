@@ -4,6 +4,7 @@ import { lastUsedLoad, normalizeLoad } from "@/lib/training/loads";
 import { changedLoads } from "@/lib/training/loads";
 import { aggregateSync, withSyncStatus } from "@/lib/training/sync-state";
 import { currentFocusId, moveExerciseLater, planExerciseOrder, remainingExerciseOrder, sessionExerciseOrder, setExerciseSkipped } from "@/lib/training/queue";
+import { planLineageKey, sameDayDecision, workoutLineageKey } from "@/lib/training/identity";
 
 export function activePlan(data: TrainingData): TrainingPlanRecord | undefined {
   return data.plans.find((plan) => plan.id === data.activePlanId);
@@ -20,7 +21,8 @@ export function startTrainingSession(data: TrainingData, planId: string, workout
     throw new Error("This workout has repeated exercise IDs. Reopen the app to repair saved training data.");
   }
   const session: TrainingSession = {
-    id, planId, planVersion: plan.version, workoutId, workoutSnapshot: structuredClone(workout),
+    id, planId, planVersion: plan.version, planLineageKey: planLineageKey(plan), workoutId,
+    workoutLineageKey: workoutLineageKey(workout), workoutSnapshot: structuredClone(workout),
     status: "inProgress", startedAt: now.toISOString(),
     blocks: workout.blocks.map((block) => ({ blockId: block.id, completed: false,
       actualLoad: block.kind === "exercise" ? lastUsedLoad(data, planId, block.id) ?? block.defaultLoad : undefined })),
@@ -80,13 +82,13 @@ export function setTrainingFocus(data: TrainingData, sessionId: string, focusMod
 
 export function sameDaySessions(data: TrainingData, sessionId: string, date: string): TrainingSession[] {
   const current = data.sessions.find((item) => item.id === sessionId);
-  return current ? data.sessions.filter((item) => item.status === "completed" && item.planId === current.planId &&
-    item.workoutId === current.workoutId && item.localDate === date)
+  return current ? data.sessions.filter((item) => sameDayDecision(data, current, item, date).match)
     .sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? "")) : [];
 }
 
-export function finishTrainingSession(data: TrainingData, sessionId: string, date: string, now = new Date(),
-  choice: "normal" | "add" | "replace" = "normal", replaceId?: string, sessionNote = ""): TrainingData {
+export function finalizeTrainingSession(data: TrainingData, sessionId: string, date: string, now = new Date(),
+  choice: "normal" | "add" | "replace" = "normal", replaceId?: string, sessionNote = ""):
+  { data: TrainingData; session: TrainingSession } {
   if (!isLocalDate(date)) throw new Error("Choose a valid workout date.");
   const session = data.sessions.find((item) => item.id === sessionId && item.status === "inProgress");
   if (!session) throw new Error("No in-progress workout was found.");
@@ -106,9 +108,14 @@ export function finishTrainingSession(data: TrainingData, sessionId: string, dat
     syncStatus: previous?.completionReceipt || previous?.syncStatus === "synced" ? "pending" : session.syncStatus,
   };
   const completed = withSyncStatus(completedBase, { loadSyncStatus: changedLoads(completedBase).length ? session.syncStatus : "notApplicable" });
-  return { ...data, restTimer: data.restTimer?.sessionId === sessionId ? undefined : data.restTimer,
+  return { session: completed, data: { ...data, restTimer: data.restTimer?.sessionId === sessionId ? undefined : data.restTimer,
     sessions: data.sessions.filter((item) => item.id !== sessionId && item.id !== previous?.id)
-    .concat(completed).sort((a, b) => b.startedAt.localeCompare(a.startedAt)) };
+    .concat(completed).sort((a, b) => b.startedAt.localeCompare(a.startedAt)) } };
+}
+
+export function finishTrainingSession(data: TrainingData, sessionId: string, date: string, now = new Date(),
+  choice: "normal" | "add" | "replace" = "normal", replaceId?: string, sessionNote = ""): TrainingData {
+  return finalizeTrainingSession(data, sessionId, date, now, choice, replaceId, sessionNote).data;
 }
 
 export function workoutForSession(session: TrainingSession): TrainingWorkout { return session.workoutSnapshot; }

@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { addTraining, migrateGoogleTraining, refreshTraining, removeTraining, renameTraining } from "@/lib/training/library";
-import { cancelTrainingSession, finishTrainingSession, moveTrainingBlockLater, restoreTrainingQueue, sameDaySessions, setTrainingFocus, skipTrainingBlock, startTrainingSession, updateTrainingBlock } from "@/lib/training/session";
+import { cancelTrainingSession, finalizeTrainingSession, moveTrainingBlockLater, restoreTrainingQueue, setTrainingFocus, skipTrainingBlock, startTrainingSession, updateTrainingBlock } from "@/lib/training/session";
 import { changedLoads } from "@/lib/training/loads";
 import { normalizeLoad } from "@/lib/training/loads";
 import { completionState, loadState, withSyncStatus } from "@/lib/training/sync-state";
@@ -24,7 +24,7 @@ interface AppContextValue {
   skipBlock(sessionId: string, blockId: string, skipped: boolean): void;
   setFocus(sessionId: string, enabled: boolean, blockId?: string): void;
   correctSessionLoad(sessionId: string, blockId: string, load: string): boolean;
-  finish(sessionId: string, localDate: string, choice?: "normal" | "add" | "replace", replaceId?: string, note?: string): boolean;
+  finish(sessionId: string, localDate: string, choice?: "normal" | "add" | "replace", replaceId?: string, note?: string): TrainingSession | null;
   saveExerciseNote(planId: string, exerciseName: string, note: string): boolean;
   startRestTimer(sessionId: string, seconds: number): boolean;
   pauseRestTimer(): boolean;
@@ -156,12 +156,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const extendRestTimer = useCallback((seconds: number) => commit((current) => extendRest(current, seconds)), [commit]);
   const skipRestTimer = useCallback(() => commit((current) => skipRest(current)), [commit]);
   const finish = useCallback((sessionId: string, localDate: string, choice: "normal" | "add" | "replace" = "normal", replaceId?: string, note = "") => {
-    const previous = dataRef.current ? sameDaySessions(dataRef.current, sessionId, localDate).find((item) => item.id === (replaceId ?? sameDaySessions(dataRef.current!, sessionId, localDate)[0]?.id)) : undefined;
-    const saved = commit((current) => finishTrainingSession(current, sessionId, localDate, new Date(), choice, replaceId, note));
-    if (!saved) return false;
-    const completedId = choice === "replace" ? previous?.id ?? sessionId : sessionId;
-    const session = dataRef.current?.sessions.find((item) => item.id === completedId);
-    if (session?.status === "completed") queueSocialActivity(session);
+    let finalized: TrainingSession | undefined;
+    const saved = commit((current) => {
+      const result = finalizeTrainingSession(current, sessionId, localDate, new Date(), choice, replaceId, note);
+      finalized = result.session;
+      return result.data;
+    });
+    if (!saved) return null;
+    const session = finalized as TrainingSession | undefined;
+    if (!session) return null;
+    const completedId = session.id;
+    queueSocialActivity(session);
     const plan = dataRef.current?.plans.find((item) => item.id === session?.planId);
     const source = plan?.source;
     if (plan && session?.status === "completed" && source?.kind === "google" && source.syncEnabled &&
@@ -241,7 +246,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       })();
     }
-    return true;
+    return session;
   }, [commit, applySourceLoads, setSessionSync]);
 
   const reconcilePendingGoogle = useCallback(async () => {

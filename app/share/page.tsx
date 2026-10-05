@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useApp } from "@/components/app-provider";
+import { FriendsShareStatus } from "@/components/friends-share-status";
 import { shareWorkout, type ShareResult } from "@/lib/training/share-action";
 import { defaultShareText, shareDate, shareMetrics, shareSummaryFromLegacy, shareSummaryFromSession, type WorkoutShareSummary } from "@/lib/training/share-summary";
+import type { TrainingSession } from "@/types/training";
 
-function ShareComposer({ summary, afterSave, backHref }: { summary: WorkoutShareSummary; afterSave: boolean; backHref: string }) {
+function ShareComposer({ summary, afterSave, backHref, session }: { summary: WorkoutShareSummary; afterSave: boolean; backHref: string; session?: TrainingSession }) {
   const [message, setMessage] = useState(() => defaultShareText(summary));
   const [feedback, setFeedback] = useState("");
   const [sharing, setSharing] = useState(false);
@@ -30,6 +32,7 @@ function ShareComposer({ summary, afterSave, backHref }: { summary: WorkoutShare
   return <div className="page-stack share-page">
     <Link className="back-link" href={backHref}>← {afterSave ? "History" : "Session"}</Link>
     <div className="page-heading"><p className="eyebrow">{afterSave ? "SAVED ON THIS DEVICE" : "FROM YOUR HISTORY"}</p><h1>{afterSave ? "Workout completed" : "Share workout"}<span className="dot-accent">.</span></h1><p className="share-summary-text">{summary.workoutName}<br />{metrics ? `${metrics} · ` : ""}{shareDate(summary.localDate)}</p></div>
+    {session && <FriendsShareStatus session={session} />}
     <label className="date-field share-message"><span>MESSAGE <small>edit before sharing</small></span><textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={3} maxLength={2000} /></label>
     <button type="button" className="primary-button share-main-action" onClick={share} disabled={sharing}>{sharing ? "Opening share…" : "Share workout"}</button>
     <p className="share-hint">Your phone chooses the app and recipient.</p>
@@ -54,5 +57,5 @@ export default function SharePage() {
   const summary = session ? shareSummaryFromSession(session) : shareSummaryFromLegacy(legacy!, plan?.workouts.find((item) => item.id === legacy!.workoutId)?.title ?? `Workout ${legacy!.workoutId}`);
   const afterSave = query.get("from") !== "history";
   const backHref = afterSave || !session ? "/history/" : `/history/session/?id=${encodeURIComponent(session.id)}`;
-  return <ShareComposer key={session?.id ?? `${legacyPlanId}:${legacyId}`} summary={summary} afterSave={afterSave} backHref={backHref} />;
+  return <ShareComposer key={session?.id ?? `${legacyPlanId}:${legacyId}`} summary={summary} afterSave={afterSave} backHref={backHref} session={session} />;
 }
