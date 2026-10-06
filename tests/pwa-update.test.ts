@@ -81,6 +81,26 @@ test("explicit activation waits for new controller and reloads once", async () =
   x.manager.dispose();
 });
 
+test("worker activation leaves an existing push subscription and permission untouched", async () => {
+  const x = setup();
+  const subscription = { endpoint: "opaque-test-endpoint" };
+  let subscribeCalls = 0, unsubscribeCalls = 0;
+  Object.assign(x.registration, { pushManager: { getSubscription: async () => subscription,
+    subscribe: async () => { subscribeCalls++; return subscription; } } });
+  Object.assign(subscription, { unsubscribe: async () => { unsubscribeCalls++; return true; } });
+  await x.manager.start();
+  const next = x.registration.waiting = new Worker("next");
+  x.manager.reconcile();
+  await x.manager.apply();
+  x.registration.waiting = null;
+  x.container.change(next);
+  assert.equal(await (x.registration as Registration & { pushManager: { getSubscription(): Promise<unknown> } }).pushManager.getSubscription(), subscription);
+  assert.equal(subscribeCalls, 0);
+  assert.equal(unsubscribeCalls, 0);
+  assert.equal(x.reloads(), 1);
+  x.manager.dispose();
+});
+
 test("stale update state clears when waiting disappears and update finds nothing", async () => {
   const x = setup();
   await x.manager.start();

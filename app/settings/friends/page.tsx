@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { cacheSocialPreference, discardQueuedSocialForCurrentUser, socialFetch, socialPreferenceRevision, type SocialFriend, type SocialMe } from "@/lib/social/client";
+import { PushSettings } from "@/components/push-settings";
 
 export default function FriendsPage() {
   const [me, setMe] = useState<SocialMe | null>(null);
@@ -58,6 +59,7 @@ export default function FriendsPage() {
     {state === "ready" && me && <>
       <section className="review-card"><p className="eyebrow">YOUR SOCIAL PROFILE</p><p className="quiet-note">Connected as {me.email}</p><label className="date-field"><span>SOCIAL DISPLAY NAME</span><input value={name} maxLength={50} onChange={(event) => setName(event.target.value)} /></label><button type="button" className="secondary-button" disabled={busy || !name.trim() || name.trim() === me.displayName} onClick={() => void updateProfile({ displayName: name })}>Save name</button>
         <label className="social-sharing-toggle"><input type="checkbox" checked={me.sharingEnabled} disabled={busy} onChange={(event) => { const sharingEnabled = event.target.checked; setMe({ ...me, sharingEnabled }); void updateProfile({ sharingEnabled }); }} /><span><strong>Share completed workouts with friends</strong><small>Off by default. Friends see name, date, duration and completion count. Loads, notes and exercise details stay private.</small></span></label>{busy && <p className="quiet-note" role="status">Saving Friends settings…</p>}</section>
+      <PushSettings />
       <section className="review-card"><p className="eyebrow">CONNECTED</p><h2>Friends</h2>{accepted.length ? accepted.map((friend) => <div className="social-friend-row" key={friend.id}><div><strong>{friend.displayName}</strong><small>Connected</small></div><button type="button" className="inline-action" disabled={busy} onClick={() => void act(friend.id, "remove")}>Remove</button></div>) : <p className="quiet-note">No friends yet.</p>}</section>
       {incoming.length > 0 && <section className="review-card"><h2>Pending requests</h2>{incoming.map((friend) => <div className="social-friend-row" key={friend.id}><div><strong>{friend.displayName}</strong><small>Wants to connect</small></div><button type="button" disabled={busy} onClick={() => void act(friend.id, "accept")}>Accept</button><button type="button" disabled={busy} onClick={() => void act(friend.id, "decline")}>Decline</button></div>)}</section>}
       {outgoing.length > 0 && <section className="review-card"><h2>Sent requests</h2>{outgoing.map((friend) => <div className="social-friend-row" key={friend.id}><strong>{friend.displayName}</strong><small>Pending</small></div>)}</section>}

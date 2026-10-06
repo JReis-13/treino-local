@@ -8,7 +8,7 @@ const base = { schemaVersion: 5, activePlanId: "home-plan", exerciseNotes: [], s
   ] })),
 }] };
 
-test("Home prioritizes a workout and surfaces recent Friends activity on four phone widths", async ({ page }, testInfo) => {
+test("Home places Friends between Current Training and workout choice on four phone widths", async ({ page }, testInfo) => {
   await page.addInitScript((data) => { localStorage.setItem("treino-local:v2", JSON.stringify(data)); }, base);
   await page.route("**/api/social/**", (route) => {
     const url = new URL(route.request().url());
@@ -26,6 +26,13 @@ test("Home prioritizes a workout and surfaces recent Friends activity on four ph
     await page.goto("/");
     await expect(page.getByRole("region", { name: "Friends" })).toContainText("Milena");
     await expect(page.getByRole("button", { name: "Start workout" }).first()).toBeVisible();
+    const order = await page.locator(".home-page").evaluate((home) => {
+      const selectors = [".current-training-hero", ".social-home-card", ".section-heading", ".workout-tile"];
+      return selectors.map((selector) => Array.from(home.children).findIndex((child) => child.matches(selector) ||
+        (selector === ".workout-tile" && child.querySelector(selector))));
+    });
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(order.every((index) => index >= 0)).toBe(true);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`home-${label}.png`), fullPage: true, animations: "disabled" });
   }

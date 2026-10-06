@@ -299,14 +299,13 @@ button,a,summary{-webkit-tap-highlight-color:transparent}
   .exercise-actions{flex-direction:row;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:7px}
 }
 .workout-page .sticky-action{position:static;padding-top:8px;background:transparent}
-/* Home keeps a workout action first, then a bounded Friends preview. */
+/* Friends stays directly below the training hero, before workout choices. */
 .home-page{gap:18px}
 .current-training-hero{min-height:205px;padding:24px 30px}
 .current-training-hero h1{font-size:clamp(31px,5vw,48px);margin:10px 0 7px;padding-right:78px}
 .current-training-hero>p:not(.eyebrow){font-size:13px;line-height:1.35}
 .current-training-hero .hero-stat{right:28px;bottom:24px}
 .current-training-hero .hero-stat strong{font-size:36px}
-.home-priority-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:stretch}
 .home-first-workout{display:block}
 .home-first-workout .workout-tile{height:100%;min-height:215px;padding:18px}
 .home-first-workout .workout-tile h3{font-size:50px;margin:5px 0}
@@ -325,13 +324,20 @@ button,a,summary{-webkit-tap-highlight-color:transparent}
 .history-delete-action{align-self:flex-start;min-height:44px;color:#9a4c3e;font-weight:800}
 .diagnostics-settings .connection-actions{margin-top:12px}
 .diagnostics-settings .connection-actions button{min-height:44px}
+.push-settings{display:grid;gap:10px}
+.push-settings h2,.push-settings p{margin:0}
+.push-device-status{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px}
+.push-device-status span{font-weight:800;color:var(--teal);text-align:right}
+.push-preferences{border:0;padding:0;margin:6px 0 0;display:grid;gap:8px}
+.push-preferences legend{font-weight:800;margin-bottom:8px}
+.push-preferences label{display:flex;align-items:center;gap:10px;min-height:36px;font-size:14px}
+.push-preferences input{width:20px;height:20px;accent-color:var(--teal)}
 @media(max-width:700px){
   .current-training-hero{min-height:165px;padding:17px 20px}
   .current-training-hero h1{font-size:clamp(28px,8vw,36px);padding-right:54px;margin:7px 0 4px}
   .current-training-hero .hero-stat{right:18px;bottom:14px;gap:4px}
   .current-training-hero .hero-stat strong{font-size:29px}
   .current-training-hero .hero-stat span{font-size:8px}
-  .home-priority-row{grid-template-columns:1fr;gap:11px}
   .home-first-workout .workout-tile{min-height:172px;padding:15px}
   .home-first-workout .workout-tile h3{font-size:42px}
   .home-first-workout .workout-tile p{font-size:13px}

@@ -5,7 +5,8 @@ import postgres from "postgres";
 if (!process.env.DATABASE_URL && existsSync(".env.local")) process.loadEnvFile(".env.local");
 if (!process.env.DATABASE_URL) { console.error("DATABASE_URL: missing"); process.exit(1); }
 const sql = postgres(process.env.DATABASE_URL, { max: 1, prepare: false, ssl: "require", connect_timeout: 8, idle_timeout: 2 });
-const expected = ["users", "friendships", "workout_activities", "activity_reactions", "schema_migrations"];
+const expected = ["users", "friendships", "workout_activities", "activity_reactions", "schema_migrations",
+  "push_preferences", "push_subscriptions", "push_deliveries"];
 async function check() {
   await sql`select 1`;
   console.log("Database connection: OK");
@@ -25,7 +26,9 @@ async function check() {
     and table_name = 'workout_activities' and column_name = 'manual_shared'`;
   const manualMigration = await sql`select version from treino_social.schema_migrations where version = '002_manual_social_share'`;
   console.log(`Migration 002: ${manualMigration.length && manualColumn.length ? "applied" : "missing"}`);
-  return migration.length > 0 && manualMigration.length > 0 && manualColumn.length > 0;
+  const pushMigration = await sql`select version from treino_social.schema_migrations where version = '003_friends_push'`;
+  console.log(`Migration 003: ${pushMigration.length ? "applied" : "missing"}`);
+  return migration.length > 0 && manualMigration.length > 0 && manualColumn.length > 0 && pushMigration.length > 0;
 }
 async function migrate() {
   const [schema] = await sql`select to_regnamespace('treino_social') is not null as exists`;
@@ -44,6 +47,9 @@ async function migrate() {
   const second = await sql`select version from treino_social.schema_migrations where version = '002_manual_social_share'`;
   if (second.length) console.log("Migration 002: already applied");
   else { await sql.unsafe(readFileSync("db/migrations/002_manual_social_share.sql", "utf8")); console.log("Migration 002: applied"); }
+  const third = await sql`select version from treino_social.schema_migrations where version = '003_friends_push'`;
+  if (third.length) console.log("Migration 003: already applied");
+  else { await sql.unsafe(readFileSync("db/migrations/003_friends_push.sql", "utf8")); console.log("Migration 003: applied"); }
 }
 async function smoke() {
   if (!await check()) throw new Error("Schema is unavailable.");

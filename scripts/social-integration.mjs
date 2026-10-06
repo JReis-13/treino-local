@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import assert from "node:assert/strict";
 import postgres from "postgres";
+import webpush from "web-push";
 
 if (existsSync(".env.local")) process.loadEnvFile(".env.local");
 if (!process.env.DATABASE_URL || !process.env.GOOGLE_OAUTH_SESSION_SECRET) {
@@ -12,8 +13,11 @@ const marker = `codex-integration-${randomUUID()}`;
 const emails = ["a", "b", "c"].map((letter) => `${marker}-${letter}@example.invalid`);
 const subs = ["a", "b", "c"].map((letter) => `${marker}-${letter}`);
 const sql = postgres(process.env.DATABASE_URL, { max: 1, prepare: false, ssl: "require", connect_timeout: 8 });
+const vapid = webpush.generateVAPIDKeys();
 const server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start"], { cwd: process.cwd(),
-  env: { ...process.env, APP_BASE_URL: "http://localhost:3000", GOOGLE_ALLOWED_EMAILS: emails.join(",") }, stdio: "ignore", windowsHide: true });
+  env: { ...process.env, APP_BASE_URL: "http://localhost:3000", GOOGLE_ALLOWED_EMAILS: emails.join(","),
+    VAPID_PUBLIC_KEY: vapid.publicKey, VAPID_PRIVATE_KEY: vapid.privateKey,
+    VAPID_SUBJECT: "mailto:push-integration@example.invalid" }, stdio: "ignore", windowsHide: true });
 const base = "http://localhost:3000";
 function cookie(index) {
   const name = "treino_google_session";
@@ -38,6 +42,13 @@ async function call(index, path, method = "GET", body, origin = base, extraHeade
     body: body === undefined ? undefined : JSON.stringify(body) });
   return { status: response.status, data: await response.json() };
 }
+async function pushCall(index, path, method = "GET", body, deviceCookie = "", origin = base) {
+  const response = await fetch(`${base}/api/push/${path}`, { method,
+    headers: { cookie: `${cookie(index)}${deviceCookie ? `; ${deviceCookie}` : ""}`,
+      ...(method === "GET" ? {} : { origin, "sec-fetch-site": "same-origin", "content-type": "application/json" }) },
+    body: body === undefined ? undefined : JSON.stringify(body) });
+  return { status: response.status, data: await response.json(), cookie: response.headers.get("set-cookie") ?? "" };
+}
 const activity = { clientSessionId: marker, workoutName: "Workout A", completedAt: "2026-10-04T08:40:00.000Z",
   localDate: "2026-10-04", durationMinutes: 40, completedExercises: 3, totalExercises: 3,
   actualLoad: "PRIVATE", sessionNote: "PRIVATE", spreadsheetId: "PRIVATE", googleToken: "PRIVATE" };
@@ -58,8 +69,10 @@ try {
   assert.equal(pending.data.friends[0].direction, "incoming");
   assert.equal((await call(0, "me", "PATCH", { sharingEnabled: true })).status, 200);
   assert.equal((await call(0, "activities", "POST", activity, base, { "x-treino-social-account": accountC })).status, 409);
-  assert.equal((await call(0, "activities", "POST", { ...activity, userId: accountC }, base,
-    { "x-treino-social-account": accountA })).status, 200);
+  const firstPublish = await call(0, "activities", "POST", { ...activity, userId: accountC }, base,
+    { "x-treino-social-account": accountA });
+  assert.equal(firstPublish.status, 200);
+  assert.equal(firstPublish.data.created, true);
   assert.equal((await call(1, "home")).data.activities.length, 0);
   assert.equal((await call(1, "friends", "PATCH", { id: friendshipId, action: "accept" })).status, 200);
   assert.equal((await call(1, "friends", "POST", { email: emails[0] })).status, 409);
@@ -71,18 +84,18 @@ try {
   const id = homeB.data.activities[0].id;
   assert.equal((await call(2, `activities/${id}/reaction`, "PUT", { emoji: "🔥" })).status, 404);
   assert.equal((await call(0, `activities/${id}/reaction`, "PUT", { emoji: "🔥" })).status, 404);
-  assert.equal((await call(1, `activities/${id}/reaction`, "PUT", { emoji: "🔥" })).status, 200);
-  assert.equal((await call(1, `activities/${id}/reaction`, "PUT", { emoji: "💪" })).status, 200);
-  assert.equal((await call(1, `activities/${id}/reaction`, "PUT", { emoji: "💪" })).status, 200);
+  assert.equal((await call(1, `activities/${id}/reaction`, "PUT", { emoji: "🔥" })).data.changed, true);
+  assert.equal((await call(1, `activities/${id}/reaction`, "PUT", { emoji: "💪" })).data.changed, true);
+  assert.equal((await call(1, `activities/${id}/reaction`, "PUT", { emoji: "💪" })).data.changed, false);
   assert.equal((await call(1, "home")).data.activities[0].reactions["💪"], 1);
   assert.equal((await call(0, "home")).data.received[0].emoji, "💪");
   const workoutB = { ...activity, clientSessionId: `${marker}-other-workout`, workoutName: "Workout B",
     completedAt: "2026-10-04T09:40:00.000Z" };
-  assert.equal((await call(0, "activities", "POST", workoutB)).status, 200);
+  assert.equal((await call(0, "activities", "POST", workoutB)).data.created, true);
   const afterB = await call(1, "home");
   assert.equal(afterB.data.activities[0].workoutName, "Workout B");
   const secondA = { ...activity, clientSessionId: `${marker}-second-A`, completedAt: "2026-10-04T18:40:00.000Z" };
-  assert.equal((await call(0, "activities", "POST", secondA)).status, 200);
+  assert.equal((await call(0, "activities", "POST", secondA)).data.created, true);
   const afterSecondA = await call(1, "home");
   assert.equal(afterSecondA.data.activities[0].workoutName, "Workout A");
   assert.equal(afterSecondA.data.activities[0].completedAt, secondA.completedAt);
@@ -92,7 +105,7 @@ try {
   assert.equal((await call(1, "home")).data.activities[0].reactions["🔥"], 1);
   assert.equal((await call(0, "home")).data.received.some((item) => item.emoji === "🔥"), true);
   assert.equal((await call(0, "activities", "POST", { ...activity, workoutName: "Workout A replaced",
-    completedAt: "2026-10-04T10:40:00.000Z", durationMinutes: 46 })).status, 200);
+    completedAt: "2026-10-04T10:40:00.000Z", durationMinutes: 46 })).data.created, false);
   const replacedRows = await sql`select a.id, a.duration_minutes, a.user_id from treino_social.workout_activities a
     where a.client_session_id = ${activity.clientSessionId}`;
   assert.equal(replacedRows.length, 1);
@@ -111,7 +124,7 @@ try {
   assert.equal((await call(0, "activities", "POST", { ...activity, clientSessionId: `${marker}-backfill`,
     completedAt: "2026-10-01T08:40:00.000Z", localDate: "2026-10-01" })).status, 200);
   assert.equal((await call(1, "home")).data.activities[0].id, secondId, "offline backfill cannot replace latest");
-  assert.equal((await call(0, "activities", "POST", activity)).status, 200);
+  assert.equal((await call(0, "activities", "POST", activity)).data.created, false);
   assert.equal((await call(1, "home")).data.activities[0].id, secondId);
   assert.equal((await sql`select duration_minutes from treino_social.workout_activities
     where client_session_id = ${activity.clientSessionId}`)[0].duration_minutes, 46, "late retry cannot undo Replace");
@@ -120,7 +133,7 @@ try {
   const manualHistorical = { ...activity, clientSessionId: `${marker}-manual-history`, workoutName: "Historical workout",
     completedAt: "2026-10-04T20:40:00.000Z", manualShare: true };
   assert.equal((await call(0, "activities", "POST", { ...manualHistorical, manualShare: false })).status, 403);
-  assert.equal((await call(0, "activities", "POST", manualHistorical)).status, 200);
+  assert.equal((await call(0, "activities", "POST", manualHistorical)).data.created, true);
   const manualStatus = await call(0, `activities?clientSessionId=${manualHistorical.clientSessionId}`);
   assert.equal(manualStatus.data.shared, true);
   const manualHome = await call(1, "home");
@@ -137,7 +150,34 @@ try {
   assert.equal((await call(0, "friends", "DELETE", { id: friendshipId })).status, 200);
   assert.equal((await call(1, "home")).data.activities.length, 0);
   assert.equal((await call(1, `activities/${secondId}/reaction`, "PUT", { emoji: "🔥" })).status, 404);
+  const initialPush = await pushCall(1, "status");
+  assert.equal(initialPush.status, 200);
+  assert.equal(initialPush.data.configured, true);
+  assert.equal(initialPush.data.friendWorkouts, true);
+  assert.equal(initialPush.data.deviceRegistered, false);
+  assert(!JSON.stringify(initialPush.data).includes("VAPID_PRIVATE_KEY"));
+  assert.equal((await pushCall(1, "preferences", "PUT", { friendWorkouts: false, reactions: true }, "", "https://evil.invalid")).status, 403);
+  assert.equal((await pushCall(1, "preferences", "PUT", { friendWorkouts: false, reactions: true })).status, 200);
+  assert.equal((await pushCall(1, "subscribe", "POST", { subscription: { endpoint: "http://localhost/private",
+    keys: { p256dh: "a".repeat(87), auth: "b".repeat(22) } } })).status, 400);
+  const endpoint = `https://push.example.com/${randomUUID()}`;
+  const subscription = { endpoint, keys: { p256dh: "a".repeat(87), auth: "b".repeat(22) } };
+  const registeredB = await pushCall(1, "subscribe", "POST", { subscription });
+  assert.equal(registeredB.status, 200);
+  const deviceCookie = registeredB.cookie.split(";")[0];
+  assert(deviceCookie.startsWith("treino_push_device="));
+  assert(!JSON.stringify(registeredB.data).includes(endpoint));
+  assert.equal((await pushCall(1, "status", "GET", undefined, deviceCookie)).data.deviceRegistered, true);
+  const reboundA = await pushCall(0, "subscribe", "POST", { subscription }, deviceCookie);
+  assert.equal(reboundA.status, 200);
+  assert.equal((await pushCall(1, "status", "GET", undefined, deviceCookie)).data.deviceRegistered, false);
+  assert.equal((await pushCall(0, "status", "GET", undefined, deviceCookie)).data.deviceRegistered, true);
+  assert.equal((await sql`select user_id from treino_social.push_subscriptions where endpoint = ${endpoint}`)[0].user_id, accountA);
+  assert.equal((await pushCall(0, "subscription", "DELETE", undefined, deviceCookie)).status, 200);
+  assert.equal((await sql`select count(*)::int as n from treino_social.push_subscriptions where endpoint = ${endpoint}`)[0].n, 0);
+  assert.equal((await pushCall(1, "status")).data.friendWorkouts, false);
   console.log("Social API integration: OK (identity, CSRF, sharing, same-day Add/Replace, backfill, privacy, exact reactions, removal)");
+  console.log("Push API integration: OK (preferences, validation, private response, same endpoint rebinding, account isolation, removal)");
 } catch (cause) { failure = cause; console.error(`Social API integration: FAILED (${cause instanceof assert.AssertionError ? "assertion" : cause?.code ?? "runtime"})`); }
 finally {
   try {

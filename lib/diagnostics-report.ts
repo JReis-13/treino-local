@@ -3,6 +3,7 @@ import { readDiagnosticLog } from "@/lib/diagnostic-log";
 import { getPwaUpdateSnapshot } from "@/lib/pwa/update-manager";
 import { localSocialPublishState, readSocialDiagnostics, socialFetch, type SocialFriend, type SocialMe } from "@/lib/social/client";
 import { hasActiveWorkout } from "@/lib/training/active-workout";
+import { deviceSubscription, getPushStatus, notificationPermission, pushSupported, readPushDiagnostics } from "@/lib/push/client";
 import { planLineageKey, sameDayDecision, sessionPlanLineageKey, workoutLineageKey } from "@/lib/training/identity";
 import { aggregateSync } from "@/lib/training/sync-state";
 import type { TrainingData } from "@/types/training";
@@ -68,7 +69,9 @@ const knownRoutes = new Set(["/", "/debug", "/settings", "/settings/friends", "/
   "/stats", "/plans", "/source", "/workout", "/finish", "/share", "/excel"]);
 
 export async function collectDebugReport(data: TrainingData | null) {
-  const [events, socialServer, controllerBuild] = await Promise.all([readDiagnosticLog(), safeSocialServer(), controllerBuildId()]);
+  const [events, socialServer, controllerBuild, pushStatus, pushDevice, pushDiagnostics] = await Promise.all([
+    readDiagnosticLog(), safeSocialServer(), controllerBuildId(), getPushStatus().catch(() => null),
+    deviceSubscription().then(Boolean).catch(() => false), readPushDiagnostics()]);
   const socialLocal = readSocialDiagnostics();
   const pwa = getPwaUpdateSnapshot();
   const plan = data?.plans.find((item) => item.id === data.activePlanId);
@@ -101,6 +104,14 @@ export async function collectDebugReport(data: TrainingData | null) {
       lastPublishAt: socialLocal.lastPublishAt, lastDeleteResult: socialLocal.lastDeleteResult,
       lastDeleteAt: socialLocal.lastDeleteAt, lastHomeFetchResult: socialLocal.lastHomeFetchResult,
       lastReactionResult: socialLocal.lastReactionResult, latestSessionState: latest ? localSocialPublishState(latest.id) : "none" },
+    push: { supported: pushSupported(), permission: notificationPermission(), subscriptionPresent: pushDevice,
+      serverRegistration: pushStatus ? (pushStatus.deviceRegistered ? "success" : "unknown") :
+        (pushDiagnostics.serverRegistration ?? "unknown"),
+      friendWorkouts: pushStatus ? (pushStatus.friendWorkouts ? "on" : "off") : "unknown",
+      reactions: pushStatus ? (pushStatus.reactions ? "on" : "off") : "unknown",
+      lastSubscriptionResult: pushDiagnostics.lastSubscriptionResult ?? "none",
+      lastReceivedType: pushDiagnostics.lastReceivedType ?? "none",
+      lastClickResult: pushDiagnostics.lastClickResult ?? "none" },
     storage: { plans: data?.plans.length ?? 0, completedSessions: completed.length,
       activeSession: Boolean(active), legacyDates: data?.plans.reduce((total, item) => total + item.legacyCompletions.length, 0) ?? 0,
       hiddenLegacyDates: data?.hiddenLegacyCompletions?.length ?? 0,

@@ -40,10 +40,11 @@ export default function HomePage() {
 
   return <div className="page-stack home-page">
     <section className="hero current-training-hero"><p className="eyebrow">CURRENT TRAINING</p><h1>{plan.name}</h1><p>Your workout plan is ready on this device, even offline.</p><div className="hero-stat"><strong>{own.length + legacy.length}</strong><span>workouts<br />recorded</span></div></section>
+    <SocialHomeCard compact />
     {error && <div className="alert" role="alert">{error}</div>}
     {inProgress && <Link className="resume-banner" href={`/workout/?id=${encodeURIComponent(inProgress.workoutId)}`}><span><strong>{inProgress.workoutSnapshot.title} in progress</strong><small>Pick up where you left off</small></span><span aria-hidden="true">→</span></Link>}
     <div className="section-heading"><div><p className="eyebrow">YOUR PROGRAM</p><h2>Choose a workout</h2></div><span className="section-count">{plan.workouts.length} WORKOUTS</span></div>
-    <div className="home-priority-row"><div className="workout-grid home-first-workout">{workoutTile(plan.workouts[0], 0)}</div><SocialHomeCard compact /></div>
+    <div className="workout-grid home-first-workout">{workoutTile(plan.workouts[0], 0)}</div>
     <Link className="switch-link" href="/plans/">Switch training / manage plans →</Link>
     {plan.workouts.length > 1 && <div className="workout-grid home-remaining-workouts">{plan.workouts.slice(1).map((workout, index) => workoutTile(workout, index + 1))}</div>}
     <div className="overview-grid"><Link className="mini-panel" href="/history/"><span className="mini-icon">◷</span><span className="mini-label">HISTORY</span><strong>{latest ? latest.workoutSnapshot.title : legacy.length ? "Imported workouts" : "No sessions yet"}</strong><small>{latest?.localDate ? formatLocalDate(latest.localDate) : `${legacy.length} source dates`}</small></Link>

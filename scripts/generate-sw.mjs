@@ -50,6 +50,79 @@ self.addEventListener("fetch", (event) => {
     return response;
   })));
 });
+function pushDiagnostic(patch) {
+  return new Promise((resolve) => {
+    try {
+      const open = indexedDB.open("treino-push-diagnostics-v1", 1);
+      open.onupgradeneeded = () => open.result.createObjectStore("state");
+      open.onerror = () => resolve();
+      open.onsuccess = () => {
+        const db = open.result;
+        const transaction = db.transaction("state", "readwrite");
+        const store = transaction.objectStore("state");
+        const read = store.get("safe");
+        read.onsuccess = () => store.put({ ...(read.result || {}), ...patch }, "safe");
+        transaction.oncomplete = () => { db.close(); resolve(); };
+        transaction.onerror = () => { db.close(); resolve(); };
+      };
+    } catch { resolve(); }
+  });
+}
+function pushLogEvent(type) {
+  return new Promise((resolve) => {
+    try {
+      const open = indexedDB.open("treino-local-diagnostics-v1", 1);
+      open.onupgradeneeded = () => open.result.createObjectStore("log");
+      open.onerror = () => resolve();
+      open.onsuccess = () => {
+        const db = open.result;
+        const transaction = db.transaction("log", "readwrite");
+        const store = transaction.objectStore("log");
+        const read = store.get("events");
+        read.onsuccess = () => {
+          const prior = Array.isArray(read.result) ? read.result : [];
+          store.put([...prior, { type, timestamp: new Date().toISOString() }].slice(-500), "events");
+        };
+        transaction.oncomplete = () => { db.close(); resolve(); };
+        transaction.onerror = () => { db.close(); resolve(); };
+      };
+    } catch { resolve(); }
+  });
+}
+self.addEventListener("push", (event) => {
+  event.waitUntil((async () => {
+    let data;
+    try { data = event.data?.json(); } catch { return; }
+    if (!data || !["friend_workout", "reaction"].includes(data.type) ||
+        typeof data.body !== "string" || data.body.length > 140 ||
+        typeof data.activityId !== "string" || !/^[0-9a-f-]{36}$/i.test(data.activityId) ||
+        typeof data.tag !== "string" || !/^(friend-workout:[0-9a-f-]{36}|reaction:[0-9a-f-]{36}:[0-9a-f-]{36})$/i.test(data.tag) ||
+        !data.tag.startsWith(data.type === "friend_workout" ? "friend-workout:" : "reaction:")) return;
+    await pushDiagnostic({ lastReceivedType: data.type });
+    await pushLogEvent("push_received");
+    await self.registration.showNotification("Treino Local", {
+      body: data.body, icon: "/icon-192.png", badge: "/icon-192.png",
+      tag: data.tag,
+      data: { type: data.type },
+    });
+    await pushLogEvent("notification_shown");
+  })());
+});
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    await pushLogEvent("notification_clicked");
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const existing = windows.find((client) => new URL(client.url).origin === self.location.origin);
+    if (existing) {
+      await existing.focus();
+      await pushDiagnostic({ lastClickResult: "focused" });
+    } else {
+      await self.clients.openWindow("/?friends=1");
+      await pushDiagnostic({ lastClickResult: "opened" });
+    }
+  })());
+});
 `;
 await writeFile(join(root, "public", "sw.js"), sw);
 console.log(`Generated service worker with ${precache.length} precached URLs (${version}).`);

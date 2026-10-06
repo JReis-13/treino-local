@@ -9,7 +9,11 @@ try {
   const entries = (await readdir("tests")).filter((name) => name.endsWith(".test.ts") &&
     (!process.argv.includes("--excel") || name === "excel.test.ts"));
   await build({ entryPoints: entries.map((name) => resolve("tests", name)), outdir: ".test-build", bundle: true,
-    absWorkingDir: process.cwd(), tsconfig: "./tsconfig.json", platform: "node", format: "cjs", target: "node24", outExtension: { ".js": ".cjs" }, logLevel: "warning" });
+    absWorkingDir: process.cwd(), tsconfig: "./tsconfig.json", platform: "node", format: "cjs", target: "node24", outExtension: { ".js": ".cjs" }, logLevel: "warning",
+    plugins: [{ name: "server-only-in-node-tests", setup(build) {
+      build.onResolve({ filter: /^server-only$/ }, () => ({ path: "server-only", namespace: "test-stub" }));
+      build.onLoad({ filter: /.*/, namespace: "test-stub" }, () => ({ contents: "", loader: "js" }));
+    } }] });
   const outputs = entries.map((name) => join(folder, name.replace(/\.ts$/, ".cjs")));
   const result = spawnSync(process.execPath, ["--test", ...outputs], { stdio: "inherit", env: process.env });
   if (result.error) throw result.error;

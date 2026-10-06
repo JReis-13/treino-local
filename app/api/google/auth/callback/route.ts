@@ -3,6 +3,7 @@ import { googleConfig, safeReturnPath } from "@/lib/google/config";
 import { equalState, tokenRequest } from "@/lib/google/oauth";
 import { clearFlow, clearSession, readFlow, readSession, setSession } from "@/lib/google/session";
 import { isAllowedGoogleEmail, verifyGoogleIdentity } from "@/lib/google/identity";
+import { detachPushDevice, PUSH_DEVICE_COOKIE } from "@/lib/push/server";
 
 export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
@@ -25,13 +26,17 @@ export async function GET(request: NextRequest) {
     if (typeof token.access_token !== "string") throw new Error("Missing access token.");
     const identity = await verifyGoogleIdentity(token.id_token);
     if (!isAllowedGoogleEmail(identity.email)) {
+      const previous = readSession(request);
+      if (previous) await detachPushDevice(request, previous.sub);
       destination.searchParams.set("google", "unauthorized");
       const response = NextResponse.redirect(destination);
       clearFlow(response); clearSession(response);
+      response.cookies.delete(PUSH_DEVICE_COOKIE);
       response.headers.set("Cache-Control", "no-store");
       return response;
     }
     const previous = readSession(request);
+    if (previous && previous.sub !== identity.sub) await detachPushDevice(request, previous.sub);
     const refreshToken = typeof token.refresh_token === "string" ? token.refresh_token :
       previous?.sub === identity.sub ? previous.refreshToken : undefined;
     if (!refreshToken) throw new Error("Missing refresh token.");
@@ -39,6 +44,7 @@ export async function GET(request: NextRequest) {
     const response = NextResponse.redirect(destination);
     setSession(response, { refreshToken, createdAt: Date.now(), ...identity, identityVerified: true });
     clearFlow(response);
+    if (previous && previous.sub !== identity.sub) response.cookies.delete(PUSH_DEVICE_COOKIE);
     response.headers.set("Cache-Control", "no-store");
     return response;
   } catch {

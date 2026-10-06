@@ -70,6 +70,35 @@ test("production build and read-only navigation", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("production Home places Friends above workouts and serves push-capable worker", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("treino-local:v2", JSON.stringify({ schemaVersion: 5,
+    activePlanId: "deployed-home-plan", exerciseNotes: [], sessions: [], plans: [{ id: "deployed-home-plan",
+      name: "Training Alpha", source: { kind: "builtin", label: "Local" }, version: 1,
+      importedAt: "2026-10-01T08:00:00Z", updatedAt: "2026-10-01T08:00:00Z", importWarnings: [], legacyCompletions: [],
+      workouts: [{ id: "A", title: "Workout A", description: "", blocks: [] }] }] })));
+  await page.route("**/api/social/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/me")) return route.fulfill({ json: { email: "test@example.invalid", displayName: "Test",
+      accountId: "synthetic", sharingEnabled: true } });
+    if (path.endsWith("/home")) return route.fulfill({ json: { friendCount: 0, activities: [], received: [] } });
+    return route.fulfill({ json: { friends: [] } });
+  });
+  await page.goto(origin);
+  await expect(page.getByRole("region", { name: "Friends" })).toBeVisible();
+  const order = await page.locator(".home-page").evaluate((home) => [".current-training-hero", ".social-home-card",
+    ".section-heading", ".workout-tile"].map((selector) => Array.from(home.children).findIndex((child) =>
+    child.matches(selector) || Boolean(child.querySelector(selector)))));
+  expect(order).toEqual([...order].sort((a, b) => a - b));
+  expect(order.every((index) => index >= 0)).toBe(true);
+  const worker = await page.evaluate(async () => (await fetch("/sw.js", { cache: "no-store" })).text());
+  expect(worker).toContain('addEventListener("push"');
+  expect(worker).toContain('addEventListener("notificationclick"');
+  expect(worker).toContain('"SKIP_WAITING"');
+  await page.goto(new URL("settings/friends/", origin).toString());
+  await expect(page.getByRole("heading", { name: "Friends notifications" })).toBeVisible();
+  await expect(page.getByText(/Notification status is temporarily unavailable|Notifications are not configured yet|Notifications on this device/).first()).toBeVisible();
+});
+
 for (const [label, filename, count] of [
   ["Jonatha", "TREINO 1 JONATHA.xlsx", 2],
   ["Milena", "TREINO 4 MILENA.xlsx", 3],

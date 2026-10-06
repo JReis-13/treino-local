@@ -9,7 +9,10 @@ const TYPES = ["app_boot", "storage_migration", "plan_import_finished", "workout
   "workout_cancelled", "workout_persisted", "history_deleted", "source_sync_success",
   "source_sync_failed", "social_publish_queued", "social_publish_success", "social_publish_failed",
   "social_delete_queued", "social_delete_success", "social_delete_failed", "friend_reaction_sent",
-  "pwa_update_detected", "pwa_update_started", "pwa_update_finished", "app_error"] as const;
+  "pwa_update_detected", "pwa_update_started", "pwa_update_finished", "app_error",
+  "push_permission_requested", "push_permission_granted", "push_permission_denied",
+  "push_subscription_created", "push_subscription_registered", "push_subscription_failed",
+  "push_received", "notification_shown", "notification_clicked", "push_subscription_removed"] as const;
 const REASONS = new Set(["OK", "FAILED", "STORAGE_ERROR", "LEGACY", "WINDOW_ERROR", "UNHANDLED_REJECTION",
   "REACTION_FAILED", "QUEUED", "SUCCESS", "NETWORK_ERROR", "OFFLINE_QUEUED",
   "NOT_COMPLETED", "DATE_MISSING", "DATE_MISMATCH", "PLAN_LINEAGE_MISMATCH", "MATCH_EXACT_ID",

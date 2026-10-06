@@ -1,5 +1,7 @@
 import { currentSocialUser, deleteOwnActivity, ownActivityStatus, publishActivity, socialBody, socialFailure, socialResponse, SocialError } from "@/lib/social/server";
 import { parsePublishActivity } from "@/lib/social/model";
+import { after } from "next/server";
+import { sendFriendWorkoutPush } from "@/lib/push/server";
 
 export const runtime = "nodejs";
 export async function GET(request: Request) {
@@ -18,8 +20,10 @@ export async function POST(request: Request) {
     const body = await socialBody(request);
     const item = parsePublishActivity(body);
     if (!item) throw new SocialError("Invalid workout summary.");
-    const activityId = await publishActivity(user.id, item, body.manualShare === true);
-    return socialResponse({ ok: true, activityId });
+    const manualShare = body.manualShare === true;
+    const { activityId, created } = await publishActivity(user.id, item, manualShare);
+    if (created && !manualShare) after(() => sendFriendWorkoutPush(activityId));
+    return socialResponse({ ok: true, activityId, created });
   } catch (cause) { return socialFailure(cause); }
 }
 export async function DELETE(request: Request) {

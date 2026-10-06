@@ -1,5 +1,9 @@
 # OAuth production deployment checklist
 
+## Friends Push V1 production readiness
+
+Apply additive private social migration 003 once and run `pnpm db:check` and the isolated integration tests. Configure `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and a real contact `VAPID_SUBJECT` in Vercel Production without printing or committing the private key; redeploy after adding variables. Confirm Settings → Friends shows the correct device status, no permission prompt on page load, and that Home places Friends below Current Training and above Choose a workout. Check `/sw.js` still supports waiting worker and `SKIP_WAITING`, then perform the [two-phone push test](push-notifications.md#verification) with disposable workouts. If VAPID is absent, the deployed UI must say notifications are not configured; do not claim live delivery.
+
 ## PWA update recovery on a physical phone
 
 1. With no workout open, open Home and wait for a newer deployment. The compact banner should say **New version available** with **Update now**, never “after this workout.” Tap it and confirm **Updating…**, one reload, a changed **Build** on `/debug`, matching **Controller build ID**, and no remaining banner. Plans and History should still be present.
