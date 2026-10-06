@@ -9,8 +9,11 @@ import { completionState, loadState, withSyncStatus } from "@/lib/training/sync-
 import { updateExerciseNote } from "@/lib/training/exercise-notes";
 import { extendRest, pauseRest, resumeRest, skipRest, startRest } from "@/lib/training/rest-timer";
 import { trainingStorage } from "@/lib/training/storage";
-import { flushSocialOutbox, queueSocialActivity, refreshSocialPreference } from "@/lib/social/client";
+import { activateQueuedSocialDeletion, flushSocialOutbox, queueSocialActivity, queueSocialDeletion,
+  reconcileQueuedSocialDeletions, refreshSocialPreference, undoQueuedSocialDeletion } from "@/lib/social/client";
+import { completedSessionForDeletion, deleteCompletedHistory, deleteLegacyHistory } from "@/lib/training/history-delete";
 import { plannedCompletionSlot } from "@/lib/sync/logic";
+import { recordDiagnosticEvent } from "@/lib/diagnostic-log";
 import type { ImportedTraining, SourceSyncStatus, TrainingData, TrainingSession, TrainingSource } from "@/types/training";
 
 interface AppContextValue {
@@ -18,6 +21,8 @@ interface AppContextValue {
   error: string | null;
   start(planId: string, workoutId: string): TrainingSession | null;
   cancel(sessionId: string): boolean;
+  deleteSession(sessionId: string): boolean;
+  deleteLegacy(planId: string, legacyId: string): boolean;
   updateBlock(sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }): void;
   moveBlockLater(sessionId: string, blockId: string): void;
   restoreQueue(sessionId: string, queueOrder: string[], focusBlockId?: string): void;
@@ -56,10 +61,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const loaded = trainingStorage.load();
+    if (!loaded.error) reconcileQueuedSocialDeletions(new Set(loaded.data.sessions.map((session) => session.id)));
     dataRef.current = loaded.data;
     storageBlocked.current = Boolean(loaded.error);
     setData(loaded.data);
     if (loaded.error) setError(loaded.error);
+    recordDiagnosticEvent("app_boot", { reason: loaded.error ? "STORAGE_ERROR" : "OK" });
+    recordDiagnosticEvent("storage_migration", { reason: loaded.error ? "FAILED" : "OK" });
   }, []);
 
   useEffect(() => {
@@ -93,14 +101,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!dataRef.current) return null;
     try {
       const result = startTrainingSession(dataRef.current, planId, workoutId);
-      return commit(() => ({ ...result.data, restTimer: result.data.restTimer?.sessionId === result.session.id ? result.data.restTimer : undefined })) ? result.session : null;
+      if (!commit(() => ({ ...result.data, restTimer: result.data.restTimer?.sessionId === result.session.id ? result.data.restTimer : undefined }))) return null;
+      recordDiagnosticEvent("workout_started", { sessionId: result.session.id });
+      return result.session;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not start workout."); return null; }
   }, [commit]);
 
-  const cancel = useCallback((sessionId: string) => commit((current) => cancelTrainingSession(current, sessionId)), [commit]);
+  const cancel = useCallback((sessionId: string) => { const saved = commit((current) => cancelTrainingSession(current, sessionId));
+    if (saved) recordDiagnosticEvent("workout_cancelled", { sessionId }); return saved; }, [commit]);
+  const deleteSession = useCallback((sessionId: string): boolean => {
+    if (!dataRef.current || !completedSessionForDeletion(dataRef.current, sessionId)) {
+      setError("Completed workout record not found."); return false;
+    }
+    if (!queueSocialDeletion(sessionId)) {
+      setError("Could not prepare Friends deletion on this device. The workout was left intact."); return false;
+    }
+    const saved = commit((current) => deleteCompletedHistory(current, sessionId));
+    if (saved) { recordDiagnosticEvent("history_deleted", { sessionId }); activateQueuedSocialDeletion(sessionId); }
+    else undoQueuedSocialDeletion(sessionId);
+    return saved;
+  }, [commit]);
+  const deleteLegacy = useCallback((planId: string, legacyId: string): boolean => {
+    const saved = commit((current) => deleteLegacyHistory(current, planId, legacyId));
+    if (saved) recordDiagnosticEvent("history_deleted", { reason: "LEGACY" });
+    return saved;
+  }, [commit]);
 
   const updateBlock = useCallback((sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }) => {
-    commit((current) => updateTrainingBlock(current, sessionId, blockId, change));
+    if (commit((current) => updateTrainingBlock(current, sessionId, blockId, change)) && change.completed !== undefined)
+      recordDiagnosticEvent(change.completed ? "exercise_completed" : "exercise_reopened", { sessionId });
   }, [commit]);
   const moveBlockLater = useCallback((sessionId: string, blockId: string) => {
     commit((current) => moveTrainingBlockLater(current, sessionId, blockId));
@@ -109,7 +138,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     commit((current) => restoreTrainingQueue(current, sessionId, queueOrder, focusBlockId));
   }, [commit]);
   const skipBlock = useCallback((sessionId: string, blockId: string, skipped: boolean) => {
-    commit((current) => skipTrainingBlock(current, sessionId, blockId, skipped));
+    if (commit((current) => skipTrainingBlock(current, sessionId, blockId, skipped)))
+      recordDiagnosticEvent(skipped ? "exercise_skipped" : "exercise_skip_undone", { sessionId });
   }, [commit]);
   const setFocus = useCallback((sessionId: string, enabled: boolean, blockId?: string) => {
     commit((current) => setTrainingFocus(current, sessionId, enabled, blockId));
@@ -130,7 +160,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }), [commit]);
 
   const setSessionSync = useCallback((sessionId: string, patch: Partial<TrainingSession>) => {
-    commit((current) => ({ ...current, sessions: current.sessions.map((session) => session.id === sessionId ? withSyncStatus(session, patch) : session) }));
+    const previous = dataRef.current?.sessions.find((item) => item.id === sessionId);
+    const source = dataRef.current?.plans.find((item) => item.id === previous?.planId)?.source.kind;
+    if (commit((current) => ({ ...current, sessions: current.sessions.map((session) => session.id === sessionId ? withSyncStatus(session, patch) : session) }))) {
+      for (const operation of ["completion", "load"] as const) {
+        const key = operation === "completion" ? "completionSyncStatus" : "loadSyncStatus";
+        const status = patch[key];
+        if (!status || status === previous?.[key]) continue;
+        if (status === "synced") recordDiagnosticEvent("source_sync_success", { sessionId, source, operation, reason: "OK" });
+        else if (["failed", "conflict", "authRequired", "sourceUnavailable"].includes(status))
+          recordDiagnosticEvent("source_sync_failed", { sessionId, source, operation,
+            reason: status === "authRequired" ? "AUTH_REQUIRED" : status === "conflict" ? "CONFLICT" : "FAILED" });
+      }
+    }
   }, [commit]);
   const applySourceLoads = useCallback((planId: string, imported: ImportedTraining) => {
     commit((current) => ({ ...current, plans: current.plans.map((plan) => {
@@ -156,6 +198,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const extendRestTimer = useCallback((seconds: number) => commit((current) => extendRest(current, seconds)), [commit]);
   const skipRestTimer = useCallback(() => commit((current) => skipRest(current)), [commit]);
   const finish = useCallback((sessionId: string, localDate: string, choice: "normal" | "add" | "replace" = "normal", replaceId?: string, note = "") => {
+    recordDiagnosticEvent("workout_finish_started", { sessionId });
+    if (choice === "add") recordDiagnosticEvent("same_day_add", { sessionId });
+    if (choice === "replace") recordDiagnosticEvent("same_day_replace", { sessionId });
     let finalized: TrainingSession | undefined;
     const saved = commit((current) => {
       const result = finalizeTrainingSession(current, sessionId, localDate, new Date(), choice, replaceId, note);
@@ -166,6 +211,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const session = finalized as TrainingSession | undefined;
     if (!session) return null;
     const completedId = session.id;
+    recordDiagnosticEvent("workout_persisted", { sessionId: completedId });
     queueSocialActivity(session);
     const plan = dataRef.current?.plans.find((item) => item.id === session?.planId);
     const source = plan?.source;
@@ -379,7 +425,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not restore local data."); return false; }
   }, []);
 
-  return <AppContext.Provider value={{ data, error, start, cancel, updateBlock, moveBlockLater, restoreQueue, skipBlock, setFocus, correctSessionLoad, finish,
+  return <AppContext.Provider value={{ data, error, start, cancel, deleteSession, deleteLegacy, updateBlock, moveBlockLater, restoreQueue, skipBlock, setFocus, correctSessionLoad, finish,
     saveExerciseNote, startRestTimer, pauseRestTimer, resumeRestTimer, extendRestTimer, skipRestTimer,
     addPlan, refreshPlan, migrateGooglePlan,
     setActivePlan, renamePlan, removePlan, updateSource, setSyncStatus, setSessionSync, applySourceLoads,

@@ -1,5 +1,6 @@
 import { durationMinutes, isLocalDate, localDateString } from "@/lib/dates";
 import type { TrainingData, TrainingSession } from "@/types/training";
+import { legacyIsHidden } from "@/lib/training/history-delete";
 
 export type StatsRange = "4w" | "3m" | "6m" | "all";
 export type StatsEntry = { id: string; planId: string; workoutId: string; date: string; session?: TrainingSession };
@@ -9,12 +10,14 @@ export function historyEntries(data: TrainingData): StatsEntry[] {
     .map((session) => ({ id: session.id, planId: session.planId, workoutId: session.workoutId,
       date: session.localDate!, session }));
   for (const plan of data.plans) for (const legacy of plan.legacyCompletions) {
+    if (legacyIsHidden(data, plan.id, legacy)) continue;
     const matched = data.sessions.some((session) => session.status === "completed" && session.planId === plan.id &&
       session.workoutId === legacy.workoutId && session.localDate === legacy.date &&
       (session.completionReceipt?.slot === legacy.sourceSlot || (!session.completionReceipt && session.syncStatus === "synced")));
     if (!matched) entries.push({ id: `${plan.id}:${legacy.id}`, planId: plan.id, workoutId: legacy.workoutId, date: legacy.date });
   }
   for (const archived of data.archivedSources ?? []) for (const legacy of archived.legacyCompletions) {
+    if (legacyIsHidden(data, archived.planId, legacy)) continue;
     entries.push({ id: `${archived.planId}:${legacy.id}`, planId: archived.planId, workoutId: legacy.workoutId, date: legacy.date });
   }
   return entries.sort((a, b) => b.date.localeCompare(a.date) ||

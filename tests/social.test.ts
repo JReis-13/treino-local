@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { isReactionEmoji, parsePublishActivity, REACTIONS } from "../lib/social/model";
 import { buildSocialWorkoutActivity, cacheSocialPreference, flushSocialOutbox, queueSocialActivity, refreshSocialPreference,
-  readSocialDiagnostics, socialPreferenceRevision, shareSessionWithFriends, localSocialPublishState } from "../lib/social/client";
+  readSocialDiagnostics, socialPreferenceRevision, shareSessionWithFriends, localSocialPublishState,
+  queueSocialDeletion, activateQueuedSocialDeletion, reconcileQueuedSocialDeletions } from "../lib/social/client";
 import type { TrainingSession } from "../types/training";
 
 const session = (name = "Workout A", completedAt = "2026-10-04T08:40:00.000Z"): TrainingSession => ({
@@ -172,6 +173,45 @@ test("stale sharing cache cannot suppress a verified ON account; reload, Add and
     assert.equal(posted.length, 2);
     assert.equal(posted.find((item) => item.clientSessionId === first.id)?.workoutName, "Workout A revised");
     assert.equal(posted.find((item) => item.clientSessionId === second.id)?.workoutName, "Workout A");
+  } finally {
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: oldStorage });
+    Object.defineProperty(globalThis, "navigator", { configurable: true, value: oldNavigator });
+    globalThis.fetch = oldFetch;
+  }
+});
+
+test("offline social deletion survives retry, removes an older publication and stays account-bound", async () => {
+  const values = new Map<string, string>();
+  const oldStorage = globalThis.localStorage, oldNavigator = globalThis.navigator, oldFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value); } } });
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: false } });
+  try {
+    cacheSocialPreference({ email: "a@example.invalid", displayName: "A", accountId: "account-a", sharingEnabled: true });
+    queueSocialActivity(session());
+    assert.equal(queueSocialDeletion("safe-session"), true);
+    reconcileQueuedSocialDeletions(new Set(["safe-session"]));
+    assert.equal(JSON.parse(values.get("treino-social-delete-outbox-v1") ?? "[]").length, 0,
+      "a failed local History write cancels the staged deletion");
+    assert.equal(queueSocialDeletion("safe-session"), true);
+    activateQueuedSocialDeletion("safe-session");
+    assert.equal(JSON.parse(values.get("treino-social-outbox-v1") ?? "[]").length, 0);
+    assert.equal(JSON.parse(values.get("treino-social-delete-outbox-v1") ?? "[]").length, 1);
+    Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: true } });
+    const deleted: string[] = [];
+    let identity = "account-b";
+    globalThis.fetch = (async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/me")) return new Response(JSON.stringify({ email: `${identity}@example.invalid`,
+        accountId: identity, displayName: "A", sharingEnabled: true }), { status: 200 });
+      if (options?.method === "DELETE") deleted.push(JSON.parse(String(options.body)).clientSessionId);
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch;
+    await flushSocialOutbox();
+    assert.deepEqual(deleted, []);
+    identity = "account-a";
+    await flushSocialOutbox();
+    assert.deepEqual(deleted, ["safe-session"]);
+    assert.equal(JSON.parse(values.get("treino-social-delete-outbox-v1") ?? "[]").length, 0);
   } finally {
     Object.defineProperty(globalThis, "localStorage", { configurable: true, value: oldStorage });
     Object.defineProperty(globalThis, "navigator", { configurable: true, value: oldNavigator });

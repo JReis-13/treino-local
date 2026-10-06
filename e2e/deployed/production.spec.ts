@@ -51,6 +51,8 @@ test("production build and read-only navigation", async ({ page }) => {
     await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
     expect(new URL(page.url()).origin).toBe(new URL(origin).origin);
   }
+  await page.goto(new URL("settings/", origin).toString());
+  await expect(page.getByRole("button", { name: "Download debug report" })).toBeVisible();
   await page.goto(origin);
   await expect(page.getByRole("region", { name: "Friends" })).toBeVisible();
   await page.evaluate(async () => { await navigator.serviceWorker.ready; });
@@ -78,6 +80,7 @@ for (const [label, filename, count] of [
       const local = parseTrainingSnapshot(await snapshotFromXlsx(new Uint8Array(await readFile(fixture.copy))),
         { kind: "excel", filename, template: "", mappings: {}, mode: "copy" }, label);
       await importWorkbook(page, fixture.copy);
+      await expect(page.getByRole("region", { name: "Friends" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Start workout" })).toHaveCount(count);
       const deployedShape = await page.evaluate(() => {
         const plan = JSON.parse(localStorage.getItem("treino-local:v2")!).plans[0];

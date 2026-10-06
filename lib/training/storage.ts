@@ -149,6 +149,10 @@ export function parseTrainingData(raw: string): TrainingData {
     (value.activePlanId !== undefined && !value.plans.some((plan: TrainingPlanRecord) => plan.id === value.activePlanId)) ||
     (value.archivedSources !== undefined && (!Array.isArray(value.archivedSources) || !value.archivedSources.every((source: unknown) =>
       record(source) && typeof source.planId === "string" && typeof source.planName === "string" && Array.isArray(source.legacyCompletions)))) ||
+    (value.hiddenLegacyCompletions !== undefined && (!Array.isArray(value.hiddenLegacyCompletions) ||
+      !value.hiddenLegacyCompletions.every((item: unknown) => record(item) && typeof item.planId === "string" &&
+        typeof item.id === "string" && typeof item.workoutId === "string" && typeof item.sourceSlot === "string" &&
+        typeof item.date === "string" && isLocalDate(item.date)))) ||
     new Set(value.plans.map((plan: TrainingPlanRecord) => plan.id)).size !== value.plans.length ||
     new Set(value.sessions.map((session: TrainingSession) => session.id)).size !== value.sessions.length) {
     throw new Error("Saved training data is invalid. It was left untouched.");

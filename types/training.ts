@@ -141,6 +141,7 @@ export interface TrainingData {
   exerciseNotes: ExerciseNote[];
   restTimer?: RestTimer;
   archivedSources?: Array<{ planId: string; planName: string; legacyCompletions: LegacyCompletion[] }>;
+  hiddenLegacyCompletions?: Array<{ planId: string; id: string; workoutId: string; date: string; sourceSlot: string }>;
 }
 
 export interface ImportedTraining {

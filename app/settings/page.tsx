@@ -7,6 +7,9 @@ import { connectGoogle, disconnectGoogle, googleStatus } from "@/lib/google/clie
 import { createBackup, MAX_BACKUP_BYTES, parseBackup, SAFETY_SNAPSHOT_KEY } from "@/lib/training/backup";
 import { parseTrainingData } from "@/lib/training/storage";
 import { clearSocialPreference } from "@/lib/social/client";
+import { retrySocialDeletionsForCurrentAccount } from "@/lib/social/client";
+import { clearDiagnosticLog } from "@/lib/diagnostic-log";
+import { collectDebugReport, downloadDebugReport } from "@/lib/diagnostics-report";
 import type { TrainingData } from "@/types/training";
 
 function downloadJson(text: string, filename: string) {
@@ -24,6 +27,8 @@ export default function SettingsPage() {
   const [hasSafetySnapshot, setHasSafetySnapshot] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleEmail, setGoogleEmail] = useState<string | undefined>();
+  const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
+  const [diagnosticsMessage, setDiagnosticsMessage] = useState("");
   useEffect(() => { try { setHasSafetySnapshot(Boolean(localStorage.getItem(SAFETY_SNAPSHOT_KEY))); } catch { /* Storage status is shown on restore. */ } }, []);
   useEffect(() => {
     googleStatus().then((status) => { setGoogleConnected(status.connected); setGoogleEmail(status.email); })
@@ -65,6 +70,24 @@ export default function SettingsPage() {
     <section className="review-card"><p className="eyebrow">GOOGLE SHEETS</p><h2>{googleConnected ? "Google account connected" : "Not connected"}</h2>{googleConnected && googleEmail && <p className="quiet-note">{googleEmail}</p>}<p className="quiet-note">Connect once, then import each training by pasting its Google Sheets URL. Your workout history stays on this device.</p><div className="connection-actions">{googleConnected ? <button type="button" className="secondary-button" onClick={() => void (async () => { try { await disconnectGoogle(); clearSocialPreference(); setGoogleConnected(false); setGoogleEmail(undefined); setMessage("Google disconnected. Plans and workout history remain saved locally. Reconnect to resume sync."); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Could not disconnect Google."); } })()}>Disconnect Google</button> : <button type="button" className="primary-button" onClick={() => connectGoogle("/settings")}>{message.includes("não está autorizada") ? "Tentar outra conta Google →" : "Connect Google →"}</button>}<Link className="secondary-button" href="/plans/">Training plans →</Link></div></section>
     <Link className="secondary-button" href="/source/">Source sync and pending updates →</Link>
     <Link className="secondary-button" href="/settings/friends/">Friends and workout sharing →</Link>
+    <section className="review-card diagnostics-settings"><p className="eyebrow">ON THIS DEVICE</p><h2>Diagnostics</h2>
+      <p className="quiet-note">Treino Local keeps a small local technical log to help diagnose problems. The report excludes credentials, notes, exact loads and source links. Nothing is uploaded automatically.</p>
+      <div className="connection-actions"><button type="button" className="primary-button" disabled={diagnosticsBusy} onClick={() => void (async () => {
+        setDiagnosticsBusy(true); setDiagnosticsMessage("Preparing your debug report…");
+        try { const filename = downloadDebugReport(await collectDebugReport(data)); setDiagnosticsMessage(`Download started: ${filename}`); }
+        catch { setDiagnosticsMessage("Could not prepare the report. Try again."); }
+        finally { setDiagnosticsBusy(false); }
+      })()}>{diagnosticsBusy ? "Preparing report…" : "Download debug report"}</button>
+      <button type="button" className="secondary-button" disabled={diagnosticsBusy} onClick={() => void (async () => {
+        try { await clearDiagnosticLog(); setDiagnosticsMessage("Diagnostic log cleared."); }
+        catch { setDiagnosticsMessage("Could not clear the diagnostic log."); }
+      })()}>Clear diagnostic log</button></div>
+      {diagnosticsMessage && <p className="quiet-note" role="status">{diagnosticsMessage}</p>}
+      <div className="connection-actions"><Link className="inline-action" href="/debug/">View live diagnostics →</Link>
+      <button type="button" className="inline-action" onClick={() => void retrySocialDeletionsForCurrentAccount().then(() =>
+        setDiagnosticsMessage("Pending Friends deletions checked for this Google account.")).catch(() =>
+        setDiagnosticsMessage("Could not check Friends deletions right now."))}>Retry pending Friends deletions</button></div>
+    </section>
     <section className="review-card"><h2>Data backup</h2><p className="quiet-note">Export includes saved plans, versions, sessions and history. It excludes Google tokens and legacy connector credentials. A restored Google plan needs Google connected before syncing.</p>
       <div className="connection-actions"><button type="button" className="primary-button" onClick={() => { try { downloadJson(createBackup(data), `treino-local-backup-${new Date().toISOString().slice(0, 10)}.json`); setMessage("Backup download started."); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Backup export failed."); } }}>Export backup</button>
         <button type="button" className="secondary-button" onClick={() => picker.current?.click()}>Import backup</button></div>

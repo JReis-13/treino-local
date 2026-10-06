@@ -6,12 +6,13 @@ import { useApp } from "@/components/app-provider";
 import { hasActiveWorkout } from "@/lib/training/active-workout";
 import { getPwaUpdateSnapshot, subscribePwaUpdate } from "@/lib/pwa/update-manager";
 import { loadDeviceConnector } from "@/lib/connector/credentials";
-import { readDiagnostics, safeDiagnostic, type DiagnosticsState } from "@/lib/diagnostics";
+import { readDiagnostics, type DiagnosticsState } from "@/lib/diagnostics";
 import { localSocialPublishState, readSocialDiagnostics } from "@/lib/social/client";
 import { socialFetch, type SocialMe, type SocialFriend } from "@/lib/social/client";
 import { localDateString } from "@/lib/dates";
 import { planLineageKey, sameDayDecision, sessionPlanLineageKey, workoutLineageKey } from "@/lib/training/identity";
 import type { TrainingData } from "@/types/training";
+import { collectDebugReport } from "@/lib/diagnostics-report";
 
 function short(value: string | undefined): string { return value ? `${value.slice(0, 8)}…` : "none"; }
 function fingerprint(value: string): string {
@@ -93,13 +94,7 @@ export default function DebugPage() {
     .sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""))[0];
   const sameDay = sameDayReport(data);
   async function copyReport() {
-    const report = { build: environment.Build, builtAt: environment["Built at"], browser: navigator.userAgent,
-      origin: window.location.origin, path: window.location.pathname, standalone: environment["PWA standalone"],
-      storageVersion: data?.schemaVersion ?? "unavailable", activePlanId: short(plan?.id),
-      connectorVersion: environment["Device connector version"] ?? (plan?.source.kind === "google" ? plan.source.connectorVersion ?? 1 : "none"),
-      lastAction: safeDiagnostic(diagnostics.lastAction ?? "none"), lastError: safeDiagnostic(diagnostics.lastError ?? error ?? "none"),
-      sameDay, social: { ...social, server: socialServer } };
-    try { await navigator.clipboard.writeText(JSON.stringify(report, null, 2)); setMessage("Safe diagnostic report copied."); }
+    try { await navigator.clipboard.writeText(JSON.stringify(await collectDebugReport(data), null, 2)); setMessage("Safe diagnostic report copied."); }
     catch { setMessage("Clipboard unavailable. Use the values shown above."); }
   }
   return <div className="page-stack"><div className="page-heading"><p className="eyebrow">LOCAL TROUBLESHOOTING</p><h1>Diagnostics.</h1><p>Use this on your phone when a button appears to do nothing. No credentials are shown here.</p></div>

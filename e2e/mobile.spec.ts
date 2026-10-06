@@ -216,6 +216,8 @@ test("date-only History uses a reduced share message and unsupported-share feedb
   await importFile(page, milena);
   await page.getByRole("link", { name: "History", exact: true }).tap();
   await page.locator(".history-list a.history-card").first().tap();
+  await expect(page.getByRole("button", { name: "Delete workout record" })).toBeVisible();
+  await page.getByRole("link", { name: "Share workout" }).tap();
   await expect(page.getByRole("heading", { name: "Share workout." })).toBeVisible();
   await expect(page.getByRole("textbox", { name: /MESSAGE/ })).not.toHaveValue(/exercises|min/);
   await expect(page.getByRole("button", { name: /Download card|Save image/i })).toHaveCount(0);

@@ -1,5 +1,9 @@
 # Testing Treino Local
 
+## Real-phone check for this iteration
+
+On a long List workout, complete or skip every exercise and check that **Finish workout** appears above bottom navigation without scrolling; undo either state and confirm it disappears. Finish through the shortcut and verify the normal same-day Add/Replace prompt. In History detail, open **Delete workout record**, first keep the workout, then delete a disposable completed record; confirm History and Statistics update and an offline shared deletion retries on reconnection. Source Google/Excel dates and loads must remain unchanged. In Settings, download the JSON debug report and clear the log. Verify Friends is visible after the first workout action on Home; try recent workout, received reaction, empty state and temporary API failure. Recheck the previously confirmed publish, reaction, Add, Replace, Cancel, PWA update and source sync paths.
+
 `node scripts/run-tests.mjs` runs unit, parser, workbook, Google mock, and source-sync tests. `pnpm test:e2e` runs the local production browser suite against `http://localhost:3000` after a local build and server start. `pnpm test:deployed` is a separate, opt-in Playwright suite whose base URL is fixed to `https://treino-local.vercel.app/`. It never substitutes localhost. Set `DEPLOYED_EXPECTED_REVISION` to the pushed commit hash to require `/debug` to show that revision's eight-character build prefix. If browser or network access is unavailable, report the deployed suite as **NOT RUN** with the reason; local E2E does not count as deployed E2E.
 
 ## PWA update lifecycle

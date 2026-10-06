@@ -108,6 +108,16 @@ export async function ownActivityStatus(userId: string, clientSessionId: string)
   return rows.length ? { activityId: rows[0].id as string,
     shared: Boolean(rows[0].manual_shared || rows[0].sharing_enabled) } : { activityId: null, shared: false };
 }
+export async function deleteOwnActivity(userId: string, clientSessionId: string): Promise<{ deleted: boolean }> {
+  const sql = socialDb();
+  const removed = await sql`delete from treino_social.workout_activities
+    where user_id = ${userId} and client_session_id = ${clientSessionId} returning id`;
+  if (removed.length) return { deleted: true };
+  const foreign = await sql`select id from treino_social.workout_activities
+    where client_session_id = ${clientSessionId} and user_id <> ${userId} limit 1`;
+  if (foreign.length) throw new SocialError("Workout is unavailable.", 404, "notOwned");
+  return { deleted: false };
+}
 export async function homeFor(userId: string): Promise<{ activities: SocialActivity[]; received: Array<{ displayName: string; emoji: ReactionEmoji; workoutName: string }> ; friendCount: number }> {
   const sql = socialDb();
   const friends = await sql`select u.id, u.display_name from treino_social.friendships f

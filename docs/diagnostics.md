@@ -1,0 +1,9 @@
+# Local diagnostics
+
+Open **Settings → Diagnostics** on the phone. **Download debug report** creates one JSON file on the device. It is not uploaded by Treino Local; sharing the file is the user's choice. **Clear diagnostic log** empties the event log without changing workouts. `/debug` remains available for live status and its **Copy diagnostics** action uses the same safe report provider.
+
+The event recorder uses a separate IndexedDB database (`treino-local-diagnostics-v1`). It records meaningful transitions such as app boot, workout start/completion/cancellation, History deletion, social publish/delete and reaction results, plus sanitized application errors. It never records each timer tick. Retention is the newest 500 events from the past 7 days, capped at 128 KiB; oldest events are removed first. The log survives reloads and PWA updates.
+
+`debugReportVersion: 1` includes build/controller status, route, PWA and network state, storage schema and counts, hashed plan/session/workout identity, same-day matcher reason codes, source sync state, Friends status and outbox counts, and the bounded event log. Identifiers are one-way local fingerprints. The report omits raw workout records, notes, exact loads, workbook content, Sheet URLs and IDs, email, Google subject, OAuth tokens, cookies, secrets, database connection strings, and raw request or storage bodies. Error reasons are restricted to known codes. The report generator fetches safe account/friend counts only; fetch failures become status codes, not response bodies.
+
+For phone debugging: download the report soon after reproducing an issue, then choose whether to send it to support. Do not clear app/site data just to capture a report. If a shared History record was deleted while offline, reconnect with the same Google account; Settings also offers **Retry pending Friends deletions**.

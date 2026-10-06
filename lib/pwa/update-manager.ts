@@ -1,4 +1,5 @@
 export type UpdatePhase = "idle" | "ready" | "updating" | "activated" | "error";
+import { recordDiagnosticEvent } from "@/lib/diagnostic-log";
 export function updateBannerLabel(phase: UpdatePhase, activeWorkout: boolean, online: boolean): string {
   if (phase === "updating") return "Updating…";
   if (phase === "error") return "Update couldn’t be applied.";
@@ -25,6 +26,12 @@ export function subscribePwaUpdate(listener: () => void): () => void {
   return () => { listeners.delete(listener); };
 }
 function publish(snapshot: UpdateSnapshot): void {
+  if (snapshot.phase !== currentSnapshot.phase) {
+    if (snapshot.phase === "ready") recordDiagnosticEvent("pwa_update_detected");
+    if (snapshot.phase === "updating") recordDiagnosticEvent("pwa_update_started");
+    if (snapshot.phase === "activated" || snapshot.phase === "error")
+      recordDiagnosticEvent("pwa_update_finished", { reason: snapshot.phase === "activated" ? "OK" : "FAILED" });
+  }
   currentSnapshot = snapshot;
   listeners.forEach((listener) => listener());
 }

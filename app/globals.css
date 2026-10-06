@@ -299,3 +299,45 @@ button,a,summary{-webkit-tap-highlight-color:transparent}
   .exercise-actions{flex-direction:row;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:7px}
 }
 .workout-page .sticky-action{position:static;padding-top:8px;background:transparent}
+/* Home keeps a workout action first, then a bounded Friends preview. */
+.home-page{gap:18px}
+.current-training-hero{min-height:205px;padding:24px 30px}
+.current-training-hero h1{font-size:clamp(31px,5vw,48px);margin:10px 0 7px;padding-right:78px}
+.current-training-hero>p:not(.eyebrow){font-size:13px;line-height:1.35}
+.current-training-hero .hero-stat{right:28px;bottom:24px}
+.current-training-hero .hero-stat strong{font-size:36px}
+.home-priority-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:stretch}
+.home-first-workout{display:block}
+.home-first-workout .workout-tile{height:100%;min-height:215px;padding:18px}
+.home-first-workout .workout-tile h3{font-size:50px;margin:5px 0}
+.home-first-workout .workout-tile p{margin-bottom:6px}
+.home-first-workout .tile-button{min-height:44px;margin-top:10px;padding:9px 14px}
+.social-home-compact{padding:14px;min-height:120px;gap:6px;overflow:hidden}
+.social-home-compact .social-heading h2{font-size:18px}
+.social-home-compact .social-activity{padding-top:6px;gap:2px}
+.social-highlight{margin:0;padding:9px 11px;background:#e7f3e9;border-radius:10px;font-size:13px;line-height:1.4}
+.social-home-compact .reaction-row{gap:3px}
+.social-home-compact .reaction-row button{min-width:40px;min-height:40px}
+.list-finish-shortcut{position:fixed;z-index:45;bottom:calc(63px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:min(100%,970px);padding:8px max(17px,calc((100vw - 970px)/2));display:flex;align-items:center;gap:12px;justify-content:space-between;background:#f6f7f2f5;border-top:1px solid var(--line);box-shadow:0 -5px 18px #17232312;backdrop-filter:blur(8px)}
+.list-finish-shortcut>span{font-size:12px;color:var(--muted);font-weight:700}
+.list-finish-shortcut .primary-button{min-height:44px;padding:8px 14px;flex:none}
+.workout-page:has(.list-finish-shortcut){padding-bottom:90px}
+.history-delete-action{align-self:flex-start;min-height:44px;color:#9a4c3e;font-weight:800}
+.diagnostics-settings .connection-actions{margin-top:12px}
+.diagnostics-settings .connection-actions button{min-height:44px}
+@media(max-width:700px){
+  .current-training-hero{min-height:165px;padding:17px 20px}
+  .current-training-hero h1{font-size:clamp(28px,8vw,36px);padding-right:54px;margin:7px 0 4px}
+  .current-training-hero .hero-stat{right:18px;bottom:14px;gap:4px}
+  .current-training-hero .hero-stat strong{font-size:29px}
+  .current-training-hero .hero-stat span{font-size:8px}
+  .home-priority-row{grid-template-columns:1fr;gap:11px}
+  .home-first-workout .workout-tile{min-height:172px;padding:15px}
+  .home-first-workout .workout-tile h3{font-size:42px}
+  .home-first-workout .workout-tile p{font-size:13px}
+  .home-first-workout .tile-meta{font-size:11px}
+  .social-home-compact{min-height:95px}
+  .list-finish-shortcut{flex-direction:column;align-items:stretch;gap:4px;bottom:calc(62px + env(safe-area-inset-bottom));padding:7px 17px}
+  .list-finish-shortcut .primary-button{width:100%;justify-content:center}
+  .list-finish-shortcut>span{text-align:center}
+}

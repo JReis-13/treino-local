@@ -128,6 +128,12 @@ try {
   assert.equal((await call(1, `activities/${manualHome.data.activities[0].id}/reaction`, "PUT", { emoji: "🔥" })).status, 200);
   assert.equal((await call(0, "home")).data.received.some((item) => item.workoutName === "Historical workout"), true);
   assert.equal((await call(0, "me", "PATCH", { sharingEnabled: true })).status, 200);
+  // Owned deletion is idempotent and removes dependent reactions; another user cannot delete it.
+  assert.equal((await call(1, "activities", "DELETE", { clientSessionId: secondA.clientSessionId })).status, 404);
+  assert.equal((await call(0, "activities", "DELETE", { clientSessionId: secondA.clientSessionId })).status, 200);
+  assert.equal((await call(0, "activities", "DELETE", { clientSessionId: secondA.clientSessionId })).status, 200);
+  assert.equal((await sql`select count(*)::int as total from treino_social.activity_reactions where activity_id = ${secondId}`)[0].total, 0);
+  assert.equal((await call(1, "home")).data.activities.some((item) => item.id === secondId), false);
   assert.equal((await call(0, "friends", "DELETE", { id: friendshipId })).status, 200);
   assert.equal((await call(1, "home")).data.activities.length, 0);
   assert.equal((await call(1, `activities/${secondId}/reaction`, "PUT", { emoji: "🔥" })).status, 404);

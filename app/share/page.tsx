@@ -7,6 +7,7 @@ import { FriendsShareStatus } from "@/components/friends-share-status";
 import { shareWorkout, type ShareResult } from "@/lib/training/share-action";
 import { defaultShareText, shareDate, shareMetrics, shareSummaryFromLegacy, shareSummaryFromSession, type WorkoutShareSummary } from "@/lib/training/share-summary";
 import type { TrainingSession } from "@/types/training";
+import { legacyIsHidden } from "@/lib/training/history-delete";
 
 function ShareComposer({ summary, afterSave, backHref, session }: { summary: WorkoutShareSummary; afterSave: boolean; backHref: string; session?: TrainingSession }) {
   const [message, setMessage] = useState(() => defaultShareText(summary));
@@ -52,7 +53,8 @@ export default function SharePage() {
   const legacyId = query.get("legacy");
   const plan = legacyPlanId ? data.plans.find((item) => item.id === legacyPlanId) : undefined;
   const archived = legacyPlanId ? data.archivedSources?.find((item) => item.planId === legacyPlanId) : undefined;
-  const legacy = legacyId ? (plan?.legacyCompletions.find((item) => item.id === legacyId) ?? archived?.legacyCompletions.find((item) => item.id === legacyId)) : undefined;
+  const foundLegacy = legacyId ? (plan?.legacyCompletions.find((item) => item.id === legacyId) ?? archived?.legacyCompletions.find((item) => item.id === legacyId)) : undefined;
+  const legacy = foundLegacy && legacyPlanId && !legacyIsHidden(data, legacyPlanId, foundLegacy) ? foundLegacy : undefined;
   if (!session && !legacy) return <div className="empty-state"><h1>Workout unavailable</h1><Link className="secondary-button" href="/history/">Back to history</Link></div>;
   const summary = session ? shareSummaryFromSession(session) : shareSummaryFromLegacy(legacy!, plan?.workouts.find((item) => item.id === legacy!.workoutId)?.title ?? `Workout ${legacy!.workoutId}`);
   const afterSave = query.get("from") !== "history";
