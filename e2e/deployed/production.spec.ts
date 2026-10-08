@@ -53,6 +53,8 @@ test("production build and read-only navigation", async ({ page }) => {
   }
   await page.goto(new URL("settings/", origin).toString());
   await expect(page.getByRole("button", { name: "Download debug report" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send diagnostics" })).toBeDisabled();
+  await expect(page.getByText("Connect Google to send diagnostics.")).toBeVisible();
   await page.goto(origin);
   await expect(page.getByRole("region", { name: "Friends" })).toBeVisible();
   await page.evaluate(async () => { await navigator.serviceWorker.ready; });
@@ -105,6 +107,25 @@ test("production Home places Friends above workouts and serves push-capable work
   await page.goto(new URL("settings/friends/", origin).toString());
   await expect(page.getByRole("heading", { name: "Friends notifications" })).toBeVisible();
   await expect(page.getByText(/Notification status is temporarily unavailable|Notifications are not configured yet|Notifications on this device/).first()).toBeVisible();
+});
+
+test("sanitized workbook imports through production and keeps paired loads separate", async ({ page }) => {
+  await page.goto(new URL("plans/", origin).toString());
+  await page.getByRole("button", { name: /Add training/ }).tap();
+  await page.locator('input[type="file"]').setInputFiles("tests/fixtures/synthetic-loads.xlsx");
+  await expect(page.getByRole("heading", { name: "Training ready" })).toBeVisible();
+  await page.getByText("Review exercise plan loads").tap();
+  await expect(page.locator(".import-review")).toContainText("Exercise Alpha: 7.5");
+  await expect(page.locator(".import-review")).toContainText("Exercise Beta: 12.5");
+  await page.locator(".import-review").getByRole("button", { name: /Use this training/ }).tap();
+  await page.getByRole("button", { name: "Start workout" }).first().tap();
+  const alpha = page.locator(".exercise-card").filter({ has: page.getByRole("heading", { name: "Exercise Alpha" }) });
+  const beta = page.locator(".exercise-card").filter({ has: page.getByRole("heading", { name: "Exercise Beta" }) });
+  await expect(alpha).toContainText("Current plan");
+  await expect(alpha).toContainText("7.5");
+  await expect(beta).toContainText("12.5");
+  await expect(alpha.getByRole("textbox", { name: "Actual load for Exercise Alpha" })).toHaveValue("7.5");
+  await expect(beta.getByRole("textbox", { name: "Actual load for Exercise Beta" })).toHaveValue("12.5");
 });
 
 for (const [label, filename, count] of [
