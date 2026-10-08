@@ -17,7 +17,7 @@ function validBlock(value: unknown): value is WorkoutBlock {
     (value.kind === "exercise" ? typeof value.name === "string" && typeof value.prescription === "string" &&
       (value.defaultLoad === undefined || typeof value.defaultLoad === "string") &&
       (value.loadSource === undefined || (record(value.loadSource) && typeof value.loadSource.cell === "string" &&
-        /^[GHI](26|28|30|32|33)$/.test(value.loadSource.cell) &&
+        /^[GHI](26|28|30|32|33|34)$/.test(value.loadSource.cell) &&
         (value.loadSource.part === undefined || (Number.isInteger(value.loadSource.part) &&
           Number(value.loadSource.part) >= 0 && Number(value.loadSource.part) < Number(value.loadSource.parts ?? 1))) &&
         (value.loadSource.parts === undefined || [2, 3].includes(Number(value.loadSource.parts))))) &&
@@ -67,7 +67,9 @@ function validSession(value: unknown): value is TrainingSession {
     Number.isFinite(Date.parse(value.startedAt)) && Array.isArray(value.blocks) &&
     value.blocks.every((item: unknown) => record(item) && typeof item.blockId === "string" &&
       typeof item.completed === "boolean" && (item.skipped === undefined || (typeof item.skipped === "boolean" && !(item.skipped && item.completed))) &&
-      (item.actualLoad === undefined || typeof item.actualLoad === "string")) &&
+      (item.actualLoad === undefined || typeof item.actualLoad === "string") &&
+      (item.loadOrigin === undefined || ["LAST", "PLAN", "USER"].includes(String(item.loadOrigin))) &&
+      (item.initialLoadOrigin === undefined || ["LAST", "PLAN", "USER"].includes(String(item.initialLoadOrigin)))) &&
     (value.queueOrder === undefined || (Array.isArray(value.queueOrder) && value.queueOrder.every((id: unknown) => typeof id === "string"))) &&
     (value.focusBlockId === undefined || typeof value.focusBlockId === "string") &&
     (value.focusMode === undefined || typeof value.focusMode === "boolean") &&

@@ -71,7 +71,7 @@ export async function writeGoogleLoads(input: { spreadsheetId: string; sourceFin
   const byCell = new Map<string, Array<{ part?: number; parts?: number; load: string; expected: string; current: string }>>();
   for (const change of input.changes) {
     const block = workout.blocks.find((item) => item.kind === "exercise" && item.id === change.blockId);
-    if (!block || block.kind !== "exercise" || !block.loadSource || !/^[GHI](26|28|30|32|33)$/.test(block.loadSource.cell))
+    if (!block || block.kind !== "exercise" || !block.loadSource || !/^[GHI](26|28|30|32|33|34)$/.test(block.loadSource.cell))
       throw new GoogleError("This exercise has no safe source load mapping.", 409, "conflict");
     const target = normalizeLoad(change.load), actual = normalizeLoad(block.defaultLoad ?? "");
     if (actual !== normalizeLoad(change.expected) && actual !== target) throw new GoogleError("The source load changed. Refresh before retrying.", 409, "conflict");

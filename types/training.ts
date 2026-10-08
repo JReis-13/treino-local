@@ -88,6 +88,8 @@ export interface BlockProgress {
   completed: boolean;
   skipped?: boolean;
   actualLoad?: string;
+  loadOrigin?: "LAST" | "PLAN" | "USER";
+  initialLoadOrigin?: "LAST" | "PLAN" | "USER";
 }
 
 export interface TrainingSession {

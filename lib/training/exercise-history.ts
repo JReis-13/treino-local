@@ -1,17 +1,18 @@
 import { exerciseKey } from "@/lib/training/exercise-notes";
+import { resolveLoadHistory } from "@/lib/training/loads";
 import { numericLoad } from "@/lib/training/statistics";
 import type { TrainingData } from "@/types/training";
 
-export function exerciseLoadHistory(data: TrainingData, planId: string, name: string) {
+export function exerciseLoadHistory(data: TrainingData, planId: string, name: string, workoutId?: string) {
   const key = exerciseKey(name);
-  return data.sessions.filter((session) => session.status === "completed" && session.planId === planId)
-    .flatMap((session) => session.workoutSnapshot.blocks.flatMap((block) => {
-      if (block.kind !== "exercise" || exerciseKey(block.name) !== key) return [];
-      const state = session.blocks.find((item) => item.blockId === block.id);
-      return state?.completed && state.actualLoad?.trim() ? [{
-        date: session.localDate!, completedAt: session.completedAt!, load: state.actualLoad.trim(),
-      }] : [];
-    })).sort((a, b) => b.completedAt.localeCompare(a.completedAt));
+  const plan = data.plans.find((item) => item.id === planId);
+  const candidates = plan?.workouts.filter((workout) => !workoutId || workout.id === workoutId)
+    .flatMap((workout) => workout.blocks.flatMap((block) => block.kind === "exercise" &&
+      exerciseKey(block.name) === key ? [{ workout, block }] : [])) ?? [];
+  if (candidates.length !== 1) return [];
+  return resolveLoadHistory(data, planId, candidates[0].workout, candidates[0].block).matches.map((item) => ({
+    date: item.session.localDate!, completedAt: item.session.completedAt!, load: item.load,
+  }));
 }
 
 export function comparableLoadSummary(history: ReturnType<typeof exerciseLoadHistory>) {

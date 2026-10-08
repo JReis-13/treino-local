@@ -17,7 +17,11 @@ test("support report sanitizer strips arbitrary fields, notes, loads, URLs and p
     storage: { plans: 1, rawLocalStorage: secrets[2] },
     importer: { template: "jonatha-v1", parserVersion: 2, workoutCount: 2, exerciseCount: 16,
       loadBearingExercises: 5, numericLoads: 4, blankLoads: 11, ambiguousLoads: 0,
-      warningCodes: ["uncertain-load", secrets[7]] },
+      warningCodes: ["uncertain-load", secrets[7], "private-name"] },
+    loadTrace: { traceVersion: 1, rows: [{ plan: "PLAN_1234567890abcdef1234", workout: "WORKOUT_1234567890abcdef1234",
+      exercise: "EXERCISE_1234567890abcdef1234", planLoad: "95kg", todayLoad: "LOAD_1234567890abcdef1234",
+      name: "PRIVATE_NOTE", sourceUrl: secrets[10], mappingCodes: ["uncertain-load", "private-name"],
+      reverseMapping: { "LOAD_1234567890abcdef1234": "95kg" } }] },
     events: [{ type: "plan_import_finished", timestamp: "2026-10-08T08:00:00Z", reason: secrets[8],
       note: secrets[7], load: secrets[8] }], notes: secrets[7], loads: secrets[8] };
   const sanitized = sanitizeDebugReport(input);
@@ -26,6 +30,11 @@ test("support report sanitizer strips arbitrary fields, notes, loads, URLs and p
   assert.equal((sanitized.source as Record<string, unknown>).latestSessionSync, "synced");
   assert.equal((sanitized.source as Record<string, unknown>).historicalPendingSessions, 3);
   assert.equal((sanitized.importer as Record<string, unknown>).exerciseCount, 16);
+  assert.deepEqual((sanitized.importer as Record<string, unknown>).warningCodes, ["uncertain-load"]);
+  const traceRow = ((sanitized.loadTrace as { rows: Record<string, unknown>[] }).rows)[0];
+  assert.equal(traceRow.planLoad, undefined);
+  assert.equal(traceRow.todayLoad, "LOAD_1234567890abcdef1234");
+  assert.deepEqual(traceRow.mappingCodes, ["uncertain-load"]);
 });
 
 test("support report rejects wrong version and bounds event count", () => {

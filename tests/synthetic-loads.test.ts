@@ -7,6 +7,7 @@ import { addTraining, refreshTraining } from "../lib/training/library";
 import { emptyTrainingData, parseTrainingData } from "../lib/training/storage";
 import { finishTrainingSession, startTrainingSession, updateTrainingBlock } from "../lib/training/session";
 import { lastUsedLoad } from "../lib/training/loads";
+import { prepareXlsxSync } from "../lib/sync/xlsx";
 import type { SourceSnapshot } from "../lib/import/snapshot";
 
 const source = { kind: "excel" as const, filename: "synthetic-loads.xlsx", template: "", mappings: {}, mode: "copy" as const };
@@ -26,6 +27,44 @@ test("sanitized XLSX maps paired loads independently, preserves decimals, text, 
     ["7.5", "12.5", "7.5", "0", undefined, "BW", "band"]);
   assert.deepEqual(strength(imported).slice(0, 2).map((block) => block.kind === "exercise" ? block.loadSource?.part : undefined), [0, 1]);
   assert(!imported.warnings.some((warning) => warning.severity === "activationBlocker"));
+});
+
+test("Jonatha separate G/H columns pair each load and retain an optional final strength row", async () => {
+  const snapshot = await fixture();
+  const sheet = snapshot.sheets[0];
+  sheet.cells.G26 = { ref: "G26", raw: "15", displayed: "15", rawType: "n", numberFormat: "General" };
+  sheet.cells.H26 = { ref: "H26", raw: "8", displayed: "8", rawType: "n", numberFormat: "General" };
+  sheet.cells.E28 = { ...sheet.cells.E28, raw: "Exercise Gamma\nExercise Delta", displayed: "Exercise Gamma\nExercise Delta" };
+  sheet.cells.F28 = { ...sheet.cells.F28, raw: "3 x 8\n3 x 8", displayed: "3 x 8\n3 x 8" };
+  sheet.cells.G28 = { ref: "G28", raw: "20", displayed: "20", rawType: "n", numberFormat: "General" };
+  sheet.cells.H28 = { ...sheet.cells.H28, raw: "25", displayed: "25", rawType: "n", numberFormat: "General" };
+  sheet.cells.E34 = { ref: "E34", raw: "Exercise Theta", displayed: "Exercise Theta", rawType: "s", numberFormat: "General" };
+  sheet.cells.F34 = { ref: "F34", raw: "2 x 10", displayed: "2 x 10", rawType: "s", numberFormat: "General" };
+  sheet.cells.G34 = { ref: "G34", raw: "50", displayed: "50", rawType: "n", numberFormat: "General" };
+  const imported = parse(snapshot);
+  const select = (row: number) => imported.workouts[0].blocks.filter((block) => block.kind === "exercise" && block.sourceCell === `E${row}`);
+  assert.deepEqual(select(26).map((block) => block.kind === "exercise" ? block.defaultLoad : undefined), ["15", "8"]);
+  assert.deepEqual(select(26).map((block) => block.kind === "exercise" ? block.loadSource?.cell : undefined), ["G26", "H26"]);
+  assert.deepEqual(select(28).map((block) => block.kind === "exercise" ? block.defaultLoad : undefined), ["20", "25"]);
+  assert.deepEqual(select(34).map((block) => block.kind === "exercise" ? block.defaultLoad : undefined), ["50"]);
+  assert(!imported.warnings.some((warning) => warning.code === "uncertain-load" && /26|28/.test(warning.location)));
+});
+
+test("Excel sync writes one separate load cell without changing its grouped neighbor", async () => {
+  const bytes = new Uint8Array(await readFile("tests/fixtures/synthetic-adjacent-loads.xlsx"));
+  const imported = parse(await snapshotFromXlsx(bytes));
+  let data = addTraining(emptyTrainingData(), imported, undefined, "2026-10-03T08:00:00Z", "synthetic");
+  const alpha = imported.workouts[0].blocks.find((block) => block.kind === "exercise" && block.name === "Exercise Alpha");
+  assert(alpha?.kind === "exercise");
+  data = startTrainingSession(data, "synthetic", "A", new Date("2026-10-03T09:00:00Z"), "one").data;
+  data = updateTrainingBlock(data, "one", alpha.id, { completed: true, actualLoad: "16" });
+  data = finishTrainingSession(data, "one", "2026-10-03", new Date("2026-10-03T09:45:00Z"));
+  data.sessions[0].completionSyncStatus = "synced";
+  const output = await prepareXlsxSync(bytes, data.plans[0], data.sessions);
+  assert(output.bytes);
+  const sheet = (await snapshotFromXlsx(output.bytes)).sheets[0];
+  assert.equal(sheet.cells.G26.displayed, "16");
+  assert.equal(sheet.cells.H26.displayed, "8");
 });
 
 test("XLSX and equivalent Google grid produce identical normalized loads", async () => {

@@ -60,7 +60,7 @@ function completionGrid(sheet: SourceSheet, workoutId: string, warnings: ImportW
 
 function loadValues(sheet: SourceSheet, row: number, count: number, warnings: ImportWarning[], variant: TemplateVariant):
   Array<{ value?: string; source?: { cell: string; part?: number; parts?: number } }> {
-  const columns = variant === "jonatha-v1" ? ["H"] : ["G", "H", "I"];
+  const columns = variant === "jonatha-v1" ? ["G", "H"] : ["G", "H", "I"];
   const values = columns.map((col) => cell(sheet, `${col}${row}`));
   const used = values.map((value) => {
     if (!value) return undefined;
@@ -79,17 +79,25 @@ function loadValues(sheet: SourceSheet, row: number, count: number, warnings: Im
     return text.trim() ? normalizeLoad(text) : undefined;
   });
   if (count === 1) {
-    const index = used.findIndex(Boolean);
-    return [{ value: index < 0 ? undefined : used[index], source: { cell: `${columns[Math.max(index, 0)]}${row}` } }];
+    const present = used.flatMap((value, index) => value ? [index] : []);
+    if (present.length > 1) {
+      warn(warnings, "uncertain-load", "More than one load is shown for one exercise; no load was guessed.", `${sheet.name}!G${row}:H${row}`);
+      return [{}];
+    }
+    const index = present[0] ?? 0;
+    return [{ value: used[index], source: { cell: `${columns[index]}${row}` } }];
   }
   if (variant === "jonatha-v1") {
-    const joined = used[0];
-    if (!joined) return Array.from({ length: count }, () => ({}));
-    const pieces = joined.split("/");
-    if (pieces.length === count) return pieces.map((value, part) => ({
-      value: value.trim() === "?" ? undefined : normalizeLoad(value), source: { cell: `H${row}`, part, parts: count },
-    }));
-    warn(warnings, "uncertain-load", "Grouped loads do not match the number of exercises; no load was guessed.", `${sheet.name}!H${row}`);
+    const [first, second] = used;
+    if (count === 2 && first && second && !first.includes("/") && !second.includes("/"))
+      return [{ value: first, source: { cell: `G${row}` } }, { value: second, source: { cell: `H${row}` } }];
+    if (!first && second) {
+      const pieces = second.split("/");
+      if (pieces.length === count) return pieces.map((value, part) => ({
+        value: value.trim() === "?" ? undefined : normalizeLoad(value), source: { cell: `H${row}`, part, parts: count },
+      }));
+    }
+    if (first || second) warn(warnings, "uncertain-load", "Grouped loads do not identify every exercise; no load was guessed.", `${sheet.name}!G${row}:H${row}`);
     return Array.from({ length: count }, () => ({}));
   }
   if (used.filter(Boolean).length === 1 && count > 1)
@@ -108,7 +116,9 @@ function structuredWorkout(sheet: SourceSheet, id: string, warnings: ImportWarni
     blocks.push({ kind: "exercise", id: `${id}-warmup-${row}`, section: "Warm-up", name,
       prescription: display(sheet, `F${row}`).trim(), videoUrl: cell(sheet, `G${row}`)?.hyperlink, sourceCell: `E${row}` });
   }
-  for (const row of variant === "jonatha-v1" ? [26, 28, 30, 32] : [26, 28, 30, 32, 33]) {
+  const rows = variant === "jonatha-v1" ? [26, 28, 30, 32,
+    ...(display(sheet, "E34").trim() && display(sheet, "F34").trim() ? [34] : [])] : [26, 28, 30, 32, 33];
+  for (const row of rows) {
     const raw = lines(display(sheet, `E${row}`));
     if (raw.length === 0) continue;
     const challenge = variant === "milena-v1" && row === 33 && /desafio/i.test(raw[0]);
@@ -136,7 +146,8 @@ function structuredWorkout(sheet: SourceSheet, id: string, warnings: ImportWarni
       loadSource: loads[index]?.source,
       videoUrl: links[index], groupId: names.length > 1 ? `${id}-group-${row}` : undefined, sourceCell: `E${row}` }));
   }
-  for (let row = 34; row <= (variant === "milena-v1" ? 45 : 33); row++) {
+  for (let row = 34; row <= (variant === "milena-v1" ? 45 : 34); row++) {
+    if (variant === "jonatha-v1" && row === 34 && display(sheet, "F34").trim()) continue;
     const note = display(sheet, `E${row}`).trim();
     if (note) blocks.push({ kind: "instruction", id: `${id}-note-${row}`, section: "Notes", heading: "Training note", text: note, sourceCell: `E${row}` });
   }

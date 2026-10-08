@@ -14,7 +14,7 @@ import { parseTrainingSnapshot } from "@/lib/import/template-parser";
 import { plannedCompletionSlot, sessionsWaitingForSource } from "@/lib/sync/logic";
 import { prepareXlsxSync } from "@/lib/sync/xlsx";
 import { activePlan } from "@/lib/training/session";
-import { changedLoads } from "@/lib/training/loads";
+import { changedLoads, sameSourceLoadAssociation } from "@/lib/training/loads";
 import type { TrainingSession } from "@/types/training";
 
 interface DirectHandle extends FileSystemFileHandle {
@@ -105,7 +105,9 @@ export default function SourcePage() {
         }
         const loads = session.loadCorrectionPending ? session.blocks.filter((state) => state.completed && state.actualLoad?.trim())
           .map((state) => ({ blockId: state.blockId, load: state.actualLoad!.trim() })) : changedLoads(session);
-        if (session.loadSyncStatus !== "synced" && loads.length && loads.every((change) => imported.workouts.find((item) => item.id === session.workoutId)?.blocks.some((block) =>
+        if (session.loadSyncStatus !== "synced" && loads.length && loads.every((change) =>
+          sameSourceLoadAssociation(session, imported.workouts.find((item) => item.id === session.workoutId), change.blockId) &&
+          imported.workouts.find((item) => item.id === session.workoutId)?.blocks.some((block) =>
           block.kind === "exercise" && block.id === change.blockId && block.defaultLoad === change.load)))
           setSessionSync(session.id, { loadSyncStatus: "synced", loadCorrectionPending: false, syncMessage: "Saved workbook copy was reconnected and loads verified." });
       }
@@ -254,8 +256,7 @@ export default function SourcePage() {
           }) : changedLoads(session);
           if (session.loadCorrectionPending && !loads.length) setSessionSync(session.id, { loadSyncStatus: "synced", loadCorrectionPending: false });
           if (loads.length) {
-            const mapped = loads.filter((change) => imported.workouts.find((item) => item.id === session.workoutId)?.blocks.some((block) =>
-              block.kind === "exercise" && block.id === change.blockId && block.loadSource));
+            const mapped = loads.filter((change) => sameSourceLoadAssociation(session, currentWorkout, change.blockId));
             if (mapped.length !== loads.length) setSessionSync(session.id, { loadSyncStatus: "conflict", syncMessage: "Ambiguous load mapping; local values are safe." });
             if (mapped.length) {
               const changes = mapped.map((change) => ({ ...change, expected: session.loadCorrectionPending ?

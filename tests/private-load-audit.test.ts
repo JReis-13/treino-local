@@ -30,7 +30,7 @@ for (const filename of ["TREINO 1 JONATHA.xlsx", "TREINO 4 MILENA.xlsx"]) {
       if (!sourceSheet) continue;
       const storedWorkout = data.plans[0].workouts.find((item) => item.id === workout.id)!;
       const session = startTrainingSession(data, "audit", workout.id, new Date("2026-10-08T09:00:00Z"), `audit-${workout.id}`).session;
-      for (const row of [26, 28, 30, 32, 33]) {
+      for (const row of [26, 28, 30, 32, 33, 34]) {
         const group = workout.blocks.filter((block) => block.kind === "exercise" && block.sourceCell === `E${row}`);
         if (group.length > 1) grouped++;
         group.forEach((block, index) => {

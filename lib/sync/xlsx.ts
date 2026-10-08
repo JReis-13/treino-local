@@ -3,7 +3,7 @@ import { inspectWorkbook } from "@/lib/excel/adapter";
 import { dateToSerial, snapshotFromXlsx, type SourceSnapshot } from "@/lib/import/snapshot";
 import { parseTrainingSnapshot } from "@/lib/import/template-parser";
 import { chooseCompletionSlot, type SyncDecision } from "@/lib/sync/logic";
-import { changedLoads, normalizeLoad } from "@/lib/training/loads";
+import { changedLoads, normalizeLoad, sameSourceLoadAssociation } from "@/lib/training/loads";
 import type { TrainingPlanRecord, TrainingSession } from "@/types/training";
 
 export type XlsxSyncOutcome = { sessionId: string; decision: SyncDecision };
@@ -21,34 +21,41 @@ function dateValues(snapshot: SourceSnapshot, sheetName: string, slots: string[]
 function replaceEmptyCell(xml: string, ref: string, serial: number): string {
   const match = /^E(\d+)$/.exec(ref);
   if (!match || Number(match[1]) < 5 || Number(match[1]) > 16) throw new Error(`Refusing source write outside E5:E16: ${ref}`);
-  const pattern = new RegExp(`<c\\b(?=[^>]*\\br="${ref}")[^>]*>`, "g");
+  const pattern = new RegExp(`<(?:[A-Za-z_][\\w.-]*:)?c\\b(?=[^>]*\\br="${ref}")[^>]*>`, "g");
   const matches = [...xml.matchAll(pattern)];
   if (matches.length !== 1) throw new Error(`Expected exactly one source cell ${ref}.`);
   const openTag = matches[0][0];
+  const tag = /^<((?:[A-Za-z_][\w.-]*:)?c)\b/.exec(openTag)?.[1];
+  if (!tag) throw new Error(`Invalid source cell ${ref}.`);
+  const prefix = tag.slice(0, -1);
   const start = matches[0].index!;
   let original = openTag;
   if (!openTag.endsWith("/>")) {
-    const close = xml.indexOf("</c>", start + openTag.length);
+    const close = xml.indexOf(`</${tag}>`, start + openTag.length);
     if (close < 0) throw new Error(`Unclosed source cell ${ref}.`);
-    original = xml.slice(start, close + 4);
+    original = xml.slice(start, close + tag.length + 3);
     if (xml.slice(start + openTag.length, close).trim()) throw new Error(`Refusing occupied source cell ${ref}.`);
   }
   if (/\bt="(?!n")[^"]+"/.test(openTag)) throw new Error(`Refusing nonnumeric source cell ${ref}.`);
-  const replacement = `${openTag.replace(/\s*\/>$/, ">")}<v>${serial}</v></c>`;
+  const cellOpen = openTag.replace(/\s*\/>$/, ">");
+  const replacement = `${cellOpen}<${prefix}v>${serial}</${prefix}v></${tag}>`;
   return xml.slice(0, start) + replacement + xml.slice(start + original.length);
 }
 
 function replaceLoadCell(xml: string, ref: string, value: string): string {
-  if (!/^[GHI](26|28|30|32|33)$/.test(ref)) throw new Error("Unsafe load cell.");
-  const pattern = new RegExp(`<c\\b(?=[^>]*\\br="${ref}")[^>]*(?:/>|>[\\s\\S]*?</c>)`, "g");
+  if (!/^[GHI](26|28|30|32|33|34)$/.test(ref)) throw new Error("Unsafe load cell.");
+  const pattern = new RegExp(`<(?:[A-Za-z_][\\w.-]*:)?c\\b(?=[^>]*\\br="${ref}")[^>]*(?:/>|>[\\s\\S]*?</(?:[A-Za-z_][\\w.-]*:)?c>)`, "g");
   const matches = [...xml.matchAll(pattern)];
   if (matches.length !== 1) throw new Error(`Expected exactly one load cell ${ref}.`);
   const original = matches[0][0];
-  if (/<f(?:\s|>)/.test(original)) throw new Error("Formula load cell cannot be changed.");
-  const open = original.match(/^<c\b[^>]*>/)?.[0] ?? original;
-  const attrs = open.replace(/^<c\b/, "").replace(/\s*\/?>$/, "").replace(/\s+t="[^"]*"/, "");
+  if (/<(?:[A-Za-z_][\w.-]*:)?f(?:\s|>)/.test(original)) throw new Error("Formula load cell cannot be changed.");
+  const tag = /^<((?:[A-Za-z_][\w.-]*:)?c)\b/.exec(original)?.[1];
+  if (!tag) throw new Error(`Invalid load cell ${ref}.`);
+  const prefix = tag.slice(0, -1);
+  const open = original.match(/^<[^>]+>/)?.[0] ?? original;
+  const attrs = open.slice(tag.length + 1).replace(/\s*\/?>$/, "").replace(/\s+t="[^"]*"/, "");
   const safe = value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-  const replacement = `<c${attrs} t="inlineStr"><is><t xml:space="preserve">${safe}</t></is></c>`;
+  const replacement = `<${tag}${attrs} t="inlineStr"><${prefix}is><${prefix}t xml:space="preserve">${safe}</${prefix}t></${prefix}is></${tag}>`;
   return xml.slice(0, matches[0].index!) + replacement + xml.slice(matches[0].index! + original.length);
 }
 
@@ -118,7 +125,8 @@ export async function prepareXlsxSync(bytes: Uint8Array, plan: TrainingPlanRecor
       const block = workout?.blocks.find((item) => item.kind === "exercise" && item.id === change.blockId);
       const old = session.workoutSnapshot.blocks.find((item) => item.kind === "exercise" && item.id === change.blockId);
       if (!block || block.kind !== "exercise" || !block.loadSource || !sheet?.path ||
-          !/^[GHI](26|28|30|32|33)$/.test(block.loadSource.cell) || old?.kind !== "exercise") {
+          !sameSourceLoadAssociation(session, workout, change.blockId) ||
+          !/^[GHI](26|28|30|32|33|34)$/.test(block.loadSource.cell) || old?.kind !== "exercise") {
         loadOutcomes.push({ sessionId: session.id, blockId: change.blockId, status: "conflict", message: "Load destination is ambiguous; kept locally." });
         continue;
       }

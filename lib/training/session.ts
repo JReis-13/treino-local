@@ -24,8 +24,13 @@ export function startTrainingSession(data: TrainingData, planId: string, workout
     id, planId, planVersion: plan.version, planLineageKey: planLineageKey(plan), workoutId,
     workoutLineageKey: workoutLineageKey(workout), workoutSnapshot: structuredClone(workout),
     status: "inProgress", startedAt: now.toISOString(),
-    blocks: workout.blocks.map((block) => ({ blockId: block.id, completed: false,
-      actualLoad: block.kind === "exercise" ? lastUsedLoad(data, planId, block.id) ?? block.defaultLoad : undefined })),
+    blocks: workout.blocks.map((block) => {
+      const last = block.kind === "exercise" ? lastUsedLoad(data, planId, block.id) : undefined;
+      return { blockId: block.id, completed: false,
+        actualLoad: block.kind === "exercise" ? last ?? block.defaultLoad : undefined,
+        loadOrigin: last ? "LAST" as const : block.kind === "exercise" && block.defaultLoad ? "PLAN" as const : undefined,
+        initialLoadOrigin: last ? "LAST" as const : block.kind === "exercise" && block.defaultLoad ? "PLAN" as const : undefined };
+    }),
     queueOrder: workout.blocks.filter((block) => block.kind === "exercise").map((block) => block.id),
     syncStatus: plan.source.kind === "builtin" ? "notApplicable" : "pending",
   };
@@ -48,6 +53,7 @@ export function updateTrainingBlock(data: TrainingData, sessionId: string, block
         throw new Error("This exercise has an ambiguous saved ID. Reopen the app to repair it safely.");
       }
       const blocks = session.blocks.map((block) => block.blockId === blockId ? { ...block, ...change,
+        ...("actualLoad" in change ? { loadOrigin: "USER" as const } : {}),
         ...(change.completed ? { skipped: false } : {}) } : block);
       const next = { ...session, blocks };
       if (!change.completed || currentFocusId(session) !== blockId) return next;

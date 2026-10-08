@@ -9,6 +9,7 @@ import { removeConnectorKey } from "@/lib/connector/credentials";
 import { loadFileHandle, removeFileHandle, saveFileHandle } from "@/lib/import/file-handles";
 import { snapshotFromXlsx } from "@/lib/import/snapshot";
 import { parseTrainingSnapshot } from "@/lib/import/template-parser";
+import { recordDiagnosticEvent } from "@/lib/diagnostic-log";
 import { describeChanges } from "@/lib/training/library";
 import type { ImportedTraining, TrainingPlanRecord } from "@/types/training";
 
@@ -18,6 +19,11 @@ interface DirectHandle extends FileSystemFileHandle {
 }
 type PickerWindow = Window & { showOpenFilePicker?: (options: { types: Array<{ description: string; accept: Record<string, string[]> }>; multiple: boolean }) => Promise<DirectHandle[]> };
 type Preview = { imported: ImportedTraining; targetId?: string; handle?: DirectHandle; migration?: boolean };
+function recordParsedLoads(imported: ImportedTraining) {
+  recordDiagnosticEvent("workbook_load_parsed", { source: imported.source.kind, operation: "load", reason: "OK" });
+  if (imported.warnings.some((warning) => ["uncertain-load", "load-formula-no-cache", "formatted-load"].includes(warning.code)))
+    recordDiagnosticEvent("load_mapping_ambiguity_detected", { source: imported.source.kind, operation: "load", reason: "CONFLICT" });
+}
 
 export default function PlansPage() {
   const router = useRouter();
@@ -69,6 +75,7 @@ export default function PlansPage() {
       if (!file.name.toLowerCase().endsWith(".xlsx")) throw new Error("Choose an .xlsx workbook.");
       const snapshot = await snapshotFromXlsx(new Uint8Array(await file.arrayBuffer()));
       const imported = parseTrainingSnapshot(snapshot, { kind: "excel", filename: file.name, template: "", mappings: {}, mode: handle ? "direct" : "copy" }, file.name.replace(/\.xlsx$/i, ""));
+      recordParsedLoads(imported);
       const matching = data?.plans.find((plan) => plan.source.kind === "excel" && plan.source.filename === file.name);
       const chosen = refreshId ?? matching?.id;
       setPreview({ imported, targetId: chosen, handle });
@@ -98,6 +105,7 @@ export default function PlansPage() {
     setBusy(true); setStage("importing"); setMessage("Reading spreadsheet…"); window.scrollTo(0, 0);
     try {
       const { imported } = await importGoogleSheet(sourceUrl);
+      recordParsedLoads(imported);
       const spreadsheetId = imported.source.kind === "google" ? imported.source.spreadsheetId : undefined;
       const matching = data?.plans.find((plan) => plan.source.kind === "google" && plan.source.spreadsheetId === spreadsheetId);
       const chosen = refreshId ?? matching?.id;
@@ -117,6 +125,7 @@ export default function PlansPage() {
     if (plan.source.authMode === "oauth" && plan.source.spreadsheetId && plan.source.sourceProof && plan.sourceFingerprint) {
       setBusy(true); setStage("importing"); setMessage("Refreshing spreadsheet…"); window.scrollTo(0, 0);
       try { const { imported } = await refreshGoogleSheet(plan.source.spreadsheetId, plan.sourceFingerprint, plan.source.sourceProof);
+        recordParsedLoads(imported);
         setPreview({ imported, targetId: plan.id }); setName(plan.name); setStage("review"); window.scrollTo(0, 0); setMessage("Updated training ready for review."); }
       catch (cause) { setStage("library"); setMessage(cause instanceof Error ? cause.message : "Could not refresh spreadsheet."); }
       finally { setBusy(false); }

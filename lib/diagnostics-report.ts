@@ -1,5 +1,6 @@
 import { localDateString } from "@/lib/dates";
 import { readDiagnosticLog } from "@/lib/diagnostic-log";
+import { buildLoadTrace } from "@/lib/diagnostic-load-trace";
 import { getPwaUpdateSnapshot } from "@/lib/pwa/update-manager";
 import { localSocialPublishState, readSocialDiagnostics, socialFetch, type SocialFriend, type SocialMe } from "@/lib/social/client";
 import { hasActiveWorkout } from "@/lib/training/active-workout";
@@ -67,6 +68,9 @@ const pwaResults = new Set(["none", "registration failed", "new controller; relo
 function safePwa(value: string): string { return /^(none|checking|registered|unavailable|installing|installed|activating|activated|redundant|waiting|active|controlled|uncontrolled|ready|error|idle|updating)$/.test(value) ? value : "unknown"; }
 const knownRoutes = new Set(["/", "/debug", "/settings", "/settings/friends", "/history", "/history/session",
   "/stats", "/plans", "/source", "/workout", "/finish", "/share", "/excel"]);
+const safeImporterWarningCodes = new Set(["completion-grid", "partial-rir", "uncertain-load", "formatted-load",
+  "load-formula-no-cache", "prescription-count", "shared-prescription", "equipment-count", "shared-equipment",
+  "missing-video", "extra-video", "unclassified-row", "workout-content"]);
 
 export async function collectDebugReport(data: TrainingData | null) {
   const [events, socialServer, controllerBuild, pushStatus, pushDevice, pushDiagnostics] = await Promise.all([
@@ -101,12 +105,12 @@ export async function collectDebugReport(data: TrainingData | null) {
       historicalPendingSessions: completed.filter((item) => !["synced", "notApplicable"].includes(aggregateSync(item))).length,
       receiptPresent: Boolean(latest?.completionReceipt) },
     importer: { template: plan?.source.kind === "excel" || plan?.source.kind === "google" ? plan.source.template : "none",
-      parserVersion: 2, workoutCount: plan?.workouts.length ?? 0, exerciseCount: exercises.length,
+      parserVersion: 3, workoutCount: plan?.workouts.length ?? 0, exerciseCount: exercises.length,
       loadBearingExercises: loadBearing.length, numericLoads: loadBearing.filter((block) => block.kind === "exercise" &&
         /^[+-]?\d+(?:[.,]\d+)?$/.test(block.defaultLoad ?? "")).length,
       blankLoads: exercises.length - loadBearing.length,
       ambiguousLoads: plan?.importWarnings.filter((warning) => warning.code === "uncertain-load").length ?? 0,
-      warningCodes: [...new Set(plan?.importWarnings.map((warning) => warning.code) ?? [])] },
+      warningCodes: [...new Set(plan?.importWarnings.map((warning) => warning.code).filter((code) => safeImporterWarningCodes.has(code)) ?? [])] },
     social: { authenticated: socialServer.authenticated, userReady: socialServer.userReady,
       friendCount: socialServer.friendCount, autoShareLocal: socialLocal.sharingCached,
       autoShareServer: socialServer.autoShare, effectiveAutoShare: socialServer.autoShare !== "unknown" ?
@@ -127,7 +131,7 @@ export async function collectDebugReport(data: TrainingData | null) {
       activeSession: Boolean(active), legacyDates: data?.plans.reduce((total, item) => total + item.legacyCompletions.length, 0) ?? 0,
       hiddenLegacyDates: data?.hiddenLegacyCompletions?.length ?? 0,
       diagnosticEvents: events.length, diagnosticLogBytes: logBytes },
-    events,
+    loadTrace: buildLoadTrace(data), events,
   };
 }
 

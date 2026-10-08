@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { addTraining, migrateGoogleTraining, refreshTraining, removeTraining, renameTraining } from "@/lib/training/library";
 import { cancelTrainingSession, finalizeTrainingSession, moveTrainingBlockLater, restoreTrainingQueue, setTrainingFocus, skipTrainingBlock, startTrainingSession, updateTrainingBlock } from "@/lib/training/session";
-import { changedLoads } from "@/lib/training/loads";
+import { changedLoads, resolveLoadHistory, sameSourceLoadAssociation } from "@/lib/training/loads";
 import { normalizeLoad } from "@/lib/training/loads";
 import { completionState, loadState, withSyncStatus } from "@/lib/training/sync-state";
 import { updateExerciseNote } from "@/lib/training/exercise-notes";
@@ -103,6 +103,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const result = startTrainingSession(dataRef.current, planId, workoutId);
       if (!commit(() => ({ ...result.data, restTimer: result.data.restTimer?.sessionId === result.session.id ? result.data.restTimer : undefined }))) return null;
       recordDiagnosticEvent("workout_started", { sessionId: result.session.id });
+      recordDiagnosticEvent("active_session_initialized", { sessionId: result.session.id, reason: "OK" });
+      const plan = dataRef.current?.plans.find((item) => item.id === planId);
+      const workout = plan?.workouts.find((item) => item.id === workoutId);
+      if (workout && dataRef.current) for (const block of workout.blocks) if (block.kind === "exercise")
+        recordDiagnosticEvent("last_load_resolved", { sessionId: result.session.id,
+          reason: resolveLoadHistory(dataRef.current, planId, workout, block).reason });
       return result.session;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not start workout."); return null; }
   }, [commit]);
@@ -128,8 +134,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [commit]);
 
   const updateBlock = useCallback((sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }) => {
-    if (commit((current) => updateTrainingBlock(current, sessionId, blockId, change)) && change.completed !== undefined)
-      recordDiagnosticEvent(change.completed ? "exercise_completed" : "exercise_reopened", { sessionId });
+    if (commit((current) => updateTrainingBlock(current, sessionId, blockId, change))) {
+      if (change.completed !== undefined) recordDiagnosticEvent(change.completed ? "exercise_completed" : "exercise_reopened", { sessionId });
+      if (change.actualLoad !== undefined) recordDiagnosticEvent("today_load_manually_changed", { sessionId, operation: "load" });
+    }
   }, [commit]);
   const moveBlockLater = useCallback((sessionId: string, blockId: string) => {
     commit((current) => moveTrainingBlockLater(current, sessionId, blockId));
@@ -274,8 +282,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (currentSource.kind !== "google" || currentSource.authMode !== "oauth") {
           setSessionSync(completedId, { loadSyncStatus: "conflict", syncMessage: "Load saved locally; legacy connector cannot update loads." }); return;
         }
-        const mapped = changes.filter((change) => currentPlan.workouts.find((item) => item.id === session.workoutId)?.blocks
-          .some((block) => block.kind === "exercise" && block.id === change.blockId && block.loadSource));
+        const mapped = changes.filter((change) => sameSourceLoadAssociation(session,
+          currentPlan.workouts.find((item) => item.id === session.workoutId), change.blockId));
         if (mapped.length !== changes.length) setSessionSync(completedId, { loadSyncStatus: "conflict", syncMessage: "Some load destinations are ambiguous; loads remain local." });
         if (!mapped.length) return;
         try {
@@ -352,7 +360,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               setSessionSync(session.id, { loadSyncStatus: "synced", loadCorrectionPending: false });
               continue;
             }
-            const mapped = changes.filter((change) => workout?.blocks.some((block) => block.kind === "exercise" && block.id === change.blockId && block.loadSource));
+            const mapped = changes.filter((change) => sameSourceLoadAssociation(session, workout, change.blockId));
             if (mapped.length !== changes.length) setSessionSync(session.id, { loadSyncStatus: "conflict", syncMessage: "Some load destinations need review." });
             if (!mapped.length) continue;
             if (mapped.length === changes.length) setSessionSync(session.id, { loadSyncStatus: "syncing" });
@@ -386,10 +394,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [reconcilePendingGoogle]);
   const addPlan = useCallback((imported: ImportedTraining, name?: string) => {
     const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    return commit((current) => addTraining(current, imported, name, new Date().toISOString(), id)) ? id : null;
+    if (!commit((current) => addTraining(current, imported, name, new Date().toISOString(), id))) return null;
+    recordDiagnosticEvent("exercise_load_mapping_completed", { source: imported.source.kind, reason: "OK" });
+    return id;
   }, [commit]);
-  const refreshPlan = useCallback((planId: string, imported: ImportedTraining) =>
-    commit((current) => refreshTraining(current, planId, imported)), [commit]);
+  const refreshPlan = useCallback((planId: string, imported: ImportedTraining) => {
+    const saved = commit((current) => refreshTraining(current, planId, imported));
+    if (saved) { recordDiagnosticEvent("plan_refreshed", { source: imported.source.kind, reason: "OK" });
+      recordDiagnosticEvent("exercise_load_mapping_completed", { source: imported.source.kind, reason: "OK" }); }
+    return saved;
+  }, [commit]);
   const migrateGooglePlan = useCallback((planId: string, imported: ImportedTraining) =>
     commit((current) => migrateGoogleTraining(current, planId, imported)), [commit]);
   const setActivePlan = useCallback((planId: string) => commit((current) => {

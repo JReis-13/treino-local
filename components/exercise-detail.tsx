@@ -32,7 +32,7 @@ export function ExerciseDetail({ block, session, actualLoad, previousLoad, curre
   const closeRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLElement>(null);
   const video = parseYouTubeVideo(block.videoUrl);
-  const history = data ? exerciseLoadHistory(data, session.planId, block.name) : [];
+  const history = data ? exerciseLoadHistory(data, session.planId, block.name, session.workoutId) : [];
   const recent = history.slice(0, 5);
   const { numeric, highest, unit, mixedUnits } = comparableLoadSummary(history);
   useEffect(() => {
@@ -76,6 +76,8 @@ export function ExerciseDetail({ block, session, actualLoad, previousLoad, curre
           {block.groupId && <p className="detail-prescription"><strong>Grouped in plan with</strong>{session.workoutSnapshot.blocks.filter((item) => item.kind === "exercise" && item.groupId === block.groupId && item.id !== block.id).map((item) => item.kind === "exercise" ? item.name : "").join(", ")}</p>}
           {(block.defaultLoad || currentPlanLoad || previousLoad) && <div className="detail-loads">{currentPlanLoad && <div><small>Current plan</small><strong>{currentPlanLoad}</strong></div>}{planChanged && block.defaultLoad !== currentPlanLoad && block.defaultLoad && <div><small>Plan when started</small><strong>{block.defaultLoad}</strong></div>}{previousLoad && <div><small>Last used</small><strong>{previousLoad}</strong></div>}</div>}
           {block.section !== "Warm-up" && <label className="date-field"><span>LOAD TODAY</span><input type="text" inputMode="decimal" value={actualLoad ?? ""} onChange={(event) => onLoad(event.target.value)} aria-label={`Actual load for ${block.name} in details`} /></label>}
+          {block.section !== "Warm-up" && currentPlanLoad && actualLoad?.trim() !== currentPlanLoad.trim() &&
+            <button type="button" className="inline-action" onClick={() => onLoad(currentPlanLoad)}>Use current plan load for today</button>}
           <button type="button" className={`primary-button detail-complete ${completed ? "detail-undo" : ""}`} onClick={onComplete}>{completed ? "Undo completion" : "Mark complete"}</button>
         </>}
         {tab === "history" && <><p className="quiet-note">Recent loads recorded for this exercise in this training.</p>{recent.length ? <><div className="detail-history-list">{recent.map((item, index) => <div key={`${item.completedAt}-${index}`}><span>{formatLocalDate(item.date)}</span><strong>{item.load}</strong></div>)}</div>{highest !== undefined && <div className="detail-highest"><span>Highest comparable load</span><strong>{highest}{unit ? ` ${unit}` : ""}</strong></div>}{mixedUnits && <p className="quiet-note">Recorded units differ, so no numeric high is shown.</p>}{!mixedUnits && <LoadTrend values={numeric.slice(0, 5).reverse().map((item) => item.amount)} />}</> : <p className="detail-empty">Your recorded load history will appear after a completed workout.</p>}</>}

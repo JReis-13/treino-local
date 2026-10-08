@@ -18,6 +18,38 @@ const state = (value: unknown) => oneOf(value, ["none", "pending", "syncing", "s
 const yesNo = (value: unknown) => oneOf(value, ["yes", "no", "unknown"]);
 const onOff = (value: unknown) => oneOf(value, ["on", "off", "unknown"]);
 const socialShare = (value: unknown) => oneOf(value, ["true", "false", "unknown"]);
+const pseudonym = (kind: "LOAD" | "PLAN" | "WORKOUT" | "EXERCISE") => (value: unknown): string | null | undefined =>
+  value === null ? null : typeof value === "string" && new RegExp(`^${kind}_[a-f0-9]{20}$`).test(value) ? value : undefined;
+const nullableIndex = (value: unknown): number | null | undefined => value === null ? null : bounded(value, 10000);
+const loadReason = (value: unknown) => oneOf(value, ["MATCH_EXACT_ID", "MATCH_UNIQUE_NAME", "NO_HISTORY",
+  "PLAN_LINEAGE_MISMATCH", "WORKOUT_LINEAGE_MISMATCH", "EXERCISE_IDENTITY_MISMATCH", "AMBIGUOUS_EXERCISE",
+  "LEGACY_UNVERIFIED_SOURCE", "SOURCE_MAPPING_MISMATCH"]);
+const mappingCode = (value: unknown) => oneOf(value, ["uncertain-load", "formatted-load", "load-formula-no-cache",
+  "prescription-count", "shared-prescription", "equipment-count", "shared-equipment", "missing-video", "extra-video",
+  "unclassified-row", "workout-content"]);
+const importerCode = (value: unknown) => mappingCode(value) ?? oneOf(value, ["completion-grid", "partial-rir"]);
+function sanitizeLoadTrace(input: unknown): Dict | undefined {
+  const trace = object(input);
+  if (trace.traceVersion !== 1 || !Array.isArray(trace.rows)) return undefined;
+  const rows = trace.rows.slice(0, 120).map((value) => {
+    const row = fields(value, { plan: pseudonym("PLAN"), planLineage: pseudonym("PLAN"),
+      workout: pseudonym("WORKOUT"), workoutLineage: pseudonym("WORKOUT"), exercise: pseudonym("EXERCISE"),
+      exerciseLineage: pseudonym("EXERCISE"),
+      row: nullableIndex, column: nullableIndex, groupIndex: nullableIndex,
+      loadRow: nullableIndex, loadColumn: nullableIndex,
+      template: (v) => oneOf(v, ["jonatha-v1", "milena-v1", "unknown", "builtin"]),
+      parserVersion: (v) => bounded(v, 100), planVersion: (v) => bounded(v, 100000),
+      sourceLoad: pseudonym("LOAD"), planLoad: pseudonym("LOAD"), sessionLoad: pseudonym("LOAD"),
+      lastLoad: pseudonym("LOAD"), todayLoad: pseudonym("LOAD"),
+      missing: (v) => fields(v, { source: boolean, plan: boolean, session: boolean, last: boolean, today: boolean }),
+      todayOrigin: (v) => oneOf(v, ["LAST", "PLAN", "USER", "UNKNOWN", "NONE"]),
+      todayInitialOrigin: (v) => oneOf(v, ["LAST", "PLAN", "USER", "UNKNOWN", "NONE"]),
+      historyReason: loadReason, identityMatch: boolean,
+      mappingCodes: (v) => Array.isArray(v) ? [...new Set(v.flatMap((item) => mappingCode(item) ? [item as string] : []))].slice(0, 8) : undefined });
+    return row.plan && row.workout && row.exercise ? row : null;
+  }).filter((row): row is Dict => Boolean(row));
+  return { traceVersion: 1, truncated: trace.truncated === true || trace.rows.length > 120, rows };
+}
 export const MAX_DIAGNOSTIC_UPLOAD_BYTES = 128 * 1024;
 
 export function sanitizeDebugReport(input: unknown): Dict {
@@ -50,15 +82,17 @@ export function sanitizeDebugReport(input: unknown): Dict {
   const importer = fields(source.importer, { template: (v) => oneOf(v, ["jonatha-v1", "milena-v1", "unknown", "none"]),
     parserVersion: (v) => bounded(v, 100), workoutCount: bounded, exerciseCount: bounded,
     loadBearingExercises: bounded, numericLoads: bounded, blankLoads: bounded, ambiguousLoads: bounded,
-    warningCodes: (v) => Array.isArray(v) ? [...new Set(v.flatMap((item) => typeof item === "string" && /^[a-z-]{1,40}$/.test(item) ? [item] : []))].slice(0, 30) : undefined });
+    warningCodes: (v) => Array.isArray(v) ? [...new Set(v.flatMap((item) => importerCode(item) ? [item as string] : []))].slice(0, 30) : undefined });
   const events = Array.isArray(source.events) ? source.events.slice(-500).flatMap((value) => {
     const event = fields(value, { type: (v) => oneOf(v, ["app_boot", "storage_migration", "plan_import_finished", "workout_started",
-      "exercise_completed", "exercise_reopened", "exercise_skipped", "exercise_skip_undone", "workout_finish_started", "same_day_detected", "same_day_add", "same_day_replace", "workout_cancelled", "workout_persisted", "history_deleted", "source_sync_success", "source_sync_failed", "social_publish_queued", "social_publish_success", "social_publish_failed", "social_delete_queued", "social_delete_success", "social_delete_failed", "friend_reaction_sent", "pwa_update_detected", "pwa_update_started", "pwa_update_finished", "app_error", "push_permission_requested", "push_permission_granted", "push_permission_denied", "push_subscription_created", "push_subscription_registered", "push_subscription_failed", "push_received", "notification_shown", "notification_clicked", "push_subscription_removed", "diagnostic_upload_started", "diagnostic_upload_success", "diagnostic_upload_failed"]),
+      "exercise_completed", "exercise_reopened", "exercise_skipped", "exercise_skip_undone", "workout_finish_started", "same_day_detected", "same_day_add", "same_day_replace", "workout_cancelled", "workout_persisted", "history_deleted", "source_sync_success", "source_sync_failed", "social_publish_queued", "social_publish_success", "social_publish_failed", "social_delete_queued", "social_delete_success", "social_delete_failed", "friend_reaction_sent", "pwa_update_detected", "pwa_update_started", "pwa_update_finished", "app_error", "push_permission_requested", "push_permission_granted", "push_permission_denied", "push_subscription_created", "push_subscription_registered", "push_subscription_failed", "push_received", "notification_shown", "notification_clicked", "push_subscription_removed", "diagnostic_upload_started", "diagnostic_upload_success", "diagnostic_upload_failed", "workbook_load_parsed", "exercise_load_mapping_completed", "plan_refreshed", "active_session_initialized", "last_load_resolved", "today_load_manually_changed", "load_mapping_ambiguity_detected"]),
       timestamp: iso, source: (v) => oneOf(v, ["builtin", "excel", "google"]),
       operation: (v) => oneOf(v, ["completion", "load", "publish", "delete", "reaction"]),
-      reason: (v) => oneOf(v, ["OK", "FAILED", "STORAGE_ERROR", "NETWORK_ERROR", "AUTH_REQUIRED", "CONFLICT", "UNCLASSIFIED"]), retry: (v) => bounded(v, 99) });
+      reason: (v) => oneOf(v, ["OK", "FAILED", "STORAGE_ERROR", "NETWORK_ERROR", "AUTH_REQUIRED", "CONFLICT", "UNCLASSIFIED",
+        "NO_HISTORY", "MATCH_EXACT_ID", "MATCH_UNIQUE_NAME", "PLAN_LINEAGE_MISMATCH", "WORKOUT_LINEAGE_MISMATCH",
+        "EXERCISE_IDENTITY_MISMATCH", "AMBIGUOUS_EXERCISE", "LEGACY_UNVERIFIED_SOURCE", "SOURCE_MAPPING_MISMATCH"]), retry: (v) => bounded(v, 99) });
     return event.type && event.timestamp ? [event] : [];
   }) : [];
   return { debugReportVersion: 1, timestamp: iso(source.timestamp) ?? new Date().toISOString(), app, pwa,
-    source: sourceState, social, push, storage, importer, events };
+    source: sourceState, social, push, storage, importer, loadTrace: sanitizeLoadTrace(source.loadTrace), events };
 }

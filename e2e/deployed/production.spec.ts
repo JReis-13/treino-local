@@ -112,20 +112,22 @@ test("production Home places Friends above workouts and serves push-capable work
 test("sanitized workbook imports through production and keeps paired loads separate", async ({ page }) => {
   await page.goto(new URL("plans/", origin).toString());
   await page.getByRole("button", { name: /Add training/ }).tap();
-  await page.locator('input[type="file"]').setInputFiles("tests/fixtures/synthetic-loads.xlsx");
+  await page.locator('input[type="file"]').setInputFiles("tests/fixtures/synthetic-adjacent-loads.xlsx");
   await expect(page.getByRole("heading", { name: "Training ready" })).toBeVisible();
   await page.getByText("Review exercise plan loads").tap();
-  await expect(page.locator(".import-review")).toContainText("Exercise Alpha: 7.5");
-  await expect(page.locator(".import-review")).toContainText("Exercise Beta: 12.5");
+  await expect(page.locator(".import-review")).toContainText("Exercise Alpha: 15");
+  await expect(page.locator(".import-review")).toContainText("Exercise Beta: 8");
+  await expect(page.locator(".import-review")).toContainText("Exercise Gamma: 20");
+  await expect(page.locator(".import-review")).toContainText("Exercise Delta: 25");
   await page.locator(".import-review").getByRole("button", { name: /Use this training/ }).tap();
   await page.getByRole("button", { name: "Start workout" }).first().tap();
   const alpha = page.locator(".exercise-card").filter({ has: page.getByRole("heading", { name: "Exercise Alpha" }) });
   const beta = page.locator(".exercise-card").filter({ has: page.getByRole("heading", { name: "Exercise Beta" }) });
   await expect(alpha).toContainText("Current plan");
-  await expect(alpha).toContainText("7.5");
-  await expect(beta).toContainText("12.5");
-  await expect(alpha.getByRole("textbox", { name: "Actual load for Exercise Alpha" })).toHaveValue("7.5");
-  await expect(beta.getByRole("textbox", { name: "Actual load for Exercise Beta" })).toHaveValue("12.5");
+  await expect(alpha).toContainText("15");
+  await expect(beta).toContainText("8");
+  await expect(alpha.getByRole("textbox", { name: "Actual load for Exercise Alpha" })).toHaveValue("15");
+  await expect(beta.getByRole("textbox", { name: "Actual load for Exercise Beta" })).toHaveValue("8");
 });
 
 for (const [label, filename, count] of [

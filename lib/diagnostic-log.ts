@@ -13,12 +13,17 @@ const TYPES = ["app_boot", "storage_migration", "plan_import_finished", "workout
   "push_permission_requested", "push_permission_granted", "push_permission_denied",
   "push_subscription_created", "push_subscription_registered", "push_subscription_failed",
   "push_received", "notification_shown", "notification_clicked", "push_subscription_removed",
-  "diagnostic_upload_started", "diagnostic_upload_success", "diagnostic_upload_failed"] as const;
+  "diagnostic_upload_started", "diagnostic_upload_success", "diagnostic_upload_failed",
+  "workbook_load_parsed", "exercise_load_mapping_completed", "plan_refreshed",
+  "active_session_initialized", "last_load_resolved", "today_load_manually_changed",
+  "load_mapping_ambiguity_detected"] as const;
 const REASONS = new Set(["OK", "FAILED", "STORAGE_ERROR", "LEGACY", "WINDOW_ERROR", "UNHANDLED_REJECTION",
   "REACTION_FAILED", "QUEUED", "SUCCESS", "NETWORK_ERROR", "OFFLINE_QUEUED",
   "NOT_COMPLETED", "DATE_MISSING", "DATE_MISMATCH", "PLAN_LINEAGE_MISMATCH", "MATCH_EXACT_ID",
   "MATCH_WORKOUT_LINEAGE", "WORKOUT_LINEAGE_MISMATCH", "LEGACY_IDENTITY_AMBIGUOUS", "MATCH_UNIQUE_TITLE",
-  "READBACK_MISMATCH", "SOURCE_CHANGED", "AUTH_REQUIRED", "CONFLICT"]);
+  "READBACK_MISMATCH", "SOURCE_CHANGED", "AUTH_REQUIRED", "CONFLICT", "NO_HISTORY",
+  "MATCH_UNIQUE_NAME", "EXERCISE_IDENTITY_MISMATCH", "AMBIGUOUS_EXERCISE",
+  "LEGACY_UNVERIFIED_SOURCE", "SOURCE_MAPPING_MISMATCH"]);
 export type DiagnosticEventType = typeof TYPES[number];
 export interface DiagnosticEvent {
   type: DiagnosticEventType;
