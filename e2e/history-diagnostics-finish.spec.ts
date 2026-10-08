@@ -70,8 +70,8 @@ test("Settings exposes local diagnostics download and clear controls", async ({ 
   const report = JSON.parse(await readFile(await file.path(), "utf8"));
   expect(report.debugReportVersion).toBe(1);
   expect(report.events.filter((event: { type: string }) => event.type === "app_boot").length).toBeGreaterThanOrEqual(2);
-  await page.getByRole("button", { name: "Clear diagnostic log" }).click();
-  await expect(page.getByRole("status")).toContainText("Diagnostic log cleared");
+  await page.getByRole("button", { name: "Clear local diagnostic log" }).click();
+  await expect(page.getByRole("status")).toContainText("Local diagnostic log cleared");
   const emptyDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download debug report" }).click();
   const emptyReport = JSON.parse(await readFile(await (await emptyDownload).path(), "utf8"));

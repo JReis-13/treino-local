@@ -17,8 +17,8 @@ function LoadTrend({ values }: { values: number[] }) {
   return <svg className="detail-trend" viewBox="0 0 200 64" role="img" aria-label="Recent comparable loads, oldest to newest"><polyline points={points} fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />{points.split(" ").map((point, index) => { const [cx, cy] = point.split(","); return <circle key={index} cx={cx} cy={cy} r="3" fill="currentColor" />; })}</svg>;
 }
 
-export function ExerciseDetail({ block, session, actualLoad, previousLoad, completed, launchVideo, launchNotes = false, onLoad, onComplete, onClose }: {
-  block: ExerciseBlock; session: TrainingSession; actualLoad?: string; previousLoad?: string; completed: boolean;
+export function ExerciseDetail({ block, session, actualLoad, previousLoad, currentPlanLoad, planChanged, completed, launchVideo, launchNotes = false, onLoad, onComplete, onClose }: {
+  block: ExerciseBlock; session: TrainingSession; actualLoad?: string; previousLoad?: string; currentPlanLoad?: string; planChanged?: boolean; completed: boolean;
   launchVideo: boolean; launchNotes?: boolean; onLoad: (value: string) => void; onComplete: () => void; onClose: () => void;
 }) {
   const { data, saveExerciseNote } = useApp();
@@ -74,7 +74,7 @@ export function ExerciseDetail({ block, session, actualLoad, previousLoad, compl
           <p className="detail-prescription"><strong>Prescription</strong>{block.prescription || "See source plan"}</p>
           {block.equipment && <p className="detail-prescription"><strong>Equipment</strong>{block.equipment}</p>}
           {block.groupId && <p className="detail-prescription"><strong>Grouped in plan with</strong>{session.workoutSnapshot.blocks.filter((item) => item.kind === "exercise" && item.groupId === block.groupId && item.id !== block.id).map((item) => item.kind === "exercise" ? item.name : "").join(", ")}</p>}
-          {(block.defaultLoad || previousLoad) && <div className="detail-loads">{block.defaultLoad && <div><small>Current plan</small><strong>{block.defaultLoad}</strong></div>}{previousLoad && <div><small>Last used</small><strong>{previousLoad}</strong></div>}</div>}
+          {(block.defaultLoad || currentPlanLoad || previousLoad) && <div className="detail-loads">{currentPlanLoad && <div><small>Current plan</small><strong>{currentPlanLoad}</strong></div>}{planChanged && block.defaultLoad !== currentPlanLoad && block.defaultLoad && <div><small>Plan when started</small><strong>{block.defaultLoad}</strong></div>}{previousLoad && <div><small>Last used</small><strong>{previousLoad}</strong></div>}</div>}
           {block.section !== "Warm-up" && <label className="date-field"><span>LOAD TODAY</span><input type="text" inputMode="decimal" value={actualLoad ?? ""} onChange={(event) => onLoad(event.target.value)} aria-label={`Actual load for ${block.name} in details`} /></label>}
           <button type="button" className={`primary-button detail-complete ${completed ? "detail-undo" : ""}`} onClick={onComplete}>{completed ? "Undo completion" : "Mark complete"}</button>
         </>}

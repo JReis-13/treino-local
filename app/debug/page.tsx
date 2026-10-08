@@ -20,8 +20,7 @@ function fingerprint(value: string): string {
   for (const char of value) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
-function sameDayReport(data: TrainingData | null) {
-  const date = localDateString();
+function sameDayReport(data: TrainingData | null, date: string) {
   const plan = data?.plans.find((item) => item.id === data.activePlanId);
   const current = data?.sessions.find((item) => item.status === "inProgress" && item.planId === data.activePlanId);
   const completed = (data?.sessions ?? []).filter((item) => item.status === "completed")
@@ -44,6 +43,7 @@ const serverUpdateSnapshot = { phase: "idle", lastResult: "none", registration: 
 
 export default function DebugPage() {
   const { data, error } = useApp();
+  const [dateReady, setDateReady] = useState(false);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsState>({});
   const [social, setSocial] = useState<ReturnType<typeof readSocialDiagnostics> | null>(null);
   const [socialServer, setSocialServer] = useState<{ authenticated: string; ready: string; sharing: string; friends: string }>({
@@ -52,6 +52,7 @@ export default function DebugPage() {
   const [message, setMessage] = useState("");
   const update = useSyncExternalStore(subscribePwaUpdate, getPwaUpdateSnapshot, () => serverUpdateSnapshot);
   useEffect(() => {
+    setDateReady(true);
     let storage = "available";
     try { const key = "treino-local:probe"; localStorage.setItem(key, "1"); localStorage.removeItem(key); }
     catch (cause) { storage = cause instanceof Error ? cause.message : "unavailable"; }
@@ -92,7 +93,7 @@ export default function DebugPage() {
   const session = data?.sessions.find((item) => item.status === "inProgress" && item.planId === data.activePlanId);
   const lastCompleted = data?.sessions.filter((item) => item.status === "completed")
     .sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""))[0];
-  const sameDay = sameDayReport(data);
+  const sameDay = sameDayReport(data, dateReady ? localDateString() : "loading");
   async function copyReport() {
     try { await navigator.clipboard.writeText(JSON.stringify(await collectDebugReport(data), null, 2)); setMessage("Safe diagnostic report copied."); }
     catch { setMessage("Clipboard unavailable. Use the values shown above."); }

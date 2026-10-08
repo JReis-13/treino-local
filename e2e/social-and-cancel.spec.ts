@@ -288,6 +288,7 @@ test("phone diagnostics explains a migrated same-day match without copying loads
   await page.goto("/debug/");
   await expect(page.getByText("MATCH_UNIQUE_TITLE")).toBeVisible();
   await page.getByRole("button", { name: "Copy diagnostics" }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { copiedReport?: string }).copiedReport)).toContain("MATCH_UNIQUE_TITLE");
   const report = await page.evaluate(() => (window as unknown as { copiedReport: string }).copiedReport);
   expect(report).toContain("MATCH_UNIQUE_TITLE");
   expect(report).not.toContain("PRIVATE_LOAD_99");

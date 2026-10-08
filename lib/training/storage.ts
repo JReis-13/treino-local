@@ -18,8 +18,9 @@ function validBlock(value: unknown): value is WorkoutBlock {
       (value.defaultLoad === undefined || typeof value.defaultLoad === "string") &&
       (value.loadSource === undefined || (record(value.loadSource) && typeof value.loadSource.cell === "string" &&
         /^[GHI](26|28|30|32|33)$/.test(value.loadSource.cell) &&
-        (value.loadSource.part === undefined || Number.isInteger(value.loadSource.part)) &&
-        (value.loadSource.parts === undefined || value.loadSource.parts === 2))) &&
+        (value.loadSource.part === undefined || (Number.isInteger(value.loadSource.part) &&
+          Number(value.loadSource.part) >= 0 && Number(value.loadSource.part) < Number(value.loadSource.parts ?? 1))) &&
+        (value.loadSource.parts === undefined || [2, 3].includes(Number(value.loadSource.parts))))) &&
       (value.videoUrl === undefined || typeof value.videoUrl === "string") :
       value.kind === "instruction" && typeof value.heading === "string" && typeof value.text === "string");
 }

@@ -1,0 +1,32 @@
+import { expect, test } from "@playwright/test";
+
+test("sanitized workbook import shows independent Plan, Last and Today loads on phone", async ({ page }) => {
+  await page.goto("/plans/");
+  await page.getByRole("button", { name: /Add training/ }).tap();
+  await page.locator('input[type="file"]').setInputFiles("tests/fixtures/synthetic-loads.xlsx");
+  await expect(page.getByRole("heading", { name: "Training ready" })).toBeVisible();
+  await page.getByText("Review exercise plan loads").tap();
+  await expect(page.locator(".import-review")).toContainText("Exercise Alpha: 7.5");
+  await expect(page.locator(".import-review")).toContainText("Exercise Beta: 12.5");
+  await page.locator(".import-review").getByRole("button", { name: /Use this training/ }).tap();
+  await page.getByRole("button", { name: "Start workout" }).first().tap();
+  const alpha = page.locator(".exercise-card").filter({ has: page.getByRole("heading", { name: "Exercise Alpha" }) });
+  const beta = page.locator(".exercise-card").filter({ has: page.getByRole("heading", { name: "Exercise Beta" }) });
+  await expect(alpha).toContainText("Current plan");
+  await expect(alpha).toContainText("7.5");
+  await expect(beta).toContainText("12.5");
+  await expect(alpha).not.toContainText("Last used");
+  await expect(alpha.getByRole("textbox", { name: "Actual load for Exercise Alpha" })).toHaveValue("7.5");
+  await alpha.getByRole("textbox", { name: "Actual load for Exercise Alpha" }).fill("10");
+  await alpha.getByRole("checkbox", { name: /Complete Exercise Alpha/ }).tap();
+  await page.getByRole("link", { name: /Finish workout/ }).tap();
+  await page.getByRole("button", { name: /Save workout/ }).tap();
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start workout" }).first().tap();
+  const again = page.locator(".exercise-card").filter({ has: page.getByRole("heading", { name: "Exercise Alpha" }) });
+  await expect(again).toContainText("Current plan");
+  await expect(again).toContainText("Last used");
+  await expect(again).toContainText("7.5");
+  await expect(again).toContainText("10");
+  await expect(again.getByRole("textbox", { name: "Actual load for Exercise Alpha" })).toHaveValue("10");
+});

@@ -28,7 +28,14 @@ async function check() {
   console.log(`Migration 002: ${manualMigration.length && manualColumn.length ? "applied" : "missing"}`);
   const pushMigration = await sql`select version from treino_social.schema_migrations where version = '003_friends_push'`;
   console.log(`Migration 003: ${pushMigration.length ? "applied" : "missing"}`);
-  return migration.length > 0 && manualMigration.length > 0 && manualColumn.length > 0 && pushMigration.length > 0;
+  const supportMigration = await sql`select version from treino_social.schema_migrations where version = '004_support_diagnostics'`;
+  const [supportSchema] = await sql`select to_regnamespace('treino_support') is not null as exists`;
+  const [supportAccess] = supportSchema.exists ? await sql`select has_schema_privilege('anon', 'treino_support', 'USAGE') as anon,
+    has_schema_privilege('authenticated', 'treino_support', 'USAGE') as authenticated` : [{ anon: false, authenticated: false }];
+  console.log(`Migration 004: ${supportMigration.length && supportSchema.exists ? "applied" : "missing"}`);
+  console.log(`Support schema browser access: ${supportAccess.anon || supportAccess.authenticated ? "unsafe" : "denied"}`);
+  return migration.length > 0 && manualMigration.length > 0 && manualColumn.length > 0 && pushMigration.length > 0 &&
+    supportMigration.length > 0 && supportSchema.exists && !supportAccess.anon && !supportAccess.authenticated;
 }
 async function migrate() {
   const [schema] = await sql`select to_regnamespace('treino_social') is not null as exists`;
@@ -50,6 +57,9 @@ async function migrate() {
   const third = await sql`select version from treino_social.schema_migrations where version = '003_friends_push'`;
   if (third.length) console.log("Migration 003: already applied");
   else { await sql.unsafe(readFileSync("db/migrations/003_friends_push.sql", "utf8")); console.log("Migration 003: applied"); }
+  const fourth = await sql`select version from treino_social.schema_migrations where version = '004_support_diagnostics'`;
+  if (fourth.length) console.log("Migration 004: already applied");
+  else { await sql.unsafe(readFileSync("db/migrations/004_support_diagnostics.sql", "utf8")); console.log("Migration 004: applied"); }
 }
 async function smoke() {
   if (!await check()) throw new Error("Schema is unavailable.");

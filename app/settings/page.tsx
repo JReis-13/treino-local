@@ -8,7 +8,7 @@ import { createBackup, MAX_BACKUP_BYTES, parseBackup, SAFETY_SNAPSHOT_KEY } from
 import { parseTrainingData } from "@/lib/training/storage";
 import { clearSocialPreference } from "@/lib/social/client";
 import { retrySocialDeletionsForCurrentAccount } from "@/lib/social/client";
-import { clearDiagnosticLog } from "@/lib/diagnostic-log";
+import { clearDiagnosticLog, recordDiagnosticEvent } from "@/lib/diagnostic-log";
 import { collectDebugReport, downloadDebugReport } from "@/lib/diagnostics-report";
 import type { TrainingData } from "@/types/training";
 
@@ -29,6 +29,7 @@ export default function SettingsPage() {
   const [googleEmail, setGoogleEmail] = useState<string | undefined>();
   const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
   const [diagnosticsMessage, setDiagnosticsMessage] = useState("");
+  const [diagnosticCode, setDiagnosticCode] = useState("");
   useEffect(() => { try { setHasSafetySnapshot(Boolean(localStorage.getItem(SAFETY_SNAPSHOT_KEY))); } catch { /* Storage status is shown on restore. */ } }, []);
   useEffect(() => {
     googleStatus().then((status) => { setGoogleConnected(status.connected); setGoogleEmail(status.email); })
@@ -78,10 +79,29 @@ export default function SettingsPage() {
         catch { setDiagnosticsMessage("Could not prepare the report. Try again."); }
         finally { setDiagnosticsBusy(false); }
       })()}>{diagnosticsBusy ? "Preparing report…" : "Download debug report"}</button>
+      <button type="button" className="secondary-button" disabled={diagnosticsBusy || !googleConnected} onClick={() => void (async () => {
+        setDiagnosticsBusy(true); setDiagnosticCode(""); setDiagnosticsMessage("Sending a private diagnostic report…");
+        recordDiagnosticEvent("diagnostic_upload_started");
+        try {
+          const report = await collectDebugReport(data);
+          const response = await fetch("/api/support/diagnostics", { method: "POST", headers: { "Content-Type": "application/json" },
+            credentials: "same-origin", body: JSON.stringify(report) });
+          if (!response.ok) throw new Error("upload failed");
+          const result: unknown = await response.json();
+          const code = (result as { code?: unknown }).code;
+          if (typeof code !== "string" || !/^TL-[A-HJ-NP-Z2-9]{8}$/.test(code)) throw new Error("invalid response");
+          setDiagnosticCode(code); setDiagnosticsMessage("Diagnostics sent. Stored privately for 14 days. Share this ID with support/Codex.");
+          recordDiagnosticEvent("diagnostic_upload_success");
+        } catch { setDiagnosticsMessage("Could not send diagnostics. Your local report is still available to download.");
+          recordDiagnosticEvent("diagnostic_upload_failed", { reason: "FAILED" }); }
+        finally { setDiagnosticsBusy(false); }
+      })()}>Send diagnostics</button>
       <button type="button" className="secondary-button" disabled={diagnosticsBusy} onClick={() => void (async () => {
-        try { await clearDiagnosticLog(); setDiagnosticsMessage("Diagnostic log cleared."); }
+        try { await clearDiagnosticLog(); setDiagnosticsMessage("Local diagnostic log cleared."); }
         catch { setDiagnosticsMessage("Could not clear the diagnostic log."); }
-      })()}>Clear diagnostic log</button></div>
+      })()}>Clear local diagnostic log</button></div>
+      {!googleConnected && <p className="quiet-note">Connect Google to send diagnostics. Download remains available without an account.</p>}
+      {diagnosticCode && <div className="context-note"><strong>ID: {diagnosticCode}</strong><button type="button" className="inline-action" onClick={() => void navigator.clipboard.writeText(diagnosticCode).then(() => setDiagnosticsMessage("Diagnostic ID copied.")).catch(() => setDiagnosticsMessage("Could not copy the ID. You can select it above."))}>Copy ID</button></div>}
       {diagnosticsMessage && <p className="quiet-note" role="status">{diagnosticsMessage}</p>}
       <div className="connection-actions"><Link className="inline-action" href="/debug/">View live diagnostics →</Link>
       <button type="button" className="inline-action" onClick={() => void retrySocialDeletionsForCurrentAccount().then(() =>

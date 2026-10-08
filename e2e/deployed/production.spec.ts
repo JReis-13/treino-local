@@ -36,7 +36,7 @@ async function importWorkbook(page: Page, copy: string) {
 
 test("production build and read-only navigation", async ({ page }) => {
   const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("pageerror", (error) => errors.push(`${new URL(page.url()).pathname}: ${error.message}`));
   await page.goto(new URL("debug/", origin).toString());
   await expect(page.getByRole("heading", { name: /Diagnostics/ })).toBeVisible();
   const build = await page.locator(".debug-grid").innerText();
@@ -63,6 +63,13 @@ test("production build and read-only navigation", async ({ page }) => {
   const diagnostic = (name: string) => page.locator(".debug-grid > div").filter({ has: page.locator("small", { hasText: new RegExp(`^${name}$`) }) }).locator("strong");
   const buildId = await diagnostic("BUILD").textContent();
   await expect(diagnostic("SW REGISTRATION")).toHaveText("registered");
+  if (await diagnostic("CONTROLLER BUILD ID").textContent() !== buildId) {
+    await page.goto(origin);
+    const update = page.getByRole("button", { name: "Update now" });
+    await expect(update).toBeVisible();
+    await Promise.all([page.waitForEvent("load"), update.click()]);
+    await page.goto(new URL("debug/", origin).toString());
+  }
   await expect(diagnostic("CONTROLLER BUILD ID")).toHaveText(buildId ?? "");
   await expect(diagnostic("SW WAITING")).toHaveText("none");
   await expect(diagnostic("UPDATE UI STATE")).toHaveText("idle");
@@ -75,7 +82,8 @@ test("production Home places Friends above workouts and serves push-capable work
     activePlanId: "deployed-home-plan", exerciseNotes: [], sessions: [], plans: [{ id: "deployed-home-plan",
       name: "Training Alpha", source: { kind: "builtin", label: "Local" }, version: 1,
       importedAt: "2026-10-01T08:00:00Z", updatedAt: "2026-10-01T08:00:00Z", importWarnings: [], legacyCompletions: [],
-      workouts: [{ id: "A", title: "Workout A", description: "", blocks: [] }] }] })));
+      workouts: [{ id: "A", title: "Workout A", description: "", blocks: [
+        { kind: "exercise", id: "test-squat", section: "Strength", name: "Squat", prescription: "3 × 10" }] }] }] })));
   await page.route("**/api/social/**", (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith("/me")) return route.fulfill({ json: { email: "test@example.invalid", displayName: "Test",

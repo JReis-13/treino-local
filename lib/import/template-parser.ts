@@ -1,6 +1,7 @@
 import { isLocalDate } from "@/lib/dates";
 import { cell, display, serialToDate, type SourceCell, type SourceSheet, type SourceSnapshot } from "@/lib/import/snapshot";
 import type { CompletionMapping, ImportedTraining, ImportWarning, InstructionBlock, TrainingSource, TrainingWorkout } from "@/types/training";
+import { normalizeLoad } from "@/lib/training/loads";
 
 const lines = (value: string): string[] => value.split(/\r?\n/).map((line) => line.trim().replace(/\s+/g, " ")).filter(Boolean);
 const simple = (value: string): string => value.trim().replace(/\s+/g, " ").toLowerCase();
@@ -59,28 +60,40 @@ function completionGrid(sheet: SourceSheet, workoutId: string, warnings: ImportW
 
 function loadValues(sheet: SourceSheet, row: number, count: number, warnings: ImportWarning[], variant: TemplateVariant):
   Array<{ value?: string; source?: { cell: string; part?: number; parts?: number } }> {
-  const values = (variant === "jonatha-v1" ? ["H"] : ["G", "H", "I"]).map((col) => cell(sheet, `${col}${row}`));
-  const used = values.map((value) => value?.displayed.trim() || undefined);
-  for (const value of values) {
-    if (value?.raw && value.raw !== value.displayed && /[dm]/i.test(value.numberFormat ?? "")) {
-      warn(warnings, "formatted-load", `Load is stored as a date-like number but displays as “${value.displayed}”; the displayed load was kept.`, `${sheet.name}!${value.ref}`);
+  const columns = variant === "jonatha-v1" ? ["H"] : ["G", "H", "I"];
+  const values = columns.map((col) => cell(sheet, `${col}${row}`));
+  const used = values.map((value) => {
+    if (!value) return undefined;
+    if (value.formula && !value.raw.trim()) {
+      warn(warnings, "load-formula-no-cache", "A load formula has no cached result; review this load in the source.", `${sheet.name}!${value.ref}`);
+      return undefined;
     }
-  }
+    const rawNumber = Number(value.raw);
+    const numeric = value.raw.trim() && (value.rawType === "n" || value.rawType === "") && Number.isFinite(rawNumber);
+    const dateLike = /[dmy]/i.test(value.numberFormat ?? "");
+    // Excel can auto-convert a typed decimal into a serial date (e.g. 7.5 -> 46149).
+    // A genuinely numeric load with an accidental date style must retain its raw value.
+    const text = numeric && dateLike && rawNumber >= 0 && rawNumber < 1000 ? value.raw : value.displayed;
+    if (numeric && dateLike && value.raw !== value.displayed)
+      warn(warnings, "formatted-load", "A date-like cell format changed a load's display; verify the plan value.", `${sheet.name}!${value.ref}`);
+    return text.trim() ? normalizeLoad(text) : undefined;
+  });
   if (count === 1) {
     const index = used.findIndex(Boolean);
-    return [{ value: index < 0 ? undefined : used[index], source: { cell: `${variant === "jonatha-v1" ? "H" : ["G", "H", "I"][Math.max(index, 0)]}${row}` } }];
+    return [{ value: index < 0 ? undefined : used[index], source: { cell: `${columns[Math.max(index, 0)]}${row}` } }];
   }
-  const joined = used.find((value) => value?.includes("/"));
-  if (count === 2 && joined && used.filter(Boolean).length === 1) {
+  if (variant === "jonatha-v1") {
+    const joined = used[0];
+    if (!joined) return Array.from({ length: count }, () => ({}));
     const pieces = joined.split("/");
-    if (pieces.length === 2) return pieces.map((value, part) => ({
-      value: value.trim() === "?" ? undefined : value.trim(), source: { cell: `H${row}`, part, parts: 2 },
+    if (pieces.length === count) return pieces.map((value, part) => ({
+      value: value.trim() === "?" ? undefined : normalizeLoad(value), source: { cell: `H${row}`, part, parts: count },
     }));
+    warn(warnings, "uncertain-load", "Grouped loads do not match the number of exercises; no load was guessed.", `${sheet.name}!H${row}`);
+    return Array.from({ length: count }, () => ({}));
   }
-  if (used.filter(Boolean).length === 1 && count > 1) {
+  if (used.filter(Boolean).length === 1 && count > 1)
     warn(warnings, "uncertain-load", "One load is shown for a multi-exercise group; its assignment needs review.", `${sheet.name}!G${row}:I${row}`);
-  }
-  if (variant === "jonatha-v1") return Array.from({ length: count }, (_, index) => ({ value: index === 0 ? used[0] : undefined }));
   return Array.from({ length: count }, (_, index) => ({ value: used[index], source: { cell: `${["G", "H", "I"][index]}${row}` } }));
 }
 

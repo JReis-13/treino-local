@@ -204,7 +204,7 @@ test("Focus uses distinct pending, completed and skipped states with compact inl
   };
   await expect(focus.getByRole("heading", { name: "Lat pulldown" })).toBeVisible();
   await expect(focus.getByText("Machine", { exact: false })).toBeVisible();
-  await expect(focus.getByText(/Plan 35 kg/)).toBeVisible();
+  await expect(focus.getByText(/Current plan 35 kg/)).toBeVisible();
   await expect(focus.getByText(/Last 30 kg/)).toBeVisible();
   await expect(focus.getByRole("button", { name: "▶ Watch execution" })).toBeVisible();
   await expect(page.locator("iframe")).toHaveCount(0);

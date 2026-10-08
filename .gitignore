@@ -13,6 +13,7 @@ public/sw.js
 
 *.xlsx
 tests/fixtures/private/
+!tests/fixtures/synthetic-loads.xlsx
 *.xls
 *.xlsm
 *.xlsb

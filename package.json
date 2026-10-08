@@ -15,13 +15,15 @@
     "typecheck": "tsc --noEmit",
     "test": "node scripts/run-tests.mjs",
     "test:excel": "node scripts/run-tests.mjs --excel",
+    "test:workbooks:private": "node scripts/run-tests.mjs --private-only",
     "test:e2e": "playwright test",
     "test:deployed": "playwright test --config=playwright.deployed.config.ts",
     "db:check": "node scripts/social-db.mjs check",
     "db:migrate": "node scripts/social-db.mjs migrate",
     "db:smoke": "node scripts/social-db.mjs smoke",
     "db:integration": "node scripts/social-integration.mjs",
-    "push:generate-vapid": "node scripts/generate-vapid.mjs"
+    "push:generate-vapid": "node scripts/generate-vapid.mjs",
+    "diagnostics:get": "node scripts/diagnostics-get.mjs"
   },
   "dependencies": {
     "fast-xml-parser": "^5.2.5",

@@ -12,7 +12,8 @@ const TYPES = ["app_boot", "storage_migration", "plan_import_finished", "workout
   "pwa_update_detected", "pwa_update_started", "pwa_update_finished", "app_error",
   "push_permission_requested", "push_permission_granted", "push_permission_denied",
   "push_subscription_created", "push_subscription_registered", "push_subscription_failed",
-  "push_received", "notification_shown", "notification_clicked", "push_subscription_removed"] as const;
+  "push_received", "notification_shown", "notification_clicked", "push_subscription_removed",
+  "diagnostic_upload_started", "diagnostic_upload_success", "diagnostic_upload_failed"] as const;
 const REASONS = new Set(["OK", "FAILED", "STORAGE_ERROR", "LEGACY", "WINDOW_ERROR", "UNHANDLED_REJECTION",
   "REACTION_FAILED", "QUEUED", "SUCCESS", "NETWORK_ERROR", "OFFLINE_QUEUED",
   "NOT_COMPLETED", "DATE_MISSING", "DATE_MISMATCH", "PLAN_LINEAGE_MISMATCH", "MATCH_EXACT_ID",

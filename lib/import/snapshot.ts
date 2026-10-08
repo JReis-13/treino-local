@@ -2,7 +2,8 @@ import JSZip from "jszip";
 import { XMLParser } from "fast-xml-parser";
 
 type Node = Record<string, unknown>;
-const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_", parseTagValue: false, trimValues: false });
+const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_", removeNSPrefix: true,
+  parseTagValue: false, trimValues: false });
 const object = (value: unknown): Node => value && typeof value === "object" ? value as Node : {};
 const list = <T>(value: T | T[] | undefined): T[] => value === undefined ? [] : Array.isArray(value) ? value : [value];
 const attribute = (node: Node, key: string): string => String(node[`@_${key}`] ?? "");
@@ -40,7 +41,7 @@ function text(node: unknown): string {
 }
 
 function formatted(raw: string, format?: string): string {
-  if (!raw || !format) return raw;
+  if (!raw || !format || !Number.isFinite(Number(raw))) return raw;
   const normalized = format.toLowerCase().replace(/"([^\"]*)"/g, "$1");
   if (/^d\.m$/.test(normalized)) {
     const date = serialToDate(Number(raw));
@@ -74,7 +75,7 @@ function sheetLinks(sheetDoc: Node, relDoc: Node): Map<string, string> {
   const result = new Map<string, string>();
   for (const item of list(object(object(sheetDoc.worksheet).hyperlinks).hyperlink)) {
     const link = object(item);
-    const target = relations.get(attribute(link, "r:id")) ?? attribute(link, "location");
+    const target = relations.get(attribute(link, "r:id") || attribute(link, "id")) ?? attribute(link, "location");
     if (target) result.set(attribute(link, "ref"), target);
   }
   return result;
@@ -107,7 +108,7 @@ export async function snapshotFromXlsx(bytes: Uint8Array): Promise<SourceSnapsho
   for (const item of list(object(object(workbook.workbook).sheets).sheet)) {
     const sheetNode = object(item);
     const name = attribute(sheetNode, "name");
-    const target = relationships.get(attribute(sheetNode, "r:id"));
+    const target = relationships.get(attribute(sheetNode, "r:id") || attribute(sheetNode, "id"));
     if (!target) throw new Error(`Missing worksheet relationship for ${name}.`);
     const path = target.startsWith("/") ? target.slice(1) : `xl/${target}`;
     if (!path.startsWith("xl/worksheets/") || path.includes("..")) throw new Error("Invalid worksheet relationship.");

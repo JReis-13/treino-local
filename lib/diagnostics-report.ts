@@ -79,6 +79,8 @@ export async function collectDebugReport(data: TrainingData | null) {
   const completed = data?.sessions.filter((item) => item.status === "completed") ?? [];
   const latest = [...completed].sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""))[0];
   const source = plan?.source.kind ?? "none";
+  const exercises = plan?.workouts.flatMap((workout) => workout.blocks.filter((block) => block.kind === "exercise")) ?? [];
+  const loadBearing = exercises.filter((block) => block.kind === "exercise" && block.defaultLoad?.trim());
   const logBytes = new TextEncoder().encode(JSON.stringify(events)).byteLength;
   return {
     debugReportVersion: 1, timestamp: new Date().toISOString(),
@@ -94,8 +96,17 @@ export async function collectDebugReport(data: TrainingData | null) {
     identity: { ...safeSameDaySummary(data), activeSession: fingerprint(active?.id),
       activeSessionState: active ? "inProgress" : "none" },
     source: { kind: source, completionSync: latest?.completionSyncStatus ?? "none", loadSync: latest?.loadSyncStatus ?? "none",
-      aggregateSync: latest ? aggregateSync(latest) : "none", pendingSessions: completed.filter((item) =>
-        !["synced", "notApplicable"].includes(aggregateSync(item))).length, receiptPresent: Boolean(latest?.completionReceipt) },
+      aggregateSync: latest ? aggregateSync(latest) : "none", latestSessionSync: latest ? aggregateSync(latest) : "none",
+      pendingSessions: completed.filter((item) => !["synced", "notApplicable"].includes(aggregateSync(item))).length,
+      historicalPendingSessions: completed.filter((item) => !["synced", "notApplicable"].includes(aggregateSync(item))).length,
+      receiptPresent: Boolean(latest?.completionReceipt) },
+    importer: { template: plan?.source.kind === "excel" || plan?.source.kind === "google" ? plan.source.template : "none",
+      parserVersion: 2, workoutCount: plan?.workouts.length ?? 0, exerciseCount: exercises.length,
+      loadBearingExercises: loadBearing.length, numericLoads: loadBearing.filter((block) => block.kind === "exercise" &&
+        /^[+-]?\d+(?:[.,]\d+)?$/.test(block.defaultLoad ?? "")).length,
+      blankLoads: exercises.length - loadBearing.length,
+      ambiguousLoads: plan?.importWarnings.filter((warning) => warning.code === "uncertain-load").length ?? 0,
+      warningCodes: [...new Set(plan?.importWarnings.map((warning) => warning.code) ?? [])] },
     social: { authenticated: socialServer.authenticated, userReady: socialServer.userReady,
       friendCount: socialServer.friendCount, autoShareLocal: socialLocal.sharingCached,
       autoShareServer: socialServer.autoShare, effectiveAutoShare: socialServer.autoShare !== "unknown" ?
