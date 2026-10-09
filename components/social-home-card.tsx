@@ -56,7 +56,7 @@ export function SocialHomeCard({ compact = false }: { compact?: boolean }) {
   const received = home?.received[0];
   return <section className={`social-home-card ${compact ? "social-home-compact" : ""}`} aria-label="Friends"><div className="social-heading"><div><p className="eyebrow">FRIENDS</p><h2>{compact ? "Friends" : "Latest together"}</h2></div><Link href="/settings/friends/">Manage →</Link></div>
     {state === "loading" && <p className="quiet-note">Loading friends…</p>}
-    {state === "auth" && <p className="quiet-note">Connect Google to use Friends. <Link href="/settings/">Connect →</Link></p>}
+    {state === "auth" && <p className="quiet-note">Connect Google to use Friends. <Link href="/settings/#connections">Connect →</Link></p>}
     {state === "unavailable" && <p className="quiet-note">Friends are temporarily unavailable. Your workouts remain on this device. <button type="button" className="inline-action" onClick={() => void refresh()}>Retry</button></p>}
     {state === "ready" && home && (compact ? <>
       {home.friendCount === 0 ? <p className="quiet-note">No friends yet. Connect in Friends settings.</p> : received ?

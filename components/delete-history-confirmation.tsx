@@ -17,8 +17,8 @@ export function DeleteHistoryConfirmation({ imported, onKeep, onDelete }: {
       }
     }}>
     <p className="eyebrow">DELETE LOCAL RECORD</p><h2 id="delete-history-title">Delete this workout from Treino Local?</h2>
-    <p>{imported ? "This imported date will disappear from History and Statistics." :
-      "This workout will disappear from History, Statistics and load progression. If shared, its Friends activity will be removed when online."}</p>
+    <p>{imported ? "This imported date will disappear from History and Statistics. You can Undo for 15 seconds." :
+      "This workout will disappear from History, Statistics and load progression. You can Undo for 15 seconds. After that, its Friends activity will be removed when online."}</p>
     <p>Changes already written to Google Sheets or Excel will not be reversed.</p>
     <button ref={keep} type="button" className="secondary-button" autoFocus onClick={onKeep}>Keep workout</button>
     <button ref={remove} type="button" className="text-button destructive-action" onClick={onDelete}>Delete record</button>

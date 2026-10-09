@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import { resolve } from "node:path";
 import { build } from "esbuild";
 import { test, expect } from "@playwright/test";
 
@@ -8,7 +9,7 @@ let managerScript: string;
 let version = "one";
 
 test.beforeAll(async () => {
-  const output = await build({ entryPoints: ["lib/pwa/update-manager.ts"], bundle: true, write: false,
+  const output = await build({ entryPoints: [resolve(__dirname, "../lib/pwa/update-manager.ts")], bundle: true, write: false,
     platform: "browser", format: "iife", globalName: "PwaUpdate", target: "es2020" });
   managerScript = output.outputFiles[0].text;
   server = createServer((request, response) => {
@@ -53,7 +54,7 @@ test.beforeAll(async () => {
   if (!address || typeof address === "string") throw Error("No test server address");
   origin = `http://127.0.0.1:${address.port}`;
 });
-test.afterAll(async () => { await new Promise<void>((resolve) => server.close(() => resolve())); });
+test.afterAll(async () => { if (server) await new Promise<void>((resolve) => server.close(() => resolve())); });
 
 test("real waiting worker activates, reloads once, changes build, and preserves local data", async ({ page }) => {
   version = "one";

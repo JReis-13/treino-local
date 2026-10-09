@@ -80,7 +80,7 @@ test("phone Focus and List share loads, queue, skips, timer and saved outcome", 
   await page.getByText("More actions", { exact: true }).click();
   await page.getByRole("button", { name: "Do later" }).click();
   await expect(page.locator(".focus-name")).toHaveText("Seated row");
-  await expect(page.getByText("Next: Single leg Romanian deadlift", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Next →" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Note: Keep shoulders down/ })).toBeVisible();
   await page.getByRole("button", { name: "Mark complete" }).click();
   await expect(page.locator(".focus-name")).toContainText("Single leg Romanian deadlift");

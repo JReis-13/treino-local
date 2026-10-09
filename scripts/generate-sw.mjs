@@ -68,7 +68,7 @@ function pushDiagnostic(patch) {
     } catch { resolve(); }
   });
 }
-function pushLogEvent(type) {
+function pushLogEvent(type, reason) {
   return new Promise((resolve) => {
     try {
       const open = indexedDB.open("treino-local-diagnostics-v1", 1);
@@ -81,7 +81,7 @@ function pushLogEvent(type) {
         const read = store.get("events");
         read.onsuccess = () => {
           const prior = Array.isArray(read.result) ? read.result : [];
-          store.put([...prior, { type, timestamp: new Date().toISOString() }].slice(-500), "events");
+          store.put([...prior, { type, timestamp: new Date().toISOString(), reason }].slice(-500), "events");
         };
         transaction.oncomplete = () => { db.close(); resolve(); };
         transaction.onerror = () => { db.close(); resolve(); };
@@ -99,13 +99,13 @@ self.addEventListener("push", (event) => {
         typeof data.tag !== "string" || !/^(friend-workout:[0-9a-f-]{36}|reaction:[0-9a-f-]{36}:[0-9a-f-]{36})$/i.test(data.tag) ||
         !data.tag.startsWith(data.type === "friend_workout" ? "friend-workout:" : "reaction:")) return;
     await pushDiagnostic({ lastReceivedType: data.type });
-    await pushLogEvent("push_received");
+    await pushLogEvent("push_received", data.type === "friend_workout" ? "FRIEND_WORKOUT" : "REACTION");
     await self.registration.showNotification("Treino Local", {
       body: data.body, icon: "/icon-192.png", badge: "/icon-192.png",
       tag: data.tag,
       data: { type: data.type },
     });
-    await pushLogEvent("notification_shown");
+    await pushLogEvent("notification_shown", data.type === "friend_workout" ? "FRIEND_WORKOUT" : "REACTION");
   })());
 });
 self.addEventListener("notificationclick", (event) => {

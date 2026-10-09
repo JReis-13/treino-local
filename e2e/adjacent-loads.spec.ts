@@ -23,6 +23,7 @@ test("separate source columns remain separate through import, List, Focus and re
   await expect(page.locator(".focus-name")).toHaveText("Exercise Beta");
   await expect(page.getByRole("textbox", { name: "Actual load for Exercise Beta" })).toHaveValue("8");
   await page.goto("/settings/");
+  await page.getByRole("navigation", { name: "Settings sections" }).getByRole("link", { name: /Diagnostics/ }).tap();
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download debug report" }).tap();
   const report = JSON.parse(await (await download).createReadStream().then(async (stream) => {

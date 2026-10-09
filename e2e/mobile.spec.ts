@@ -74,7 +74,7 @@ test("mobile first launch, workout actions, reload, back/forward and history", a
   await page.reload();
   await expect(page.getByText(/1\/11 done/)).toBeVisible();
   await page.getByRole("link", { name: /Workout A/ }).last().tap();
-  await expect(page.getByText(/Load 9/)).toBeVisible();
+  await expect(page.getByText(/Used: 9/)).toBeVisible();
 });
 
 test("same-day Add and Replace keep distinct history entries and statistics offline", async ({ page, context }) => {
@@ -329,6 +329,7 @@ test("local backup rejects malformed JSON and restores a reviewed plan", async (
   await page.goto("/");
   await importFile(page, jonatha);
   await page.getByRole("link", { name: "Settings", exact: true }).tap();
+  await page.getByRole("navigation", { name: "Settings sections" }).getByRole("link", { name: /Data & Backup/ }).tap();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export backup" }).tap();
   const saved = await downloadPromise;

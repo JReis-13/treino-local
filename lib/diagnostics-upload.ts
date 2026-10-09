@@ -89,6 +89,7 @@ export function sanitizeDebugReport(input: unknown): Dict {
       timestamp: iso, source: (v) => oneOf(v, ["builtin", "excel", "google"]),
       operation: (v) => oneOf(v, ["completion", "load", "publish", "delete", "reaction"]),
       reason: (v) => oneOf(v, ["OK", "FAILED", "STORAGE_ERROR", "NETWORK_ERROR", "AUTH_REQUIRED", "CONFLICT", "UNCLASSIFIED",
+        "FRIEND_WORKOUT", "REACTION",
         "NO_HISTORY", "MATCH_EXACT_ID", "MATCH_UNIQUE_NAME", "PLAN_LINEAGE_MISMATCH", "WORKOUT_LINEAGE_MISMATCH",
         "EXERCISE_IDENTITY_MISMATCH", "AMBIGUOUS_EXERCISE", "LEGACY_UNVERIFIED_SOURCE", "SOURCE_MAPPING_MISMATCH"]), retry: (v) => bounded(v, 99) });
     return event.type && event.timestamp ? [event] : [];

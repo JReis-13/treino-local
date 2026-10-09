@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test("Diagnostics stays local when signed out, while Download remains available", async ({ page }) => {
   await page.goto("/settings/");
+  await page.getByRole("navigation", { name: "Settings sections" }).getByRole("link", { name: /Diagnostics/ }).tap();
   await expect(page.getByRole("button", { name: "Send diagnostics" })).toBeDisabled();
   await expect(page.getByText("Connect Google to send diagnostics.")).toBeVisible();
   const download = page.waitForEvent("download");
@@ -21,6 +22,7 @@ test("Send diagnostics is explicit and presents a copyable short ID", async ({ p
     await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ code: "TL-7K2M9QRS" }) });
   });
   await page.goto("/settings/");
+  await page.getByRole("navigation", { name: "Settings sections" }).getByRole("link", { name: /Diagnostics/ }).tap();
   await expect(page.getByRole("button", { name: "Send diagnostics" })).toBeEnabled();
   expect(uploads).toBe(0);
   await page.getByRole("button", { name: "Send diagnostics" }).tap();

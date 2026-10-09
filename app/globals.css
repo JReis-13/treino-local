@@ -306,11 +306,6 @@ button,a,summary{-webkit-tap-highlight-color:transparent}
 .current-training-hero>p:not(.eyebrow){font-size:13px;line-height:1.35}
 .current-training-hero .hero-stat{right:28px;bottom:24px}
 .current-training-hero .hero-stat strong{font-size:36px}
-.home-first-workout{display:block}
-.home-first-workout .workout-tile{height:100%;min-height:215px;padding:18px}
-.home-first-workout .workout-tile h3{font-size:50px;margin:5px 0}
-.home-first-workout .workout-tile p{margin-bottom:6px}
-.home-first-workout .tile-button{min-height:44px;margin-top:10px;padding:9px 14px}
 .social-home-compact{padding:14px;min-height:120px;gap:6px;overflow:hidden}
 .social-home-compact .social-heading h2{font-size:18px}
 .social-home-compact .social-activity{padding-top:6px;gap:2px}
@@ -338,12 +333,45 @@ button,a,summary{-webkit-tap-highlight-color:transparent}
   .current-training-hero .hero-stat{right:18px;bottom:14px;gap:4px}
   .current-training-hero .hero-stat strong{font-size:29px}
   .current-training-hero .hero-stat span{font-size:8px}
-  .home-first-workout .workout-tile{min-height:172px;padding:15px}
-  .home-first-workout .workout-tile h3{font-size:42px}
-  .home-first-workout .workout-tile p{font-size:13px}
-  .home-first-workout .tile-meta{font-size:11px}
   .social-home-compact{min-height:95px}
   .list-finish-shortcut{flex-direction:column;align-items:stretch;gap:4px;bottom:calc(62px + env(safe-area-inset-bottom));padding:7px 17px}
   .list-finish-shortcut .primary-button{width:100%;justify-content:center}
   .list-finish-shortcut>span{text-align:center}
+}
+
+/* The same workout tile is used for every workout, including the first. */
+.current-training-hero{padding-bottom:57px}
+.hero-manage-link{position:absolute;z-index:2;left:30px;bottom:19px;color:var(--lime);font-size:13px;font-weight:800;min-height:30px;display:flex;align-items:center}
+.home-page .workout-grid{align-items:stretch}
+.home-page .workout-tile{min-width:0}
+.settings-page .page-heading .back-link,.friends-page .page-heading .back-link{display:inline-flex;align-items:center;min-height:44px;margin-bottom:8px}
+.settings-menu{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.settings-menu a{position:relative;display:flex;flex-direction:column;gap:5px;min-height:108px;padding:17px 42px 17px 17px;background:#fff;border:1px solid var(--line);border-radius:16px}
+.settings-menu a:first-child{background:#e7f4ea}
+.settings-menu strong{font-size:16px}
+.settings-menu span{font-size:12px;line-height:1.35;color:var(--muted)}
+.settings-menu b{position:absolute;right:15px;top:15px;color:var(--teal);font-size:20px}
+.push-preferences label{min-height:44px}
+.history-undo-stack{position:fixed;z-index:46;left:50%;bottom:calc(73px + env(safe-area-inset-bottom));transform:translateX(-50%);width:min(calc(100% - 24px),520px);display:grid;gap:6px;max-height:40dvh;overflow:auto}
+.history-undo{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:var(--ink);color:#fff;border-radius:12px;box-shadow:0 5px 18px #17232335;font-size:13px;font-weight:700}
+.history-undo button{min-width:64px;min-height:44px;background:var(--lime);border:0;border-radius:9px;color:var(--ink);font-weight:800}
+.list-note-preview{width:100%;min-height:36px;padding:6px 0;border:0;background:transparent;color:var(--teal);font-size:12px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.focus-stage{gap:6px;padding:14px}
+.focus-detail-links{height:auto}
+.focus-detail-links button{min-height:44px}
+@media(max-width:700px){
+  .current-training-hero{min-height:181px;padding-bottom:47px}
+  .hero-manage-link{left:20px;bottom:8px;font-size:12px}
+  .settings-menu{grid-template-columns:1fr}
+  .settings-menu a{min-height:76px;padding:13px 42px 13px 15px}
+  .exercise-card{padding:10px 12px}
+  .exercise-head{gap:7px}
+  .exercise-number{margin-bottom:2px}
+  .exercise-prescription{margin-top:3px}
+  .load-reference{display:flex;flex-wrap:wrap;gap:6px 16px;margin:7px 0;padding:7px 0}
+  .load-reference div{gap:1px}
+  .load-reference strong{font-size:.86rem}
+  .load-field input{min-height:44px;font-size:1rem}
+  .exercise-actions{margin-top:2px}
+  .focus-stage{padding:12px}
 }

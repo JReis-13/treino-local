@@ -13,9 +13,12 @@ import { readSocialDiagnostics } from "@/lib/social/client";
 type Entry = { type: "session"; session: TrainingSession; date: string } | { type: "legacy"; legacy: LegacyCompletion; planId: string; planName: string; date: string };
 
 export default function HistoryPage() {
-  const { data, error } = useApp();
+  const { data, error, undoSessionDeletion, undoLegacyDeletion } = useApp();
   const [filter, setFilter] = useState("active");
   const [deletedMessage, setDeletedMessage] = useState("");
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer); }, []);
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("deleted") === "1")
       setDeletedMessage(readSocialDiagnostics().deleteOutboxCount ?
@@ -23,6 +26,8 @@ export default function HistoryPage() {
         "Workout record removed from this device. Source spreadsheets remain unchanged.");
   }, []);
   if (!data) return <div className="loading">Loading history…</div>;
+  const undoable = (data.pendingHistoryDeletions ?? []).filter((item) => Date.parse(item.expiresAt) > clock);
+  const undoableLegacy = (data.pendingLegacyDeletions ?? []).filter((item) => Date.parse(item.expiresAt) > clock);
   const planId = filter === "active" ? data.activePlanId : filter === "all" ? undefined : filter;
   const sessions = data.sessions.filter((item) => item.status === "completed" && (!planId || item.planId === planId));
   const entries: Entry[] = sessions.map((session) => ({ type: "session", session, date: session.localDate! }));
@@ -46,6 +51,12 @@ export default function HistoryPage() {
     return groups;
   }, []);
   return <div className="page-stack history-page"><div className="page-heading"><p className="eyebrow">YOUR PROGRESS</p><h1>History<span className="dot-accent">.</span></h1><p>Your sessions and imported dates, kept on this device.</p></div>
+    {(undoable.length > 0 || undoableLegacy.length > 0) && <div className="history-undo-stack" role="status" aria-live="polite">{undoable.map((item) =>
+      <div className="history-undo" key={item.session.id}><span>Workout deleted · {Math.max(1, Math.ceil((Date.parse(item.expiresAt) - clock) / 1000))}s</span>
+        <button type="button" onClick={() => undoSessionDeletion(item.session.id)}>Undo</button></div>)}
+      {undoableLegacy.map((item) => <div className="history-undo" key={`${item.planId}:${item.legacyId}`}>
+        <span>Imported date deleted · {Math.max(1, Math.ceil((Date.parse(item.expiresAt) - clock) / 1000))}s</span>
+        <button type="button" onClick={() => undoLegacyDeletion(item.planId, item.legacyId)}>Undo</button></div>)}</div>}
     {deletedMessage && <div className="context-note" role="status">{deletedMessage}</div>}
     {error && <div className="alert" role="alert">{error}</div>}
     <label className="date-field"><span>TRAINING PLAN</span><select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="active">Current training</option><option value="all">All training</option>{data.plans.map((plan) => <option value={plan.id} key={plan.id}>{plan.name}</option>)}</select></label>

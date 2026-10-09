@@ -52,6 +52,7 @@ test("production build and read-only navigation", async ({ page }) => {
     expect(new URL(page.url()).origin).toBe(new URL(origin).origin);
   }
   await page.goto(new URL("settings/", origin).toString());
+  await page.getByRole("navigation", { name: "Settings sections" }).getByRole("link", { name: /Diagnostics/ }).tap();
   await expect(page.getByRole("button", { name: "Download debug report" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Send diagnostics" })).toBeDisabled();
   await expect(page.getByText("Connect Google to send diagnostics.")).toBeVisible();

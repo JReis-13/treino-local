@@ -13,6 +13,7 @@ test("diagnostic events whitelist metadata and discard private values", () => {
     assert(!encoded.includes(secret));
   assert.equal(safeDiagnosticEvent("unknown_event"), null);
   assert.equal(safeDiagnosticEvent("app_error", { reason: "https://docs.google.com/private" })?.reason, "UNCLASSIFIED");
+  assert.equal(safeDiagnosticEvent("notification_shown", { reason: "FRIEND_WORKOUT" })?.reason, "FRIEND_WORKOUT");
 });
 test("diagnostic retention evicts oldest events by count and age", () => {
   const now = new Date("2026-10-06T12:00:00Z");

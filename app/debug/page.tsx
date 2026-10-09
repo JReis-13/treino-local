@@ -98,7 +98,7 @@ export default function DebugPage() {
     try { await navigator.clipboard.writeText(JSON.stringify(await collectDebugReport(data), null, 2)); setMessage("Safe diagnostic report copied."); }
     catch { setMessage("Clipboard unavailable. Use the values shown above."); }
   }
-  return <div className="page-stack"><div className="page-heading"><p className="eyebrow">LOCAL TROUBLESHOOTING</p><h1>Diagnostics.</h1><p>Use this on your phone when a button appears to do nothing. No credentials are shown here.</p></div>
+  return <div className="page-stack"><div className="page-heading"><Link className="back-link" href="/settings/#diagnostics">← Diagnostics</Link><p className="eyebrow">LOCAL TROUBLESHOOTING</p><h1>Diagnostics.</h1><p>Use this on your phone when a button appears to do nothing. No credentials are shown here.</p></div>
     <div className="debug-grid">{Object.entries({ ...environment,
       "SW registration": update.registration, "SW controller": update.controller,
       "SW installing": update.installing, "SW waiting": update.waiting, "SW active": update.active,
@@ -127,6 +127,5 @@ export default function DebugPage() {
     {message && <p className="context-note" role="status">{message}</p>}
     <button type="button" className="secondary-button" onClick={() => { setDiagnostics(readDiagnostics()); setSocial(readSocialDiagnostics()); setEnvironment((current) => ({ ...current, Online: String(navigator.onLine), Path: window.location.pathname })); }}>Refresh diagnostics</button>
     <button type="button" className="secondary-button" onClick={() => void copyReport()}>Copy diagnostics</button>
-    <Link className="back-link" href="/">← Home</Link>
   </div>;
 }

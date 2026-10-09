@@ -41,6 +41,7 @@ test("exercise detail, lazy video, local notes, timer and workout note work on a
     await page.screenshot({ path: testInfo.outputPath("exercise-note.png"), animations: "disabled" });
     await detail.getByRole("button", { name: "Close exercise details" }).tap();
     await page.reload();
+    await expect(squat.getByRole("button", { name: /Note: Seat position 4/ })).toBeVisible();
     await squat.getByRole("button", { name: "Details" }).tap();
     await detail.getByRole("tab", { name: "Notes" }).tap();
     await expect(detail.getByRole("textbox", { name: "EXERCISE NOTE" })).toHaveValue("Seat position 4; narrower grip next time.");
@@ -65,7 +66,7 @@ test("exercise detail, lazy video, local notes, timer and workout note work on a
     await detail.getByRole("button", { name: "Close exercise details" }).tap();
     await expect(page.locator("iframe")).toHaveCount(0);
     await squat.getByRole("checkbox", { name: /Complete Agachamento goblet/i }).tap();
-    await expect(squat.getByText(/Completed · tap circle to undo/)).toBeVisible();
+    await expect(squat.getByRole("checkbox", { name: /Reopen Agachamento goblet/i })).toBeVisible();
     await expect(squat.locator(".rest-suggestion")).toBeVisible();
     await squat.getByRole("button", { name: /Start \d+:/ }).tap();
     const bar = page.getByRole("group", { name: "Rest timer" });
@@ -105,6 +106,7 @@ test("exercise detail, lazy video, local notes, timer and workout note work on a
     await page.getByRole("link", { name: "Home", exact: true }).tap();
     await expect(page).toHaveURL("http://localhost:3000/");
     await page.getByRole("button", { name: "Start workout" }).first().tap();
+    await expect(squat.getByRole("button", { name: /Note: Seat position 4/ })).toBeVisible();
     await squat.getByRole("button", { name: "Details" }).tap();
     await detail.getByRole("tab", { name: "History" }).tap();
     await expect(detail.getByText("Highest comparable load")).toBeVisible();

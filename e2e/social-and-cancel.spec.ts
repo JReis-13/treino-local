@@ -144,9 +144,14 @@ test("Finish uses only final same-day IDs for social Add and Replace; Cancel and
     await page.getByRole("button", { name: "Start workout" }).click();
     await page.getByRole("link", { name: /Finish workout/ }).click();
   };
+  const expectPublishSettled = async (count: number) => {
+    await expect.poll(() => posts.length).toBe(count);
+    await expect.poll(() => page.evaluate(() =>
+      JSON.parse(localStorage.getItem("treino-social-outbox-v1") ?? "[]").length)).toBe(0);
+  };
   await begin();
   await page.getByRole("button", { name: /Save workout/ }).dblclick();
-  await expect.poll(() => posts.length).toBe(1);
+  await expectPublishSettled(1);
   const firstId = posts[0].clientSessionId;
   await begin();
   await page.getByRole("button", { name: /Save workout/ }).click();
@@ -156,14 +161,14 @@ test("Finish uses only final same-day IDs for social Add and Replace; Cancel and
   expect(posts).toHaveLength(1);
   await page.getByRole("button", { name: /Save workout/ }).click();
   await page.getByRole("button", { name: /Add another workout/ }).dblclick();
-  await expect.poll(() => posts.length).toBe(2);
+  await expectPublishSettled(2);
   const secondId = posts[1].clientSessionId;
   expect(secondId).not.toBe(firstId);
   await begin();
   await page.getByRole("button", { name: /Save workout/ }).click();
   await page.getByLabel("SESSION TO REPLACE").selectOption(firstId);
   await page.getByRole("button", { name: /Replace previous workout/ }).dblclick();
-  await expect.poll(() => posts.length).toBe(3);
+  await expectPublishSettled(3);
   expect(posts[2].clientSessionId).toBe(firstId);
   expect(posts[2].completedAt).not.toBe(posts[0].completedAt);
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2")!));

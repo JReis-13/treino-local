@@ -18,6 +18,7 @@ const TYPES = ["app_boot", "storage_migration", "plan_import_finished", "workout
   "active_session_initialized", "last_load_resolved", "today_load_manually_changed",
   "load_mapping_ambiguity_detected"] as const;
 const REASONS = new Set(["OK", "FAILED", "STORAGE_ERROR", "LEGACY", "WINDOW_ERROR", "UNHANDLED_REJECTION",
+  "FRIEND_WORKOUT", "REACTION",
   "REACTION_FAILED", "QUEUED", "SUCCESS", "NETWORK_ERROR", "OFFLINE_QUEUED",
   "NOT_COMPLETED", "DATE_MISSING", "DATE_MISMATCH", "PLAN_LINEAGE_MISMATCH", "MATCH_EXACT_ID",
   "MATCH_WORKOUT_LINEAGE", "WORKOUT_LINEAGE_MISMATCH", "LEGACY_IDENTITY_AMBIGUOUS", "MATCH_UNIQUE_TITLE",

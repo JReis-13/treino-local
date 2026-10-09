@@ -302,7 +302,7 @@ export default function SourcePage() {
     } finally { setBusy(false); }
   }
 
-  return <div className="page-stack"><div className="page-heading"><p className="eyebrow">OPTIONAL SOURCE</p><h1>Source sync<span className="dot-accent">.</span></h1><p>{plan.name} works locally even when this source is unavailable.</p></div>
+  return <div className="page-stack"><div className="page-heading"><Link className="back-link" href="/settings/#connections">← Connections & Sync</Link><p className="eyebrow">OPTIONAL SOURCE</p><h1>Source sync<span className="dot-accent">.</span></h1><p>{plan.name} works locally even when this source is unavailable.</p></div>
     {(message || error) && <div className={error ? "alert" : "context-note"} role="status">{error ?? message}</div>}
     <section className="connection-card"><p className="eyebrow">CONNECTED SOURCE</p><h2>{plan.source.kind === "builtin" ? "Local plan" : plan.source.filename}</h2><p>{plan.source.kind === "google" ? plan.source.authMode === "oauth" ? "Google Sheet · connected with Google" : "Google Sheet · legacy connector" : plan.source.kind === "excel" ? `${selected?.mode === "direct" ? "Direct connected file" : selected ? "Safe-copy mode" : "Reconnect when ready"} · ${plan.source.template}` : "No external sync source is attached."}</p>
       {plan.source.kind === "excel" && <div className="connection-actions"><button type="button" className="primary-button" disabled={busy} onClick={() => void selectExcel()}>Connect workbook →</button>{directAvailable && <button type="button" className="secondary-button" disabled={busy} onClick={() => void selectExcel(true)}>Use safe copy instead</button>}</div>}
@@ -315,6 +315,5 @@ export default function SourcePage() {
       {plan.source.kind === "excel" && <button type="button" className="primary-button" disabled={busy || !selected || !pending.length || syncBlocked} onClick={() => void syncExcel()}>{busy ? "Checking workbook…" : selected?.mode === "direct" ? "Sync pending workouts" : "Save updated workbook copy"} →</button>}
       {plan.source.kind === "google" && plan.source.authMode === "oauth" && <button type="button" className="primary-button" disabled={busy || !googleConnected || !plan.source.syncEnabled || !pending.length || syncBlocked} onClick={() => void syncGoogle()}>{busy ? "Checking Google Sheet…" : "Sync pending workouts"} →</button>}
       <p className="quiet-note">{plan.source.kind === "excel" && selected?.mode === "direct" ? "This selected file will be updated directly only after permission and readback checks." : plan.source.kind === "excel" ? "Safe-copy mode downloads a new file. Your selected file is not overwritten." : "Local sessions remain completed if Google is unavailable or sync fails."}</p></section>
-    <Link className="back-link" href="/plans/">← Training plans</Link>
   </div>;
 }

@@ -51,7 +51,19 @@ test("History deletion is confirmed, local-first and keeps the source record", a
   await page.getByRole("dialog").getByRole("button", { name: "Delete record" }).click();
   await expect(page).toHaveURL(/\/history\??/);
   expect((await page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2")!))).sessions).toHaveLength(0);
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("treino-social-delete-outbox-v1") ?? "[]").length)).toBe(1);
+  await expect(page.getByRole("button", { name: "Undo" })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("history-undo.png"), animations: "disabled" });
+  expect((await page.evaluate(() => JSON.parse(localStorage.getItem("treino-social-delete-outbox-v1") ?? "[]"))).length).toBe(0);
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.getByRole("link", { name: /Workout A/ })).toBeVisible();
+  expect((await page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2")!))).sessions).toHaveLength(1);
+  await context.setOffline(false);
+  await page.getByRole("link", { name: /Workout A/ }).click();
+  await context.setOffline(true);
+  await page.getByRole("button", { name: "Delete workout record" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete record" }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("treino-social-delete-outbox-v1") ?? "[]").length),
+    { timeout: 22_000 }).toBe(1);
   await context.setOffline(false);
 });
 
@@ -59,6 +71,8 @@ test("Settings exposes local diagnostics download and clear controls", async ({ 
   await page.addInitScript((value) => localStorage.setItem("treino-local:v2", JSON.stringify(value)), seed);
   await page.route("**/api/social/me", (route) => route.fulfill({ status: 401, json: { error: "not connected" } }));
   await page.goto("/settings/");
+  await expect(page.getByRole("navigation", { name: "Settings sections" }).getByRole("link", { name: /Friends & Notifications/ })).toBeVisible();
+  await page.getByRole("navigation", { name: "Settings sections" }).getByRole("link", { name: /Diagnostics/ }).click();
   await expect(page.getByRole("button", { name: "Download debug report" })).toBeVisible();
   await page.reload();
   await page.screenshot({ path: testInfo.outputPath("settings-diagnostics.png"), animations: "disabled" });

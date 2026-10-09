@@ -30,9 +30,11 @@ test("offline completion reconciles on reconnect and stays synced after reload",
   await page.getByRole("button", { name: /Save workout/ }).tap();
   await page.getByRole("link", { name: "Not now" }).tap();
   await page.getByRole("link", { name: "Home", exact: true }).tap();
-  await expect(page.getByText(/1 workout waiting to sync/)).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator(".current-training-hero")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2")!).sessions[0].syncStatus)).toBe("pending");
   await page.reload();
-  await expect(page.getByText(/1 workout waiting to sync/)).toBeVisible();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2")!).sessions[0].syncStatus)).toBe("pending");
   expect(dateWrites).toBe(0);
   await context.setOffline(false);
   await page.evaluate(() => window.dispatchEvent(new Event("online")));

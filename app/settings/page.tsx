@@ -30,6 +30,10 @@ export default function SettingsPage() {
   const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
   const [diagnosticsMessage, setDiagnosticsMessage] = useState("");
   const [diagnosticCode, setDiagnosticCode] = useState("");
+  const [section, setSection] = useState("");
+  useEffect(() => { const read = () => setSection(window.location.hash.slice(1));
+    read(); window.addEventListener("hashchange", read); window.addEventListener("popstate", read);
+    return () => { window.removeEventListener("hashchange", read); window.removeEventListener("popstate", read); }; }, []);
   useEffect(() => { try { setHasSafetySnapshot(Boolean(localStorage.getItem(SAFETY_SNAPSHOT_KEY))); } catch { /* Storage status is shown on restore. */ } }, []);
   useEffect(() => {
     googleStatus().then((status) => { setGoogleConnected(status.connected); setGoogleEmail(status.email); })
@@ -66,11 +70,20 @@ export default function SettingsPage() {
   }
 
   if (!data) return <div className="loading">Loading local settings…</div>;
-  return <div className="page-stack"><div className="page-heading"><p className="eyebrow">ON THIS DEVICE</p><h1>Settings<span className="dot-accent">.</span></h1><p>Keep a copy of your plans and workout history. Google credentials are excluded.</p></div>
+  return <div className="page-stack settings-page"><div className="page-heading"><Link className="back-link" href={section ? "/settings/" : "/"} onClick={() => setSection("")}>← {section ? "Settings" : "Home"}</Link><p className="eyebrow">ON THIS DEVICE</p><h1>{section === "connections" ? "Connections & Sync" : section === "data" ? "Data & Backup" : section === "diagnostics" ? "Diagnostics" : section === "about" ? "About" : "Settings"}<span className="dot-accent">.</span></h1>{!section && <p>Find the controls you need.</p>}</div>
     {(message || error) && <div className={error ? "alert" : "context-note"} role="status">{error ?? message}</div>}
+    {!section && <nav className="settings-menu" aria-label="Settings sections">
+      <Link href="/settings/friends/"><strong>Friends & Notifications</strong><span>Manage friends, sharing and push preferences</span><b>→</b></Link>
+      <Link href="#connections" onClick={() => setSection("connections")}><strong>Connections & Sync</strong><span>Google account, training sources and pending sync</span><b>→</b></Link>
+      <Link href="#data" onClick={() => setSection("data")}><strong>Data & Backup</strong><span>Export, import and restore local data</span><b>→</b></Link>
+      <Link href="#diagnostics" onClick={() => setSection("diagnostics")}><strong>Diagnostics</strong><span>Send, download and clear technical logs</span><b>→</b></Link>
+      <Link href="#about" onClick={() => setSection("about")}><strong>About</strong><span>App version and PWA information</span><b>→</b></Link>
+    </nav>}
+    {section === "connections" && <>
     <section className="review-card"><p className="eyebrow">GOOGLE SHEETS</p><h2>{googleConnected ? "Google account connected" : "Not connected"}</h2>{googleConnected && googleEmail && <p className="quiet-note">{googleEmail}</p>}<p className="quiet-note">Connect once, then import each training by pasting its Google Sheets URL. Your workout history stays on this device.</p><div className="connection-actions">{googleConnected ? <button type="button" className="secondary-button" onClick={() => void (async () => { try { await disconnectGoogle(); clearSocialPreference(); setGoogleConnected(false); setGoogleEmail(undefined); setMessage("Google disconnected. Plans and workout history remain saved locally. Reconnect to resume sync."); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Could not disconnect Google."); } })()}>Disconnect Google</button> : <button type="button" className="primary-button" onClick={() => connectGoogle("/settings")}>{message.includes("não está autorizada") ? "Tentar outra conta Google →" : "Connect Google →"}</button>}<Link className="secondary-button" href="/plans/">Training plans →</Link></div></section>
     <Link className="secondary-button" href="/source/">Source sync and pending updates →</Link>
-    <Link className="secondary-button" href="/settings/friends/">Friends and workout sharing →</Link>
+    </>}
+    {section === "diagnostics" && <>
     <section className="review-card diagnostics-settings"><p className="eyebrow">ON THIS DEVICE</p><h2>Diagnostics</h2>
       <p className="quiet-note">Treino Local keeps a small local technical log to help diagnose problems. The report excludes credentials, notes, exact loads and source links. Nothing is uploaded automatically.</p>
       <div className="connection-actions"><button type="button" className="primary-button" disabled={diagnosticsBusy} onClick={() => void (async () => {
@@ -107,14 +120,14 @@ export default function SettingsPage() {
       <button type="button" className="inline-action" onClick={() => void retrySocialDeletionsForCurrentAccount().then(() =>
         setDiagnosticsMessage("Pending Friends deletions checked for this Google account.")).catch(() =>
         setDiagnosticsMessage("Could not check Friends deletions right now."))}>Retry pending Friends deletions</button></div>
-    </section>
-    <section className="review-card"><h2>Data backup</h2><p className="quiet-note">Export includes saved plans, versions, sessions and history. It excludes Google tokens and legacy connector credentials. A restored Google plan needs Google connected before syncing.</p>
+    </section></>}
+    {section === "data" && <section className="review-card"><h2>Data backup</h2><p className="quiet-note">Export includes saved plans, versions, sessions and history. It excludes Google tokens and legacy connector credentials. A restored Google plan needs Google connected before syncing.</p>
       <div className="connection-actions"><button type="button" className="primary-button" onClick={() => { try { downloadJson(createBackup(data), `treino-local-backup-${new Date().toISOString().slice(0, 10)}.json`); setMessage("Backup download started."); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Backup export failed."); } }}>Export backup</button>
         <button type="button" className="secondary-button" onClick={() => picker.current?.click()}>Import backup</button></div>
       {hasSafetySnapshot && <button type="button" className="inline-action" onClick={() => { try { const raw = localStorage.getItem(SAFETY_SNAPSHOT_KEY); if (!raw) throw new Error("Safety snapshot is unavailable."); downloadJson(createBackup(parseTrainingData(raw)), "treino-local-before-restore.json"); setMessage("Safety snapshot download started."); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Could not export safety snapshot."); } }}>Download previous data safety snapshot</button>}
       <input ref={picker} type="file" accept=".json,application/json" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void inspect(file); else setMessage("File selection cancelled."); event.target.value = ""; }} />
       {candidate && <div className="context-note"><strong>Validated backup from {new Date(candidate.createdAt).toLocaleString()}</strong><span>{candidate.data.plans.length} plans · {candidate.data.sessions.filter((session) => session.status === "completed").length} completed sessions · {candidate.data.sessions.filter((session) => session.status === "inProgress").length} in-progress sessions</span><span>Restoring replaces current local data after a safety snapshot is saved.</span><button type="button" className="primary-button" onClick={restore}>Restore this backup</button><button type="button" className="secondary-button" onClick={() => { setCandidate(null); setMessage("Restore cancelled."); }}>Cancel</button></div>}
-    </section>
-    <Link className="back-link" href="/">← Home</Link>
+    </section>}
+    {section === "about" && <section className="review-card"><h2>Treino Local</h2><p className="quiet-note">Version 0.2.0 · Build {process.env.NEXT_PUBLIC_TREINO_BUILD_ID ?? "development"}</p><p className="quiet-note">Your workouts and notes are saved on this device. Install the app from your browser menu for a home-screen experience.</p></section>}
   </div>;
 }

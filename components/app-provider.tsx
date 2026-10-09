@@ -11,7 +11,8 @@ import { extendRest, pauseRest, resumeRest, skipRest, startRest } from "@/lib/tr
 import { trainingStorage } from "@/lib/training/storage";
 import { activateQueuedSocialDeletion, flushSocialOutbox, queueSocialActivity, queueSocialDeletion,
   reconcileQueuedSocialDeletions, refreshSocialPreference, undoQueuedSocialDeletion } from "@/lib/social/client";
-import { completedSessionForDeletion, deleteCompletedHistory, deleteLegacyHistory } from "@/lib/training/history-delete";
+import { completedSessionForDeletion, finalizeHistoryDeletion, finalizeLegacyHistoryDeletion, stageHistoryDeletion,
+  stageLegacyHistoryDeletion, undoHistoryDeletion, undoLegacyHistoryDeletion } from "@/lib/training/history-delete";
 import { plannedCompletionSlot } from "@/lib/sync/logic";
 import { recordDiagnosticEvent } from "@/lib/diagnostic-log";
 import type { ImportedTraining, SourceSyncStatus, TrainingData, TrainingSession, TrainingSource } from "@/types/training";
@@ -22,7 +23,9 @@ interface AppContextValue {
   start(planId: string, workoutId: string): TrainingSession | null;
   cancel(sessionId: string): boolean;
   deleteSession(sessionId: string): boolean;
+  undoSessionDeletion(sessionId: string): boolean;
   deleteLegacy(planId: string, legacyId: string): boolean;
+  undoLegacyDeletion(planId: string, legacyId: string): boolean;
   updateBlock(sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }): void;
   moveBlockLater(sessionId: string, blockId: string): void;
   restoreQueue(sessionId: string, queueOrder: string[], focusBlockId?: string): void;
@@ -61,7 +64,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const loaded = trainingStorage.load();
-    if (!loaded.error) reconcileQueuedSocialDeletions(new Set(loaded.data.sessions.map((session) => session.id)));
+    if (!loaded.error) reconcileQueuedSocialDeletions(new Set([...loaded.data.sessions.map((session) => session.id),
+      ...(loaded.data.pendingHistoryDeletions ?? []).map((item) => item.session.id)]));
     dataRef.current = loaded.data;
     storageBlocked.current = Boolean(loaded.error);
     setData(loaded.data);
@@ -119,19 +123,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!dataRef.current || !completedSessionForDeletion(dataRef.current, sessionId)) {
       setError("Completed workout record not found."); return false;
     }
-    if (!queueSocialDeletion(sessionId)) {
-      setError("Could not prepare Friends deletion on this device. The workout was left intact."); return false;
-    }
-    const saved = commit((current) => deleteCompletedHistory(current, sessionId));
-    if (saved) { recordDiagnosticEvent("history_deleted", { sessionId }); activateQueuedSocialDeletion(sessionId); }
-    else undoQueuedSocialDeletion(sessionId);
+    const saved = commit((current) => stageHistoryDeletion(current, sessionId));
+    if (saved) recordDiagnosticEvent("history_deleted", { sessionId });
     return saved;
   }, [commit]);
+  const undoSessionDeletion = useCallback((sessionId: string): boolean =>
+    commit((current) => undoHistoryDeletion(current, sessionId)), [commit]);
+
+  const finalizeDueHistoryDeletions = useCallback(() => {
+    for (const item of dataRef.current?.pendingHistoryDeletions ?? []) {
+      if (Date.parse(item.expiresAt) > Date.now()) continue;
+      if (!queueSocialDeletion(item.session.id)) {
+        setError("Could not queue Friends deletion. This workout remains recoverable locally; retry when storage is available.");
+        continue;
+      }
+      if (commit((current) => finalizeHistoryDeletion(current, item.session.id)))
+        activateQueuedSocialDeletion(item.session.id);
+      else undoQueuedSocialDeletion(item.session.id);
+    }
+    for (const item of dataRef.current?.pendingLegacyDeletions ?? []) {
+      if (Date.parse(item.expiresAt) <= Date.now())
+        commit((current) => finalizeLegacyHistoryDeletion(current, item.planId, item.legacyId));
+    }
+  }, [commit]);
+  useEffect(() => {
+    const pending = [...(data?.pendingHistoryDeletions ?? []), ...(data?.pendingLegacyDeletions ?? [])];
+    const next = pending.reduce((earliest, item) => Math.min(earliest, Date.parse(item.expiresAt)), Infinity);
+    const timer = Number.isFinite(next) ? window.setTimeout(finalizeDueHistoryDeletions,
+      Math.max(0, next - Date.now())) : null;
+    const resume = () => { if (document.visibilityState === "visible") finalizeDueHistoryDeletions(); };
+    window.addEventListener("online", finalizeDueHistoryDeletions);
+    document.addEventListener("visibilitychange", resume);
+    return () => { if (timer !== null) window.clearTimeout(timer);
+      window.removeEventListener("online", finalizeDueHistoryDeletions);
+      document.removeEventListener("visibilitychange", resume); };
+  }, [data, finalizeDueHistoryDeletions]);
   const deleteLegacy = useCallback((planId: string, legacyId: string): boolean => {
-    const saved = commit((current) => deleteLegacyHistory(current, planId, legacyId));
+    const saved = commit((current) => stageLegacyHistoryDeletion(current, planId, legacyId));
     if (saved) recordDiagnosticEvent("history_deleted", { reason: "LEGACY" });
     return saved;
   }, [commit]);
+  const undoLegacyDeletion = useCallback((planId: string, legacyId: string): boolean =>
+    commit((current) => undoLegacyHistoryDeletion(current, planId, legacyId)), [commit]);
 
   const updateBlock = useCallback((sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }) => {
     if (commit((current) => updateTrainingBlock(current, sessionId, blockId, change))) {
@@ -439,7 +472,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not restore local data."); return false; }
   }, []);
 
-  return <AppContext.Provider value={{ data, error, start, cancel, deleteSession, deleteLegacy, updateBlock, moveBlockLater, restoreQueue, skipBlock, setFocus, correctSessionLoad, finish,
+  return <AppContext.Provider value={{ data, error, start, cancel, deleteSession, undoSessionDeletion, deleteLegacy, undoLegacyDeletion, updateBlock, moveBlockLater, restoreQueue, skipBlock, setFocus, correctSessionLoad, finish,
     saveExerciseNote, startRestTimer, pauseRestTimer, resumeRestTimer, extendRestTimer, skipRestTimer,
     addPlan, refreshPlan, migrateGooglePlan,
     setActivePlan, renamePlan, removePlan, updateSource, setSyncStatus, setSessionSync, applySourceLoads,

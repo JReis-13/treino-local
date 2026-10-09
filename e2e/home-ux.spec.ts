@@ -21,7 +21,7 @@ test("Home places Friends between Current Training and workout choice on four ph
     return route.fulfill({ json: { friends: [] } });
   });
   for (const [label, width, height] of [["narrow", 320, 640], ["pixel", 412, 915],
-    ["android", 393, 873], ["iphone", 390, 844]] as const) {
+    ["android", 393, 873], ["wide", 430, 932], ["iphone", 390, 844]] as const) {
     await page.setViewportSize({ width, height });
     await page.goto("/");
     await expect(page.getByRole("region", { name: "Friends" })).toContainText("Milena");
@@ -33,6 +33,14 @@ test("Home places Friends between Current Training and workout choice on four ph
     });
     expect(order).toEqual([...order].sort((a, b) => a - b));
     expect(order.every((index) => index >= 0)).toBe(true);
+    const cards = page.locator(".workout-tile");
+    await expect(cards).toHaveCount(2);
+    const sizes = await cards.locator("h3").evaluateAll((headings) => headings.map((heading) =>
+      getComputedStyle(heading).fontSize));
+    expect(sizes[0]).toBe(sizes[1]);
+    await expect(page.locator(".current-training-hero .hero-manage-link")).toBeVisible();
+    await expect(page.locator(".home-page .source-choice-card")).toHaveCount(0);
+    await expect(page.locator(".home-page .mini-panel")).toHaveCount(1);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`home-${label}.png`), fullPage: true, animations: "disabled" });
   }

@@ -156,13 +156,26 @@ export function parseTrainingData(raw: string): TrainingData {
       !value.hiddenLegacyCompletions.every((item: unknown) => record(item) && typeof item.planId === "string" &&
         typeof item.id === "string" && typeof item.workoutId === "string" && typeof item.sourceSlot === "string" &&
         typeof item.date === "string" && isLocalDate(item.date)))) ||
+    (value.pendingHistoryDeletions !== undefined && (!Array.isArray(value.pendingHistoryDeletions) ||
+      !value.pendingHistoryDeletions.every((item: unknown) => record(item) && validSession(item.session) &&
+        (item.session as TrainingSession).status === "completed" && typeof item.expiresAt === "string" &&
+        Number.isFinite(Date.parse(item.expiresAt))))) ||
+    (value.pendingLegacyDeletions !== undefined && (!Array.isArray(value.pendingLegacyDeletions) ||
+      !value.pendingLegacyDeletions.every((item: unknown) => record(item) && typeof item.planId === "string" &&
+        typeof item.legacyId === "string" && typeof item.expiresAt === "string" &&
+        Number.isFinite(Date.parse(item.expiresAt))))) ||
     new Set(value.plans.map((plan: TrainingPlanRecord) => plan.id)).size !== value.plans.length ||
-    new Set(value.sessions.map((session: TrainingSession) => session.id)).size !== value.sessions.length) {
+    new Set(value.sessions.map((session: TrainingSession) => session.id)).size !== value.sessions.length ||
+    new Set([...(value.sessions as TrainingSession[]).map((session) => session.id),
+      ...((value.pendingHistoryDeletions ?? []) as Array<{session: TrainingSession}>).map((item) => item.session.id)]).size !==
+      value.sessions.length + (value.pendingHistoryDeletions?.length ?? 0)) {
     throw new Error("Saved training data is invalid. It was left untouched.");
   }
   return { ...value, schemaVersion: 5, exerciseNotes: value.exerciseNotes ?? [],
     plans: (value.plans as TrainingPlanRecord[]).map((plan) => ({ ...plan, workouts: plan.workouts.map((workout) => ({
       ...workout, blocks: uniqueBlockIds(workout.blocks).blocks })) })),
+    pendingHistoryDeletions: (value.pendingHistoryDeletions as TrainingData["pendingHistoryDeletions"] | undefined)?.map((item) =>
+      ({ ...item, session: withSyncStatus(repairSessionIds(item.session), {}) })),
     sessions: (value.sessions as TrainingSession[]).map(repairSessionIds).map((session) => {
       const plan = (value.plans as TrainingPlanRecord[]).find((item) => item.id === session.planId);
       const compatible = { ...session, planVersion: session.planVersion ?? plan?.version ?? 1 };

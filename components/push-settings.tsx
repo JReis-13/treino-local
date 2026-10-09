@@ -65,6 +65,9 @@ export function PushSettings() {
       <label><input type="checkbox" checked={status.friendWorkouts} onChange={(event) => void preference("friendWorkouts", event.target.checked)} /> Friend workouts</label>
       <label><input type="checkbox" checked={status.reactions} onChange={(event) => void preference("reactions", event.target.checked)} /> Reactions</label>
     </fieldset>}
+    {status?.configured && supported && <button type="button" className="inline-action" disabled={busy} onClick={() =>
+      void refresh().then(() => setMessage("Device and preferences checked. No notification was sent.")).catch(() =>
+        setMessage("Could not check notification status right now."))}>Check notification status</button>}
     {message && <p role="status" className="quiet-note">{message}</p>}
   </section>;
 }

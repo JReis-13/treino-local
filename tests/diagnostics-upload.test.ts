@@ -45,6 +45,17 @@ test("support report rejects wrong version and bounds event count", () => {
   assert.equal(MAX_DIAGNOSTIC_UPLOAD_BYTES, 131072);
 });
 
+test("server keeps only safe push event-kind codes", () => {
+  const report = sanitizeDebugReport({ debugReportVersion: 1, events: [
+    { type: "push_received", timestamp: "2026-10-09T04:36:20Z", reason: "FRIEND_WORKOUT", payload: "PRIVATE_WORKOUT" },
+    { type: "notification_shown", timestamp: "2026-10-09T04:36:21Z", reason: "REACTION", endpoint: "SECRET_ENDPOINT" },
+  ] });
+  assert.deepEqual((report.events as Array<{ reason: string }>).map((event) => event.reason),
+    ["FRIEND_WORKOUT", "REACTION"]);
+  assert(!JSON.stringify(report).includes("PRIVATE_WORKOUT"));
+  assert(!JSON.stringify(report).includes("SECRET_ENDPOINT"));
+});
+
 test("support codes are random, short and contain no database identity", () => {
   const codes = Array.from({ length: 100 }, reportCode);
   assert.equal(new Set(codes).size, codes.length);

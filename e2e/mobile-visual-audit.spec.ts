@@ -23,7 +23,9 @@ test("capture the eight core phone surfaces without horizontal overflow", async 
         completedAt: now.toISOString(), localDate: date, blocks: progress.map((block, index) => ({ ...block, completed: index < 2 })),
         queueOrder: ["a", "b", "c", "d"], syncStatus: "notApplicable", sessionNote: "Felt strong today." },
     ];
-    localStorage.setItem("treino-local:v2", JSON.stringify({ schemaVersion: 5, activePlanId: plan.id, plans: [plan], sessions, exerciseNotes: [] }));
+    localStorage.setItem("treino-local:v2", JSON.stringify({ schemaVersion: 5, activePlanId: plan.id, plans: [plan], sessions,
+      exerciseNotes: [{ planId: plan.id, exerciseKey: "single leg romanian deadlift with a longer exercise name",
+        text: "Keep the hip level and move slowly.", updatedAt: now.toISOString() }] }));
   });
   async function capture(name: string) {
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
@@ -32,6 +34,8 @@ test("capture the eight core phone surfaces without horizontal overflow", async 
   await page.goto("/workout/?id=A");
   await expect(page.getByRole("button", { name: "Focus", exact: true })).toBeVisible();
   await capture("workout-list");
+  await expect(page.getByRole("button", { name: /Note: Keep the hip level/ })).toBeVisible();
+  await capture("list-note-preview-and-no-load");
   await page.getByRole("button", { name: "Focus", exact: true }).click();
   await capture("workout-focus");
   await page.getByRole("button", { name: "Add note & history" }).click();
@@ -39,6 +43,10 @@ test("capture the eight core phone surfaces without horizontal overflow", async 
   await capture("exercise-detail");
   await page.getByRole("button", { name: "Close exercise details" }).click();
   await page.getByRole("button", { name: "Mark complete" }).click();
+  await capture("completed-workout-card");
+  await page.getByRole("button", { name: "List", exact: true }).click();
+  await capture("completed-list-card");
+  await page.getByRole("button", { name: "Focus", exact: true }).click();
   await page.getByRole("button", { name: /Start 2:00 rest/ }).click();
   await capture("active-timer");
   await page.getByRole("group", { name: "Rest timer" }).getByRole("button", { name: "Skip" }).click();
@@ -55,4 +63,10 @@ test("capture the eight core phone surfaces without horizontal overflow", async 
   await page.goto("/plans/");
   await expect(page.getByRole("heading", { name: /Training plans/ })).toBeVisible();
   await capture("plans");
+  await page.goto("/history/session/?id=visual-history");
+  await page.getByRole("button", { name: "Delete workout record" }).click();
+  await capture("history-delete-confirmation");
+  await page.getByRole("dialog").getByRole("button", { name: "Delete record" }).click();
+  await expect(page.getByRole("button", { name: "Undo" })).toBeVisible();
+  await capture("history-undo-snackbar");
 });
