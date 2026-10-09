@@ -99,7 +99,32 @@ try {
   const afterSecondA = await call(1, "home");
   assert.equal(afterSecondA.data.activities[0].workoutName, "Workout A");
   assert.equal(afterSecondA.data.activities[0].completedAt, secondA.completedAt);
+  assert.equal(afterSecondA.data.activities[0].myReaction, null, "new Add does not inherit an older reaction");
   const secondId = afterSecondA.data.activities[0].id;
+  const historyFirst = await call(1, `friends/${friendshipId}/history`);
+  assert.equal(historyFirst.status, 200);
+  assert.equal(historyFirst.data.activities[0].id, secondId, "Home latest equals friend history first");
+  assert.equal(historyFirst.data.activities.find((item) => item.id === id)?.myReaction, "💪",
+    "the older activity keeps its own selected reaction");
+  assert.equal((await call(2, `friends/${friendshipId}/history`)).status, 404,
+    "an unrelated account cannot enumerate shared workouts");
+  assert(!JSON.stringify(historyFirst.data).includes("PRIVATE"));
+  for (let index = 0; index < 22; index++) {
+    await sql`insert into treino_social.workout_activities
+      (id, user_id, client_session_id, workout_name, completed_at, local_date,
+       duration_minutes, completed_exercises, total_exercises, manual_shared)
+      values (${randomUUID()}, ${accountA}, ${`${marker}-history-${index}`}, 'Older workout',
+        ${new Date(Date.parse("2026-09-01T08:00:00Z") + index * 60000)}, '2026-09-01',
+        30, 2, 2, false)`;
+  }
+  const historyPage1 = await call(1, `friends/${friendshipId}/history`);
+  assert.equal(historyPage1.data.activities.length, 20);
+  assert(historyPage1.data.nextCursor);
+  const historyPage2 = await call(1, `friends/${friendshipId}/history?cursor=${encodeURIComponent(historyPage1.data.nextCursor)}`);
+  assert.equal(historyPage2.status, 200);
+  assert.equal(new Set([...historyPage1.data.activities, ...historyPage2.data.activities].map((item) => item.id)).size,
+    historyPage1.data.activities.length + historyPage2.data.activities.length, "keyset pages do not overlap");
+  assert.equal(historyPage2.data.nextCursor, null);
   assert.notEqual(secondId, id);
   assert.equal((await call(1, `activities/${secondId}/reaction`, "PUT", { emoji: "🔥" })).status, 200);
   assert.equal((await call(1, "home")).data.activities[0].reactions["🔥"], 1);
@@ -147,8 +172,11 @@ try {
   assert.equal((await call(0, "activities", "DELETE", { clientSessionId: secondA.clientSessionId })).status, 200);
   assert.equal((await sql`select count(*)::int as total from treino_social.activity_reactions where activity_id = ${secondId}`)[0].total, 0);
   assert.equal((await call(1, "home")).data.activities.some((item) => item.id === secondId), false);
+  const historyAfterDelete = await call(1, `friends/${friendshipId}/history`);
+  assert.equal(historyAfterDelete.data.activities.some((item) => item.id === secondId), false);
   assert.equal((await call(0, "friends", "DELETE", { id: friendshipId })).status, 200);
   assert.equal((await call(1, "home")).data.activities.length, 0);
+  assert.equal((await call(1, `friends/${friendshipId}/history`)).status, 404);
   assert.equal((await call(1, `activities/${secondId}/reaction`, "PUT", { emoji: "🔥" })).status, 404);
   const initialPush = await pushCall(1, "status");
   assert.equal(initialPush.status, 200);

@@ -13,6 +13,7 @@ export interface PublishActivity {
 }
 export interface SocialActivity {
   id: string;
+  friendshipId?: string;
   displayName: string;
   workoutName: string;
   completedAt: string;

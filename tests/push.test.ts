@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import postgres from "postgres";
 import webpush from "web-push";
 import { publishActivity, setReaction } from "../lib/social/server";
-import { detachPushDevice, sendFriendWorkoutPush, sendReactionPush, validateSubscription, vapidConfigured,
+import { detachPushDevice, sendFriendWorkoutPush, sendPushSelfTest, sendReactionPush, validateSubscription, vapidConfigured,
   type PushTransport } from "../lib/push/server";
 
 test("subscription validation rejects private endpoints and malformed keys", () => {
@@ -35,7 +35,7 @@ test("isolated Postgres push lifecycle: new, retry, Replace, Add, reaction, pref
   const send: PushTransport = async (target, payload) => {
     const parsed = JSON.parse(payload) as { type: string; body: string; tag: string };
     assert.equal(parsed.body.includes("@"), false);
-    assert(parsed.tag.startsWith(parsed.type === "reaction" ? "reaction:" : "friend-workout:"));
+    assert(parsed.tag.startsWith(parsed.type === "reaction" ? "reaction:" : parsed.type === "test" ? "test:" : "friend-workout:"));
     calls.push({ endpoint: target.endpoint, type: parsed.type });
     if (target.id === b2) throw { statusCode: 410 };
   };
@@ -78,6 +78,11 @@ test("isolated Postgres push lifecycle: new, retry, Replace, Add, reaction, pref
     assert.equal(await setReaction(b, first.activityId, "❤️"), true);
     await sendReactionPush(first.activityId, b, "❤️", randomUUID(), send);
     assert.equal(calls.filter((call) => call.type === "reaction").length, 2);
+    const selfTest = await sendPushSelfTest(b, b1, send);
+    assert.equal(selfTest.accepted, true);
+    assert.match(selfTest.traceId, /^[0-9a-f-]{36}$/);
+    await assert.rejects(() => sendPushSelfTest(b, b1, send), /10 minutes/);
+    await assert.rejects(() => sendPushSelfTest(a, b1, send), /Enable notifications/);
     assert.equal(await setReaction(b, first.activityId, null), false);
     await sql`insert into treino_social.push_preferences (user_id, friend_workouts, reactions)
       values (${a}, true, false)`;

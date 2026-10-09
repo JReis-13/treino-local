@@ -143,6 +143,11 @@ export default function PlansPage() {
     if (!preview || preview.imported.warnings.some((warning) => warning.severity === "activationBlocker")) return;
     setBusy(true);
     try {
+      const oldPlan = updateTargetId ? data?.plans.find((item) => item.id === updateTargetId) : undefined;
+      const sourceRemoved = oldPlan?.source.kind === "google" && preview.imported.source.kind === "google" &&
+        oldPlan.source.spreadsheetId === preview.imported.source.spreadsheetId ?
+        oldPlan.legacyCompletions.filter((item) => !preview.imported.legacyCompletions.some((next) =>
+          next.workoutId === item.workoutId && next.sourceSlot === item.sourceSlot && next.date === item.date)).length : 0;
       let planId: string | null;
       if (updateTargetId && preview.migration && preview.imported.source.kind === "google") {
         planId = migrateGooglePlan(updateTargetId, preview.imported) ? updateTargetId : null;
@@ -150,7 +155,8 @@ export default function PlansPage() {
       } else planId = updateTargetId ? (refreshPlan(updateTargetId, preview.imported) ? updateTargetId : null) : addPlan(preview.imported, name);
       if (!planId) throw new Error("The training could not be saved locally.");
       if (preview.handle) await saveFileHandle(planId, preview.handle).catch(() => setMessage("File handle could not be remembered. Reconnect when syncing."));
-      setActivePlan(planId); setPreview(null); setMigrationId(undefined); sessionStorage.removeItem("treino-google-migration-id"); router.push("/");
+      setActivePlan(planId); setPreview(null); setMigrationId(undefined); sessionStorage.removeItem("treino-google-migration-id");
+      router.push(sourceRemoved > 0 ? "/history/?reconciled=1" : "/");
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Could not save training."); }
     finally { setBusy(false); }
   }
@@ -188,6 +194,15 @@ export default function PlansPage() {
       {syncBlocked && !activationBlocked && <p className="context-note">Training is available locally; source sync needs mapping review.</p>}
       {notes.length > 0 && <details className="review-warnings"><summary>{notes.length} import note{notes.length === 1 ? "" : "s"} · View details</summary>{notes.map((warning, index) => <p key={`${warning.code}-${index}`}>{warning.message} <small>({warning.location})</small></p>)}</details>}
       {preview.targetId && <div className="context-note"><strong>{preview.migration ? "Legacy migration" : "Training update"}</strong><span>{preview.migration ? "Plan identity and local sessions are preserved." : describeChanges(data.plans.find((plan) => plan.id === preview.targetId)!, preview.imported).join(" · ")}</span></div>}
+      {preview.targetId && preview.imported.source.kind === "google" && (() => {
+        const prior = data.plans.find((item) => item.id === preview.targetId);
+        if (!prior || prior.source.kind !== "google" || prior.source.spreadsheetId !== preview.imported.source.spreadsheetId) return null;
+        const removed = prior.legacyCompletions.filter((item) => !preview.imported.legacyCompletions.some((next) =>
+          next.workoutId === item.workoutId && next.sourceSlot === item.sourceSlot && next.date === item.date)).length;
+        return removed > 0 ? <div className="context-note"><strong>Google Sheets history changed</strong><span>
+          {preview.imported.legacyCompletions.length} current source workouts found · {removed} previously linked record{removed === 1 ? "" : "s"} no longer present.
+          Detailed local sessions will be preserved separately. Review changes after updating.</span></div> : null;
+      })()}
       {!activationBlocked && <div className="review-actions"><button type="button" className="primary-button" disabled={busy} onClick={() => void commitPreview(preview.targetId)}>{preview.migration ? "Reconnect existing plan" : preview.targetId ? "Update this training" : "Use this training"} →</button>{preview.targetId && !preview.migration && <button type="button" className="secondary-button" disabled={busy} onClick={() => void commitPreview()}>Add as new training</button>}</div>}
       <label className="date-field"><span>NAME ON THIS DEVICE</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
       {(message || error) && <p className={error ? "alert" : "quiet-note"} role="status">{error ?? message}</p>}

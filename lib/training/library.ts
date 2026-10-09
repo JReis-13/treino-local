@@ -15,6 +15,62 @@ export function addTraining(data: TrainingData, imported: ImportedTraining, name
 export function refreshTraining(data: TrainingData, planId: string, imported: ImportedTraining, now = new Date().toISOString()): TrainingData {
   const old = data.plans.find((plan) => plan.id === planId);
   if (!old) throw new Error("Training plan not found.");
+  const oldSpreadsheetId = old.source.kind === "google" ? old.source.spreadsheetId : undefined;
+  const verifiedGoogle = old.source.kind === "google" && imported.source.kind === "google" &&
+    old.source.authMode === "oauth" && imported.source.authMode === "oauth" &&
+    Boolean(old.source.spreadsheetId && old.source.spreadsheetId === imported.source.spreadsheetId &&
+      imported.source.sourceProof &&
+      [imported.sourceFingerprint, imported.legacyFingerprint].includes(old.sourceFingerprint ?? "") &&
+      !imported.warnings.some((warning) => ["syncBlocker", "activationBlocker"].includes(warning.severity)));
+  if (old.source.kind === "google" && old.source.authMode === "oauth" &&
+      imported.source.kind === "google" && imported.source.sourceProof &&
+      imported.source.authMode === "oauth" && !verifiedGoogle)
+    throw new Error("Google Sheet identity or structure could not be verified. No History was changed.");
+  if (verifiedGoogle) {
+    const occurrence = (item: { workoutId: string; sourceSlot: string; date: string }) =>
+      `${item.workoutId}\u0000${item.sourceSlot}\u0000${item.date}`;
+    const current = new Map(imported.legacyCompletions.map((item) => [occurrence(item), item]));
+    const oldItems = [...old.legacyCompletions, ...(old.removedSourceCompletions ?? [])];
+    const removed = new Map(oldItems.filter((item) => !current.has(occurrence(item))).map((item) => [occurrence(item), item]));
+    const previouslyActive = old.legacyCompletions.filter((item) => !current.has(occurrence(item)));
+    let archivedSessions = 0, conflicts = 0;
+    const sessions = data.sessions.map((session) => {
+      if (session.planId !== planId || session.status !== "completed") return session;
+      const receipt = session.completionReceipt;
+      if (receipt?.sourceKind === "google" && receipt.sourceId === oldSpreadsheetId) {
+        const present = current.has(occurrence({ workoutId: receipt.workoutId, sourceSlot: receipt.slot, date: session.localDate! }));
+        if (!present) archivedSessions++;
+        return { ...session, sourceReconciliation: present ? undefined : "removed" as const,
+          ...(present ? {} : { syncMessage: "This completion was removed from Google Sheets; the local workout is preserved." }) };
+      }
+      // An interrupted write can be confirmed only at its exact source slot. If that
+      // occurrence was deleted, never recreate it automatically from the old outbox.
+      if (session.completionAttempted && session.preparedCompletionSlot) {
+        const wasDeleted = previouslyActive.some((item) => item.workoutId === session.workoutId &&
+          item.sourceSlot === session.preparedCompletionSlot && item.date === session.localDate);
+        if (wasDeleted) {
+          conflicts++;
+          return { ...session, sourceReconciliation: "conflict" as const, completionSyncStatus: "conflict" as const,
+            syncMessage: "A previously recorded Sheet date was removed. Review before syncing this local workout." };
+        }
+      }
+      if (!receipt && session.syncStatus === "synced" && previouslyActive.some((item) =>
+        item.workoutId === session.workoutId && item.date === session.localDate)) {
+        conflicts++;
+        return { ...session, sourceReconciliation: "conflict" as const,
+          syncMessage: "A matching Sheet date was removed, but this older local workout has no exact source receipt. Review its origin." };
+      }
+      return session;
+    });
+    return { ...data, sessions, plans: data.plans.map((plan) => plan.id === planId ? {
+      ...plan, source: imported.source, sourceFingerprint: imported.sourceFingerprint,
+      version: plan.version + 1, updatedAt: now, workouts: preserveWorkoutLineage(plan.workouts, imported.workouts),
+      importWarnings: imported.warnings, legacyCompletions: [...current.values()],
+      removedSourceCompletions: [...removed.values()],
+      lastReconciliation: { at: now, sourceCount: current.size, removedCount: previouslyActive.length,
+        archivedSessions, conflicts },
+    } : plan) };
+  }
   const oldLegacy = new Map(old.legacyCompletions.map((item) => [item.id, item]));
   for (const item of imported.legacyCompletions) oldLegacy.set(item.id, item);
   return { ...data, plans: data.plans.map((plan) => plan.id === planId ? {

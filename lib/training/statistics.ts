@@ -6,14 +6,19 @@ export type StatsRange = "4w" | "3m" | "6m" | "all";
 export type StatsEntry = { id: string; planId: string; workoutId: string; date: string; session?: TrainingSession };
 
 export function historyEntries(data: TrainingData): StatsEntry[] {
-  const entries: StatsEntry[] = data.sessions.filter((session) => session.status === "completed" && isLocalDate(session.localDate ?? ""))
+  const entries: StatsEntry[] = data.sessions.filter((session) => session.status === "completed" &&
+    session.sourceReconciliation !== "removed" && isLocalDate(session.localDate ?? ""))
     .map((session) => ({ id: session.id, planId: session.planId, workoutId: session.workoutId,
       date: session.localDate!, session }));
   for (const plan of data.plans) for (const legacy of plan.legacyCompletions) {
     if (legacyIsHidden(data, plan.id, legacy)) continue;
-    const matched = data.sessions.some((session) => session.status === "completed" && session.planId === plan.id &&
+    const matched = data.sessions.some((session) => session.status === "completed" &&
+      session.sourceReconciliation !== "removed" && session.planId === plan.id &&
       session.workoutId === legacy.workoutId && session.localDate === legacy.date &&
-      (session.completionReceipt?.slot === legacy.sourceSlot || (!session.completionReceipt && session.syncStatus === "synced")));
+      (session.completionReceipt?.slot === legacy.sourceSlot || (!session.completionReceipt &&
+        (plan.source.kind === "google" ? !session.duplicateDateAllowed &&
+          plan.legacyCompletions.filter((item) => item.workoutId === legacy.workoutId && item.date === legacy.date).length === 1 :
+          session.syncStatus === "synced"))));
     if (!matched) entries.push({ id: `${plan.id}:${legacy.id}`, planId: plan.id, workoutId: legacy.workoutId, date: legacy.date });
   }
   for (const archived of data.archivedSources ?? []) for (const legacy of archived.legacyCompletions) {

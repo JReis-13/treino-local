@@ -66,17 +66,33 @@ export function sanitizeDebugReport(input: unknown): Dict {
     lastUpdateResult: (v) => oneOf(v, ["none", "registration failed", "new controller; reloading", "another window activated update", "update check completed", "update check failed; will retry", "reloading with active update", "update check failed", "already current", "activation requested", "activation timed out", "activation request failed", "unknown"]), activeWorkout: boolean });
   const sourceState = fields(source.source, { kind: (v) => oneOf(v, ["none", "builtin", "excel", "google"]),
     completionSync: state, loadSync: state, aggregateSync: state, latestSessionSync: state,
-    pendingSessions: bounded, historicalPendingSessions: bounded, receiptPresent: boolean });
+    pendingSessions: bounded, historicalPendingSessions: bounded, receiptPresent: boolean,
+    sourceRecordCount: bounded, activeSourceBackedCount: bounded, localOnlySessionCount: bounded,
+    archivedRecordCount: bounded, removedOccurrenceCount: bounded, ambiguousMatchCount: bounded,
+    pendingStaleWrites: bounded, lastReconciliationResult: (v) => oneOf(v, ["none", "verified", "conflict"]) });
   const social = fields(source.social, { authenticated: yesNo, userReady: yesNo, friendCount: bounded,
     autoShareLocal: socialShare, autoShareServer: socialShare, effectiveAutoShare: socialShare,
-    outboxCount: bounded, deleteOutboxCount: bounded });
+    outboxCount: bounded, deleteOutboxCount: bounded,
+    lastHomeFetchResult: (v) => oneOf(v, ["none", "success", "network_error"]) ??
+      (typeof v === "string" && /^http_[45]\d\d$/.test(v) ? v : undefined),
+    lastReactionResult: (v) => oneOf(v, ["none", "success", "network_error"]) ??
+      (typeof v === "string" && /^http_[45]\d\d$/.test(v) ? v : undefined),
+    lastHomeActivity: (v) => typeof v === "string" && (/^ACTIVITY_[a-f0-9]{20}$/.test(v) || v === "none") ? v : undefined,
+    displayedActivity: (v) => typeof v === "string" && (/^ACTIVITY_[a-f0-9]{20}$/.test(v) || v === "none") ? v : undefined,
+    lastReactionActivity: (v) => typeof v === "string" && (/^ACTIVITY_[a-f0-9]{20}$/.test(v) || v === "none") ? v : undefined });
   const push = fields(source.push, { supported: boolean,
     permission: (v) => oneOf(v, ["default", "granted", "denied", "unsupported"]), subscriptionPresent: boolean,
     serverRegistration: (v) => oneOf(v, ["success", "failure", "unknown", "none"]),
     friendWorkouts: onOff, reactions: onOff,
     lastSubscriptionResult: (v) => oneOf(v, ["none", "success", "failure", "removed"]),
-    lastReceivedType: (v) => oneOf(v, ["none", "friend_workout", "reaction", "unknown"]),
-    lastClickResult: (v) => oneOf(v, ["none", "focused", "opened"]), });
+    lastReceivedType: (v) => oneOf(v, ["none", "friend_workout", "reaction", "test", "unknown"]),
+    lastClickResult: (v) => oneOf(v, ["none", "focused", "opened"]),
+    recentDeliveries: (v) => Array.isArray(v) ? v.slice(0, 20).flatMap((item) => {
+      const safe = fields(item, { type: (x) => oneOf(x, ["workout", "reaction", "test"]),
+        eventId: (x) => typeof x === "string" && /^[0-9a-f-]{36}$/i.test(x) ? x : undefined,
+        result: (x) => oneOf(x, ["claimed", "sent", "expired", "failed"]) });
+      return safe.type && safe.eventId && safe.result ? [safe] : [];
+    }) : undefined });
   const storage = fields(source.storage, { plans: bounded, completedSessions: bounded, activeSession: boolean,
     legacyDates: bounded, hiddenLegacyDates: bounded, diagnosticEvents: (v) => bounded(v, 500), diagnosticLogBytes: (v) => bounded(v, MAX_DIAGNOSTIC_UPLOAD_BYTES) });
   const importer = fields(source.importer, { template: (v) => oneOf(v, ["jonatha-v1", "milena-v1", "unknown", "none"]),
@@ -89,9 +105,11 @@ export function sanitizeDebugReport(input: unknown): Dict {
       timestamp: iso, source: (v) => oneOf(v, ["builtin", "excel", "google"]),
       operation: (v) => oneOf(v, ["completion", "load", "publish", "delete", "reaction"]),
       reason: (v) => oneOf(v, ["OK", "FAILED", "STORAGE_ERROR", "NETWORK_ERROR", "AUTH_REQUIRED", "CONFLICT", "UNCLASSIFIED",
-        "FRIEND_WORKOUT", "REACTION",
+        "FRIEND_WORKOUT", "REACTION", "TEST", "STALE_BROWSER_SUBSCRIPTION",
         "NO_HISTORY", "MATCH_EXACT_ID", "MATCH_UNIQUE_NAME", "PLAN_LINEAGE_MISMATCH", "WORKOUT_LINEAGE_MISMATCH",
-        "EXERCISE_IDENTITY_MISMATCH", "AMBIGUOUS_EXERCISE", "LEGACY_UNVERIFIED_SOURCE", "SOURCE_MAPPING_MISMATCH"]), retry: (v) => bounded(v, 99) });
+        "EXERCISE_IDENTITY_MISMATCH", "AMBIGUOUS_EXERCISE", "LEGACY_UNVERIFIED_SOURCE", "SOURCE_MAPPING_MISMATCH"]),
+      eventId: (v) => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v) ? v : undefined,
+      retry: (v) => bounded(v, 99) });
     return event.type && event.timestamp ? [event] : [];
   }) : [];
   return { debugReportVersion: 1, timestamp: iso(source.timestamp) ?? new Date().toISOString(), app, pwa,

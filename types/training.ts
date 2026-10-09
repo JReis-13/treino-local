@@ -81,6 +81,8 @@ export interface TrainingPlanRecord {
   workouts: TrainingWorkout[];
   importWarnings: ImportWarning[];
   legacyCompletions: LegacyCompletion[];
+  removedSourceCompletions?: LegacyCompletion[];
+  lastReconciliation?: { at: string; sourceCount: number; removedCount: number; archivedSessions: number; conflicts: number };
 }
 
 export interface BlockProgress {
@@ -111,6 +113,7 @@ export interface TrainingSession {
   syncStatus: SourceSyncStatus;
   syncMessage?: string;
   completionReceipt?: { sourceKind: "google" | "excel"; sourceId: string; workoutId: string; slot: string; syncedAt: string };
+  sourceReconciliation?: "removed" | "conflict";
   completionSyncStatus?: SourceSyncStatus;
   loadSyncStatus?: SourceSyncStatus;
   duplicateDateAllowed?: boolean;

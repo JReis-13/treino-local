@@ -126,15 +126,15 @@ export async function homeFor(userId: string): Promise<{ activities: SocialActiv
   const friends = await sql`select u.id, u.display_name from treino_social.friendships f
     join treino_social.users u on u.id = case when f.requester_user_id = ${userId} then f.addressee_user_id else f.requester_user_id end
     where f.status = 'accepted' and (f.requester_user_id = ${userId} or f.addressee_user_id = ${userId}) limit 20`;
-  const rows = await sql`select a.id, u.display_name, a.workout_name, a.completed_at, a.local_date,
+  const rows = await sql`select a.id, f.id as friendship_id, u.display_name, a.workout_name, a.completed_at, a.local_date,
     a.duration_minutes, a.completed_exercises, a.total_exercises
     from treino_social.friendships f
     join treino_social.users u on u.id = case when f.requester_user_id = ${userId} then f.addressee_user_id else f.requester_user_id end
     join lateral (select * from treino_social.workout_activities a where a.user_id = u.id
-      and (u.sharing_enabled = true or a.manual_shared = true) order by a.completed_at desc limit 1) a on true
+      and (u.sharing_enabled = true or a.manual_shared = true) order by a.completed_at desc, a.id desc limit 1) a on true
     where f.status = 'accepted' and
       (f.requester_user_id = ${userId} or f.addressee_user_id = ${userId})
-    order by a.completed_at desc limit 10`;
+    order by a.completed_at desc, a.id desc limit 10`;
   const activities: SocialActivity[] = [];
   for (const row of rows) {
     const reactionRows = await sql`select r.user_id, r.emoji from treino_social.activity_reactions r
@@ -145,7 +145,8 @@ export async function homeFor(userId: string): Promise<{ activities: SocialActiv
       where r.activity_id = ${row.id}`;
     const reactions: SocialActivity["reactions"] = {};
     for (const reaction of reactionRows) { const emoji = reaction.emoji as ReactionEmoji; reactions[emoji] = (reactions[emoji] ?? 0) + 1; }
-    activities.push({ id: row.id as string, displayName: row.display_name as string, workoutName: row.workout_name as string,
+    activities.push({ id: row.id as string, friendshipId: row.friendship_id as string,
+      displayName: row.display_name as string, workoutName: row.workout_name as string,
       completedAt: new Date(row.completed_at as Date).toISOString(), localDate: String(row.local_date).slice(0, 10),
       durationMinutes: row.duration_minutes as number | null, completedExercises: row.completed_exercises as number | null,
       totalExercises: row.total_exercises as number | null, reactions,
@@ -162,6 +163,50 @@ export async function homeFor(userId: string): Promise<{ activities: SocialActiv
     where a.user_id = ${userId} order by r.updated_at desc limit 5`;
   return { activities, received: receivedRows.map((row) => ({ displayName: row.display_name as string,
     emoji: row.emoji as ReactionEmoji, workoutName: row.workout_name as string })), friendCount: friends.length };
+}
+const historyCursor = /^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z)\|([0-9a-f-]{36})$/i;
+export async function friendHistoryFor(userId: string, friendshipId: string, cursor?: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(friendshipId)) throw new SocialError("Friendship not found.", 404);
+  let before: RegExpExecArray | null = null;
+  if (cursor) {
+    try { before = historyCursor.exec(Buffer.from(cursor, "base64url").toString("utf8")); }
+    catch { /* Invalid cursor. */ }
+    if (!before || cursor.length > 160 || !Number.isFinite(Date.parse(before[1])))
+      throw new SocialError("Invalid history cursor.", 400);
+  }
+  const sql = socialDb();
+  const friend = await sql`select u.id, u.display_name, u.sharing_enabled
+    from treino_social.friendships f join treino_social.users u on u.id =
+      case when f.requester_user_id = ${userId} then f.addressee_user_id else f.requester_user_id end
+    where f.id = ${friendshipId} and f.status = 'accepted'
+      and (f.requester_user_id = ${userId} or f.addressee_user_id = ${userId})`;
+  if (!friend.length) throw new SocialError("Friendship not found.", 404);
+  const rows = await sql`select a.id, a.workout_name, a.completed_at, a.local_date,
+    a.duration_minutes, a.completed_exercises, a.total_exercises from treino_social.workout_activities a
+    where a.user_id = ${friend[0].id} and (${friend[0].sharing_enabled} = true or a.manual_shared = true)
+      and (${before?.[1] ?? null}::timestamptz is null or
+        (a.completed_at, a.id) < (${before?.[1] ?? null}::timestamptz, ${before?.[2] ?? null}::uuid))
+    order by a.completed_at desc, a.id desc limit 21`;
+  const page = rows.slice(0, 20);
+  const reactions = page.length ? await sql`select r.activity_id, r.user_id, r.emoji
+    from treino_social.activity_reactions r
+    join treino_social.friendships f on f.status = 'accepted' and
+      ((f.requester_user_id = ${friend[0].id} and f.addressee_user_id = r.user_id) or
+       (f.addressee_user_id = ${friend[0].id} and f.requester_user_id = r.user_id))
+    where r.activity_id in ${sql(page.map((row) => row.id as string))}` : [];
+  const activities: SocialActivity[] = page.map((row) => {
+    const matches = reactions.filter((reaction) => reaction.activity_id === row.id);
+    const counts: SocialActivity["reactions"] = {};
+    for (const reaction of matches) { const emoji = reaction.emoji as ReactionEmoji; counts[emoji] = (counts[emoji] ?? 0) + 1; }
+    return { id: row.id as string, friendshipId, displayName: friend[0].display_name as string,
+      workoutName: row.workout_name as string, completedAt: new Date(row.completed_at as Date).toISOString(),
+      localDate: String(row.local_date).slice(0, 10), durationMinutes: row.duration_minutes as number | null,
+      completedExercises: row.completed_exercises as number | null, totalExercises: row.total_exercises as number | null,
+      reactions: counts, myReaction: (matches.find((reaction) => reaction.user_id === userId)?.emoji ?? null) as ReactionEmoji | null };
+  });
+  const last = page.at(-1);
+  return { displayName: friend[0].display_name as string, activities,
+    nextCursor: rows.length > 20 && last ? Buffer.from(`${new Date(last.completed_at as Date).toISOString()}|${last.id}`).toString("base64url") : null };
 }
 export async function setReaction(userId: string, activityId: string, emoji: ReactionEmoji | null) {
   const sql = socialDb();

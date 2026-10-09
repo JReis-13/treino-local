@@ -77,6 +77,13 @@ export async function collectDebugReport(data: TrainingData | null) {
     readDiagnosticLog(), safeSocialServer(), controllerBuildId(), getPushStatus().catch(() => null),
     deviceSubscription().then(Boolean).catch(() => false), readPushDiagnostics()]);
   const socialLocal = readSocialDiagnostics();
+  const activityAliases = new Map<string, string>();
+  const socialAlias = (value: string) => {
+    if (value === "none") return "none";
+    if (!activityAliases.has(value)) activityAliases.set(value,
+      `ACTIVITY_${Array.from(crypto.getRandomValues(new Uint8Array(10)), (byte) => byte.toString(16).padStart(2, "0")).join("")}`);
+    return activityAliases.get(value)!;
+  };
   const pwa = getPwaUpdateSnapshot();
   const plan = data?.plans.find((item) => item.id === data.activePlanId);
   const active = data?.sessions.find((item) => item.status === "inProgress" && item.planId === data.activePlanId);
@@ -103,7 +110,17 @@ export async function collectDebugReport(data: TrainingData | null) {
       aggregateSync: latest ? aggregateSync(latest) : "none", latestSessionSync: latest ? aggregateSync(latest) : "none",
       pendingSessions: completed.filter((item) => !["synced", "notApplicable"].includes(aggregateSync(item))).length,
       historicalPendingSessions: completed.filter((item) => !["synced", "notApplicable"].includes(aggregateSync(item))).length,
-      receiptPresent: Boolean(latest?.completionReceipt) },
+      receiptPresent: Boolean(latest?.completionReceipt),
+      sourceRecordCount: plan?.lastReconciliation?.sourceCount ?? 0,
+      archivedRecordCount: (plan?.removedSourceCompletions?.length ?? 0) +
+        completed.filter((item) => item.planId === plan?.id && item.sourceReconciliation === "removed").length,
+      removedOccurrenceCount: plan?.lastReconciliation?.removedCount ?? 0,
+      ambiguousMatchCount: plan?.lastReconciliation?.conflicts ?? 0,
+      pendingStaleWrites: completed.filter((item) => item.planId === plan?.id && item.sourceReconciliation === "conflict").length,
+      activeSourceBackedCount: (plan?.legacyCompletions.length ?? 0),
+      localOnlySessionCount: completed.filter((item) => item.planId === plan?.id && !item.completionReceipt &&
+        item.sourceReconciliation !== "removed").length,
+      lastReconciliationResult: plan?.lastReconciliation ? "verified" : "none" },
     importer: { template: plan?.source.kind === "excel" || plan?.source.kind === "google" ? plan.source.template : "none",
       parserVersion: 3, workoutCount: plan?.workouts.length ?? 0, exerciseCount: exercises.length,
       loadBearingExercises: loadBearing.length, numericLoads: loadBearing.filter((block) => block.kind === "exercise" &&
@@ -118,7 +135,10 @@ export async function collectDebugReport(data: TrainingData | null) {
       deleteOutboxCount: socialLocal.deleteOutboxCount, lastPublishResult: socialLocal.lastPublishResult,
       lastPublishAt: socialLocal.lastPublishAt, lastDeleteResult: socialLocal.lastDeleteResult,
       lastDeleteAt: socialLocal.lastDeleteAt, lastHomeFetchResult: socialLocal.lastHomeFetchResult,
-      lastReactionResult: socialLocal.lastReactionResult, latestSessionState: latest ? localSocialPublishState(latest.id) : "none" },
+      lastReactionResult: socialLocal.lastReactionResult, latestSessionState: latest ? localSocialPublishState(latest.id) : "none",
+      lastHomeActivity: socialAlias(socialLocal.lastHomeActivity),
+      displayedActivity: socialAlias(socialLocal.displayedActivity),
+      lastReactionActivity: socialAlias(socialLocal.lastReactionActivity) },
     push: { supported: pushSupported(), permission: notificationPermission(), subscriptionPresent: pushDevice,
       serverRegistration: pushStatus ? (pushStatus.deviceRegistered ? "success" : "unknown") :
         (pushDiagnostics.serverRegistration ?? "unknown"),
@@ -126,7 +146,8 @@ export async function collectDebugReport(data: TrainingData | null) {
       reactions: pushStatus ? (pushStatus.reactions ? "on" : "off") : "unknown",
       lastSubscriptionResult: pushDiagnostics.lastSubscriptionResult ?? "none",
       lastReceivedType: pushDiagnostics.lastReceivedType ?? "none",
-      lastClickResult: pushDiagnostics.lastClickResult ?? "none" },
+      lastClickResult: pushDiagnostics.lastClickResult ?? "none",
+      recentDeliveries: (pushStatus?.recentDeliveries ?? []).slice(0, 20) },
     storage: { plans: data?.plans.length ?? 0, completedSessions: completed.length,
       activeSession: Boolean(active), legacyDates: data?.plans.reduce((total, item) => total + item.legacyCompletions.length, 0) ?? 0,
       hiddenLegacyDates: data?.hiddenLegacyCompletions?.length ?? 0,

@@ -34,6 +34,15 @@ function validPlan(value: unknown): value is TrainingPlanRecord {
       record(workout) && typeof workout.id === "string" && typeof workout.title === "string" &&
       Array.isArray(workout.blocks) && workout.blocks.length > 0 && workout.blocks.every(validBlock)) &&
     Array.isArray(value.importWarnings) && Array.isArray(value.legacyCompletions) &&
+    (value.removedSourceCompletions === undefined || (Array.isArray(value.removedSourceCompletions) &&
+      value.removedSourceCompletions.every((item: unknown) => record(item) && typeof item.id === "string" &&
+        typeof item.workoutId === "string" && typeof item.sourceSlot === "string" &&
+        typeof item.date === "string" && isLocalDate(item.date)))) &&
+    (value.lastReconciliation === undefined || (record(value.lastReconciliation) &&
+      typeof value.lastReconciliation.at === "string" &&
+      ["sourceCount", "removedCount", "archivedSessions", "conflicts"].every((key) =>
+        Number.isInteger((value.lastReconciliation as Record<string, unknown>)[key]) &&
+        Number((value.lastReconciliation as Record<string, unknown>)[key]) >= 0))) &&
     value.legacyCompletions.every((item: unknown) => record(item) && typeof item.id === "string" &&
       typeof item.workoutId === "string" && typeof item.date === "string" && isLocalDate(item.date));
 }
@@ -77,6 +86,7 @@ function validSession(value: unknown): value is TrainingSession {
     (value.loadSyncStatus === undefined || validSyncStatus(value.loadSyncStatus)) &&
     (value.duplicateDateAllowed === undefined || typeof value.duplicateDateAllowed === "boolean") &&
     (value.completionAttempted === undefined || typeof value.completionAttempted === "boolean") &&
+    (value.sourceReconciliation === undefined || ["removed", "conflict"].includes(String(value.sourceReconciliation))) &&
     (value.loadCorrectionPending === undefined || typeof value.loadCorrectionPending === "boolean") &&
     (value.replacedAt === undefined || (typeof value.replacedAt === "string" && Number.isFinite(Date.parse(value.replacedAt)))) &&
     (value.sessionNote === undefined || (typeof value.sessionNote === "string" && value.sessionNote.length <= 500)) &&

@@ -16,7 +16,8 @@ interface PendingEligibility { activity: PublishActivity; ownerAccountId?: strin
 interface SocialReceipt { clientSessionId: string; ownerAccountId?: string; ownerEmail: string; activityId: string }
 interface QueuedDeletion { clientSessionId: string; ownerAccountId?: string; ownerEmail?: string; ready?: boolean }
 interface SocialDiagnostics { lastPublishResult?: string; lastPublishAt?: string; lastHomeFetchResult?: string; lastPublishSessionId?: string;
-  lastDeleteResult?: string; lastDeleteAt?: string; lastReactionResult?: string }
+  lastDeleteResult?: string; lastDeleteAt?: string; lastReactionResult?: string;
+  lastHomeActivity?: string; displayedActivity?: string; lastReactionActivity?: string }
 export interface SocialFriend { id: string; status: "pending" | "accepted" | "declined"; direction: "incoming" | "outgoing"; displayName: string; email: string }
 export interface SocialHome { activities: SocialActivity[]; received: Array<{ displayName: string; emoji: string; workoutName: string }>; friendCount: number }
 export type SocialMe = { email: string; displayName: string; sharingEnabled: boolean; accountId?: string };
@@ -42,21 +43,34 @@ function recordDiagnostic(change: Partial<SocialDiagnostics>): void {
     localStorage.setItem(DIAGNOSTICS_KEY, JSON.stringify({ ...prior, ...change }));
   } catch { /* Diagnostics must never affect a local workout. */ }
 }
-export function recordSocialHomeFetch(success: boolean, cause?: unknown): void {
-  recordDiagnostic({ lastHomeFetchResult: success ? "success" : safeResult(cause) });
+function activityFingerprint(id: string | undefined): string {
+  if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return "none";
+  let hash = 2166136261;
+  for (const char of id) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
-export function recordSocialReaction(success: boolean, cause?: unknown): void {
-  recordDiagnostic({ lastReactionResult: success ? "success" : safeResult(cause) });
+export function recordSocialHomeFetch(success: boolean, cause?: unknown, activityId?: string): void {
+  recordDiagnostic({ lastHomeFetchResult: success ? "success" : safeResult(cause),
+    ...(success ? { lastHomeActivity: activityFingerprint(activityId) } : {}) });
+}
+export function recordSocialDisplayedActivity(activityId?: string): void {
+  recordDiagnostic({ displayedActivity: activityFingerprint(activityId) });
+}
+export function recordSocialReaction(success: boolean, cause?: unknown, activityId?: string): void {
+  recordDiagnostic({ lastReactionResult: success ? "success" : safeResult(cause),
+    lastReactionActivity: activityFingerprint(activityId) });
   recordDiagnosticEvent(success ? "friend_reaction_sent" : "app_error", { operation: "reaction", reason: success ? "OK" : "REACTION_FAILED" });
 }
 export function readSocialDiagnostics(): { sharingCached: string; accountBound: boolean; outboxCount: number;
   deleteOutboxCount: number; lastPublishResult: string; lastPublishAt: string; lastHomeFetchResult: string;
-  lastDeleteResult: string; lastDeleteAt: string; lastReactionResult: string } {
+  lastDeleteResult: string; lastDeleteAt: string; lastReactionResult: string;
+  lastHomeActivity: string; displayedActivity: string; lastReactionActivity: string } {
   const preference = readPreference();
   let diagnostics: SocialDiagnostics = {};
   try { diagnostics = JSON.parse(localStorage.getItem(DIAGNOSTICS_KEY) ?? "{}") as SocialDiagnostics; } catch { /* Empty. */ }
   const allowed = /^(none|queued|eligibility_pending|success|offline_queued|account_not_cached|invalid_final_session|outbox_write_failed|different_account_queued|sharing_disabled|network_error|http_[45]\d\d)$/;
   const safe = (value: unknown) => typeof value === "string" && allowed.test(value) ? value : "none";
+  const safeActivity = (value: unknown) => typeof value === "string" && (/^[a-f0-9]{8}$/.test(value) || value === "none") ? value : "none";
   const timestamp = typeof diagnostics.lastPublishAt === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(diagnostics.lastPublishAt)
     ? diagnostics.lastPublishAt : "none";
   const deleteTimestamp = typeof diagnostics.lastDeleteAt === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(diagnostics.lastDeleteAt)
@@ -65,7 +79,10 @@ export function readSocialDiagnostics(): { sharingCached: string; accountBound: 
     outboxCount: readOutbox().length + readEligibility().length, lastPublishResult: safe(diagnostics.lastPublishResult),
     deleteOutboxCount: readDeleteOutbox().length, lastPublishAt: timestamp, lastHomeFetchResult: safe(diagnostics.lastHomeFetchResult),
     lastDeleteResult: safe(diagnostics.lastDeleteResult), lastDeleteAt: deleteTimestamp,
-    lastReactionResult: safe(diagnostics.lastReactionResult) };
+    lastReactionResult: safe(diagnostics.lastReactionResult),
+    lastHomeActivity: safeActivity(diagnostics.lastHomeActivity),
+    displayedActivity: safeActivity(diagnostics.displayedActivity),
+    lastReactionActivity: safeActivity(diagnostics.lastReactionActivity) };
 }
 function publishResult(result: string, sessionId?: string): void {
   recordDiagnostic({ lastPublishResult: result, lastPublishAt: new Date().toISOString(), lastPublishSessionId: sessionId });

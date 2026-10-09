@@ -1,5 +1,6 @@
 import "server-only";
 import webpush from "web-push";
+import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import { socialDb } from "@/lib/social/db";
 import { SocialError } from "@/lib/social/server";
@@ -41,7 +42,7 @@ export function validateSubscription(value: unknown) {
 }
 
 export type Target = { id: string; endpoint: string; p256dh: string; auth: string };
-type PushKind = "friend_workout" | "reaction";
+type PushKind = "friend_workout" | "reaction" | "test";
 export type PushTransport = (target: Target, payload: string) => Promise<void>;
 const standardTransport: PushTransport = async (target, payload) => {
   await webpush.sendNotification({ endpoint: target.endpoint, keys: { p256dh: target.p256dh, auth: target.auth } },
@@ -50,20 +51,26 @@ const standardTransport: PushTransport = async (target, payload) => {
 function displayName(value: string) { return value.replace(/[\p{Cc}\p{Cf}\r\n]/gu, "").trim().slice(0, 50) || "A friend"; }
 
 async function deliver(eventKey: string, kind: PushKind, actor: string, activityId: string,
-  targets: Target[], emoji?: ReactionEmoji, send: PushTransport = standardTransport) {
+  targets: Target[], emoji?: ReactionEmoji, send: PushTransport = standardTransport, preclaimed = false) {
   if (!vapidConfigured() || !targets.length) return;
   const sql = socialDb();
+  try { await sql`delete from treino_social.push_deliveries where created_at < now() - interval '14 days'`; }
+  catch { /* Retention maintenance must not prevent delivery. */ }
   const body = kind === "friend_workout" ? `${displayName(actor)} finished a workout 💪` :
-    `${displayName(actor)} reacted ${emoji} to your workout`;
-  const payload = JSON.stringify({ type: kind, activityId, title: "Treino Local", body,
-    tag: kind === "friend_workout" ? `friend-workout:${activityId}` : `reaction:${activityId}:${eventKey.slice(9)}` });
+    kind === "reaction" ? `${displayName(actor)} reacted ${emoji} to your workout` : "Test notification";
+  const traceId = eventKey.slice(eventKey.indexOf(":") + 1);
+  const payload = JSON.stringify({ type: kind, activityId, traceId, title: "Treino Local", body,
+    tag: kind === "friend_workout" ? `friend-workout:${activityId}` :
+      kind === "reaction" ? `reaction:${activityId}:${traceId}` : `test:${traceId}` });
   let sent = 0, expired = 0, failed = 0;
   webpush.setVapidDetails(process.env.VAPID_SUBJECT!, process.env.VAPID_PUBLIC_KEY!, process.env.VAPID_PRIVATE_KEY!);
   for (const target of targets) {
     try {
-      const claim = await sql`insert into treino_social.push_deliveries (event_key, subscription_id)
-        values (${eventKey}, ${target.id}) on conflict do nothing returning event_key`;
-      if (!claim.length) continue;
+      if (!preclaimed) {
+        const claim = await sql`insert into treino_social.push_deliveries (event_key, subscription_id)
+          values (${eventKey}, ${target.id}) on conflict do nothing returning event_key`;
+        if (!claim.length) continue;
+      }
       try {
         await send(target, payload);
         sent++;
@@ -75,6 +82,8 @@ async function deliver(eventKey: string, kind: PushKind, actor: string, activity
         const code = (cause as { statusCode?: number })?.statusCode;
         if (code === 404 || code === 410) {
           expired++;
+          await sql`update treino_social.push_deliveries set status = 'expired', updated_at = now()
+            where event_key = ${eventKey} and subscription_id = ${target.id}`;
           await sql`delete from treino_social.push_subscriptions where id = ${target.id}`;
         } else {
           failed++;
@@ -87,6 +96,29 @@ async function deliver(eventKey: string, kind: PushKind, actor: string, activity
     } catch { failed++; /* A single device or DB write cannot affect the social event. */ }
   }
   console.info("Friends push delivery", { type: kind, recipients: targets.length, sent, expired, failed });
+  return { sent, expired, failed };
+}
+
+export async function sendPushSelfTest(userId: string, deviceId: string, send: PushTransport = standardTransport) {
+  if (!vapidConfigured()) throw new SocialError("Notifications are not configured.", 503);
+  const sql = socialDb();
+  const traceId = randomUUID();
+  const target = await sql.begin(async (tx) => {
+    const targets = await tx`select id, endpoint, p256dh, auth from treino_social.push_subscriptions
+      where id = ${deviceId} and user_id = ${userId} for update`;
+    if (!targets.length) throw new SocialError("Enable notifications on this device first.", 409);
+    const recent = await tx`select count(*)::int as count from treino_social.push_deliveries
+      where subscription_id = ${deviceId} and event_key like 'test:%'
+        and created_at > now() - interval '10 minutes'`;
+    if (Number(recent[0].count) > 0) throw new SocialError("Wait 10 minutes before sending another test.", 429);
+    await tx`insert into treino_social.push_deliveries (event_key, subscription_id)
+      values (${`test:${traceId}`}, ${deviceId})`;
+    return { id: targets[0].id as string, endpoint: targets[0].endpoint as string,
+      p256dh: targets[0].p256dh as string, auth: targets[0].auth as string };
+  });
+  const result = await deliver(`test:${traceId}`, "test", "", traceId,
+    [target], undefined, send, true);
+  return { traceId, accepted: result?.sent === 1 };
 }
 
 export async function sendFriendWorkoutPush(activityId: string, send: PushTransport = standardTransport) {

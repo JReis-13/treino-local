@@ -31,6 +31,7 @@ test("generated worker handles push and click while preserving the PWA update ha
   assert.equal(build, "test-build");
   handlers.get("push")!({ data: { json: () => ({ type: "friend_workout",
     activityId: "11111111-1111-4111-8111-111111111111", body: "Milena finished a workout 💪",
+    traceId: "11111111-1111-4111-8111-111111111111",
     tag: "friend-workout:11111111-1111-4111-8111-111111111111" }) },
     waitUntil: (promise: Promise<unknown>) => { work = promise; } });
   await work;

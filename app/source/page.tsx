@@ -188,6 +188,9 @@ export default function SourcePage() {
         const { imported } = await refreshGoogleSheet(plan!.source.spreadsheetId, plan!.sourceFingerprint!, plan!.source.sourceProof!);
         if (![imported.sourceFingerprint, imported.legacyFingerprint].includes(plan!.sourceFingerprint) || imported.warnings.some((warning) => warning.severity === "syncBlocker"))
           throw new Error("The spreadsheet structure changed. Refresh the training in Training plans before syncing.");
+        if (plan!.legacyCompletions.some((item) => !imported.legacyCompletions.some((next) =>
+          next.workoutId === item.workoutId && next.sourceSlot === item.sourceSlot && next.date === item.date)))
+          throw new Error("Google Sheets dates changed. Refresh the plan and review History before syncing.");
         setValidatedGoogle(true); setMessage("Google Sheet validated. Future workouts sync automatically when online."); return;
       }
       const device = plan!.source.connectorVersion === 2 ? await loadDeviceConnector() : undefined;
@@ -218,6 +221,9 @@ export default function SourcePage() {
         let synced = 0;
         const { imported } = await refreshGoogleSheet(plan!.source.spreadsheetId, plan!.sourceFingerprint, plan!.source.sourceProof);
         if (![imported.sourceFingerprint, imported.legacyFingerprint].includes(plan!.sourceFingerprint)) throw new Error("Sheet structure changed; review the plan before syncing.");
+        if (plan!.legacyCompletions.some((item) => !imported.legacyCompletions.some((next) =>
+          next.workoutId === item.workoutId && next.sourceSlot === item.sourceSlot && next.date === item.date)))
+          throw new Error("Google Sheets dates changed. Refresh the plan and review History before syncing.");
         applySourceLoads(plan!.id, imported);
         const proof = imported.source.kind === "google" ? imported.source.sourceProof : undefined;
         if (!proof) throw new Error("Google source proof is unavailable.");

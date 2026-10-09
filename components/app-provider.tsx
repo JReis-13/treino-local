@@ -15,7 +15,7 @@ import { completedSessionForDeletion, finalizeHistoryDeletion, finalizeLegacyHis
   stageLegacyHistoryDeletion, undoHistoryDeletion, undoLegacyHistoryDeletion } from "@/lib/training/history-delete";
 import { plannedCompletionSlot } from "@/lib/sync/logic";
 import { recordDiagnosticEvent } from "@/lib/diagnostic-log";
-import type { ImportedTraining, SourceSyncStatus, TrainingData, TrainingSession, TrainingSource } from "@/types/training";
+import type { ImportedTraining, SourceSyncStatus, TrainingData, TrainingPlanRecord, TrainingSession, TrainingSource } from "@/types/training";
 
 interface AppContextValue {
   data: TrainingData | null;
@@ -346,6 +346,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           !source.spreadsheetId || !source.sourceProof || !plan.sourceFingerprint ||
           plan.importWarnings.some((warning) => warning.severity === "syncBlocker")) continue;
       const waiting = snapshot.sessions.filter((session) => session.planId === plan.id && session.status === "completed" &&
+        !session.sourceReconciliation &&
         !["synced", "notApplicable"].includes(withSyncStatus(session, {}).syncStatus) && !reconciling.current.has(session.id));
       if (!waiting.length) continue;
       for (const session of waiting) reconciling.current.add(session.id);
@@ -353,10 +354,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const { imported } = await refreshGoogleSheet(source.spreadsheetId, plan.sourceFingerprint, source.sourceProof);
         if (![imported.sourceFingerprint, imported.legacyFingerprint].includes(plan.sourceFingerprint) || imported.source.kind !== "google" ||
             !imported.source.sourceProof) throw new Error("Sheet structure changed; review the plan before syncing.");
+        const currentPlan: TrainingPlanRecord | undefined = dataRef.current?.plans.find((item) => item.id === plan.id);
+        if (!currentPlan || currentPlan.version !== plan.version) continue;
+        const key = (item: { workoutId: string; sourceSlot: string; date: string }) =>
+          `${item.workoutId}\u0000${item.sourceSlot}\u0000${item.date}`;
+        const currentDates: Set<string> = new Set(imported.legacyCompletions.map(key));
+        const priorDates: Set<string> = new Set(currentPlan.legacyCompletions.map(key));
+        if (currentDates.size !== priorDates.size || [...priorDates].some((item) => !currentDates.has(item))) {
+          if (!commit((current) => refreshTraining(current, plan.id, imported))) continue;
+        }
         applySourceLoads(plan.id, imported);
         for (const snapshotSession of waiting) {
           const session = dataRef.current?.sessions.find((item) => item.id === snapshotSession.id) ?? snapshotSession;
-          if (!session.localDate) continue;
+          if (!session.localDate || session.sourceReconciliation) continue;
           try {
             if (completionState(session) !== "synced") {
               const matching = session.completionAttempted && session.preparedCompletionSlot ? imported.legacyCompletions.filter((entry) =>
@@ -371,6 +381,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               } else if (session.duplicateDateAllowed && session.completionAttempted) {
                 setSessionSync(session.id, { completionSyncStatus: "conflict", syncMessage: "Same-day date needs review before retrying." });
               } else {
+                if (dataRef.current?.plans.find((item) => item.id === plan.id)?.version !==
+                    (currentDates.size !== priorDates.size || [...priorDates].some((item) => !currentDates.has(item)) ?
+                      plan.version + 1 : plan.version)) continue;
                 setSessionSync(session.id, { completionSyncStatus: "syncing", completionAttempted: true,
                   preparedCompletionSlot: plannedCompletionSlot(imported, session.workoutId) });
                 const result = await syncGoogleDate(source.spreadsheetId, imported.sourceFingerprint, imported.source.sourceProof,
@@ -416,7 +429,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } catch { /* A disconnected source stays locally saved and can be retried from Source. */ }
       finally { for (const session of waiting) reconciling.current.delete(session.id); }
     }
-  }, [applySourceLoads, setSessionSync]);
+  }, [applySourceLoads, commit, setSessionSync]);
 
   useEffect(() => {
     const retry = () => { if (document.visibilityState === "visible") void reconcilePendingGoogle(); };

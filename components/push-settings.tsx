@@ -50,6 +50,17 @@ export function PushSettings() {
     catch (cause) { setStatus(previous); setMessage(cause instanceof Error ? cause.message : "Could not save preferences."); }
     finally { setBusy(false); }
   }
+  async function selfTest() {
+    setBusy(true); setMessage("");
+    try {
+      const response = await fetch("/api/push/test", { method: "POST", credentials: "same-origin" });
+      const result = await response.json() as { accepted?: boolean; traceId?: string; error?: string };
+      if (!response.ok) throw new Error(result.error || "Test notification could not be sent.");
+      setMessage(result.accepted ? `Push service accepted the test (${result.traceId}). Check this phone for a notification.` :
+        "The test was attempted, but the push service did not accept it. Re-enable notifications and try later.");
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Test notification failed."); }
+    finally { setBusy(false); }
+  }
   return <section className="review-card push-settings"><p className="eyebrow">NOTIFICATIONS</p><h2>Friends notifications</h2>
     <p className="quiet-note">Get a small alert when a friend finishes a workout or reacts to yours.</p>
     <p className="push-device-status"><strong>Notifications on this device</strong><span>{supported === null || !status ? "Checking…" :
@@ -68,6 +79,8 @@ export function PushSettings() {
     {status?.configured && supported && <button type="button" className="inline-action" disabled={busy} onClick={() =>
       void refresh().then(() => setMessage("Device and preferences checked. No notification was sent.")).catch(() =>
         setMessage("Could not check notification status right now."))}>Check notification status</button>}
+    {enabled && <button type="button" className="secondary-button" disabled={busy}
+      onClick={() => void selfTest()}>Send test notification to this device</button>}
     {message && <p role="status" className="quiet-note">{message}</p>}
   </section>;
 }

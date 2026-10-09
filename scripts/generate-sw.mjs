@@ -68,7 +68,7 @@ function pushDiagnostic(patch) {
     } catch { resolve(); }
   });
 }
-function pushLogEvent(type, reason) {
+function pushLogEvent(type, reason, eventId) {
   return new Promise((resolve) => {
     try {
       const open = indexedDB.open("treino-local-diagnostics-v1", 1);
@@ -81,7 +81,8 @@ function pushLogEvent(type, reason) {
         const read = store.get("events");
         read.onsuccess = () => {
           const prior = Array.isArray(read.result) ? read.result : [];
-          store.put([...prior, { type, timestamp: new Date().toISOString(), reason }].slice(-500), "events");
+          store.put([...prior, { type, timestamp: new Date().toISOString(), reason,
+            ...(/^[0-9a-f-]{36}$/i.test(eventId || "") ? { eventId } : {}) }].slice(-500), "events");
         };
         transaction.oncomplete = () => { db.close(); resolve(); };
         transaction.onerror = () => { db.close(); resolve(); };
@@ -93,19 +94,20 @@ self.addEventListener("push", (event) => {
   event.waitUntil((async () => {
     let data;
     try { data = event.data?.json(); } catch { return; }
-    if (!data || !["friend_workout", "reaction"].includes(data.type) ||
+    if (!data || !["friend_workout", "reaction", "test"].includes(data.type) ||
         typeof data.body !== "string" || data.body.length > 140 ||
         typeof data.activityId !== "string" || !/^[0-9a-f-]{36}$/i.test(data.activityId) ||
-        typeof data.tag !== "string" || !/^(friend-workout:[0-9a-f-]{36}|reaction:[0-9a-f-]{36}:[0-9a-f-]{36})$/i.test(data.tag) ||
-        !data.tag.startsWith(data.type === "friend_workout" ? "friend-workout:" : "reaction:")) return;
+        typeof data.traceId !== "string" || !/^[0-9a-f-]{36}$/i.test(data.traceId) ||
+        typeof data.tag !== "string" || !/^(friend-workout:[0-9a-f-]{36}|reaction:[0-9a-f-]{36}:[0-9a-f-]{36}|test:[0-9a-f-]{36})$/i.test(data.tag) ||
+        !data.tag.startsWith(data.type === "friend_workout" ? "friend-workout:" : data.type === "reaction" ? "reaction:" : "test:")) return;
     await pushDiagnostic({ lastReceivedType: data.type });
-    await pushLogEvent("push_received", data.type === "friend_workout" ? "FRIEND_WORKOUT" : "REACTION");
+    await pushLogEvent("push_received", data.type === "friend_workout" ? "FRIEND_WORKOUT" : data.type === "reaction" ? "REACTION" : "TEST", data.traceId);
     await self.registration.showNotification("Treino Local", {
       body: data.body, icon: "/icon-192.png", badge: "/icon-192.png",
       tag: data.tag,
       data: { type: data.type },
     });
-    await pushLogEvent("notification_shown", data.type === "friend_workout" ? "FRIEND_WORKOUT" : "REACTION");
+    await pushLogEvent("notification_shown", data.type === "friend_workout" ? "FRIEND_WORKOUT" : data.type === "reaction" ? "REACTION" : "TEST", data.traceId);
   })());
 });
 self.addEventListener("notificationclick", (event) => {

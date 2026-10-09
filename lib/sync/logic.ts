@@ -13,6 +13,7 @@ export function chooseCompletionSlot(mapping: CompletionMapping, dates: Array<st
 
 export function sessionsWaitingForSource(sessions: TrainingSession[], planId: string): TrainingSession[] {
   return sessions.filter((session) => session.planId === planId && session.status === "completed" &&
+    !session.sourceReconciliation &&
     !["synced", "notApplicable"].includes(aggregateSync(session)))
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 }

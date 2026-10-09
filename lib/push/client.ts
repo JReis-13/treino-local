@@ -1,11 +1,13 @@
 import { recordDiagnosticEvent } from "@/lib/diagnostic-log";
 
 export type PushStatus = { configured: boolean; publicKey: string | null; friendWorkouts: boolean;
-  reactions: boolean; deviceRegistered: boolean };
+  reactions: boolean; deviceRegistered: boolean;
+  recentDeliveries?: Array<{ type: "workout" | "reaction" | "test"; eventId: string;
+    result: "claimed" | "sent" | "expired" | "failed" }> };
 export type PushDiagnosticState = { lastSubscriptionResult?: string; lastReceivedType?: string; lastClickResult?: string;
   serverRegistration?: string };
 const DB = "treino-push-diagnostics-v1";
-const safeResults = new Set(["none", "success", "failure", "removed", "unknown", "friend_workout", "reaction", "opened", "focused"]);
+const safeResults = new Set(["none", "success", "failure", "removed", "unknown", "friend_workout", "reaction", "test", "opened", "focused"]);
 
 export function pushSupported() {
   return typeof window !== "undefined" && window.isSecureContext && "serviceWorker" in navigator &&
@@ -75,6 +77,7 @@ export async function disablePush() {
   }
 }
 export async function clearStalePushRegistration() {
+  recordDiagnosticEvent("push_subscription_removed", { reason: "STALE_BROWSER_SUBSCRIPTION" });
   try { await api("subscription", "DELETE"); await writePushDiagnostics({ serverRegistration: "success" }); }
   catch { await writePushDiagnostics({ serverRegistration: "failure" }); }
 }

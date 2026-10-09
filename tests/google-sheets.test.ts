@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { dateToSerial, snapshotFromXlsx, type GoogleGrid } from "../lib/import/snapshot";
 import { readGoogleTraining, registerCompletion, sourceProof, writeGoogleLoads } from "../lib/google/sheets";
+import { addTraining, refreshTraining } from "../lib/training/library";
+import { historyEntries } from "../lib/training/statistics";
+import { emptyTrainingData } from "../lib/training/storage";
 import { fixturePath, reviewedJonathaPath } from "./fixture-path";
 
 process.env.APP_BASE_URL = "http://localhost:3000";
@@ -28,6 +31,47 @@ async function fixtureGrid(filename = "TREINO 1 JONATHA.xlsx"): Promise<GoogleGr
     }
     return { properties: { title: sheet.name, sheetId: sheet.sheetId! }, data: [{ startRow: 0, startColumn: 0, rowData: rows }] };
   }) };
+}
+
+for (const filename of ["TREINO 1 JONATHA.xlsx", "TREINO 4 MILENA.xlsx"]) {
+  test(`private Google fixture refresh reconciles a removed date and repeats without duplication: ${filename}`, async () => {
+    const grid = await fixtureGrid(filename);
+    const oldFetch = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      return Response.json(url.includes("fields=") ? { properties: { title: "Private" },
+        sheets: grid.sheets.map((sheet) => ({ properties: sheet.properties })) } : grid);
+    };
+    try {
+      const first = (await readGoogleTraining(spreadsheetId, "mock-access-token")).imported;
+      assert(first.source.kind === "google");
+      first.source.sourceProof = sourceProof(spreadsheetId, first.sourceFingerprint);
+      let data = addTraining(emptyTrainingData(), first, undefined, "2026-10-09T08:00:00Z", "private-fixture");
+      data = refreshTraining(data, "private-fixture", first);
+      assert.equal(historyEntries(data).length, first.legacyCompletions.length);
+      const removed = first.legacyCompletions[0];
+      if (!removed) {
+        data = refreshTraining(data, "private-fixture", first);
+        assert.equal(historyEntries(data).length, 0);
+        return;
+      }
+      const sheet = grid.sheets.find((item) => item.properties.title === `TREINO ${removed.workoutId}`)!;
+      const slot = /^([A-Z]+)(\d+)$/.exec(removed.sourceSlot)!;
+      const col = [...slot[1]].reduce((sum, letter) => sum * 26 + letter.charCodeAt(0) - 64, 0) - 1;
+      const cell = sheet.data![0].rowData![Number(slot[2]) - 1].values![col];
+      delete cell.formattedValue;
+      delete cell.effectiveValue;
+      const second = (await readGoogleTraining(spreadsheetId, "mock-access-token")).imported;
+      assert(second.source.kind === "google");
+      second.source.sourceProof = sourceProof(spreadsheetId, second.sourceFingerprint);
+      data = refreshTraining(data, "private-fixture", second);
+      assert.equal(data.plans[0].legacyCompletions.length, first.legacyCompletions.length - 1);
+      assert.equal(data.plans[0].removedSourceCompletions?.length, 1);
+      assert.equal(historyEntries(data).length, first.legacyCompletions.length - 1);
+      data = refreshTraining(data, "private-fixture", second);
+      assert.equal(historyEntries(data).length, first.legacyCompletions.length - 1);
+    } finally { globalThis.fetch = oldFetch; }
+  });
 }
 
 test("Google grid adapter preserves parsed workouts, formatted loads and date slots", async () => {

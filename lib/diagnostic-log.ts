@@ -18,7 +18,7 @@ const TYPES = ["app_boot", "storage_migration", "plan_import_finished", "workout
   "active_session_initialized", "last_load_resolved", "today_load_manually_changed",
   "load_mapping_ambiguity_detected"] as const;
 const REASONS = new Set(["OK", "FAILED", "STORAGE_ERROR", "LEGACY", "WINDOW_ERROR", "UNHANDLED_REJECTION",
-  "FRIEND_WORKOUT", "REACTION",
+  "FRIEND_WORKOUT", "REACTION", "TEST", "STALE_BROWSER_SUBSCRIPTION",
   "REACTION_FAILED", "QUEUED", "SUCCESS", "NETWORK_ERROR", "OFFLINE_QUEUED",
   "NOT_COMPLETED", "DATE_MISSING", "DATE_MISMATCH", "PLAN_LINEAGE_MISMATCH", "MATCH_EXACT_ID",
   "MATCH_WORKOUT_LINEAGE", "WORKOUT_LINEAGE_MISMATCH", "LEGACY_IDENTITY_AMBIGUOUS", "MATCH_UNIQUE_TITLE",
@@ -34,8 +34,9 @@ export interface DiagnosticEvent {
   operation?: "completion" | "load" | "publish" | "delete" | "reaction";
   reason?: string;
   retry?: number;
+  eventId?: string;
 }
-export type DiagnosticMetadata = { sessionId?: string; source?: unknown; operation?: unknown; reason?: unknown; retry?: unknown };
+export type DiagnosticMetadata = { sessionId?: string; source?: unknown; operation?: unknown; reason?: unknown; retry?: unknown; eventId?: unknown };
 
 function idFingerprint(value: string): string {
   let hash = 2166136261;
@@ -53,6 +54,8 @@ export function safeDiagnosticEvent(type: unknown, metadata: DiagnosticMetadata 
     /^HTTP_[45]\d\d$/.test(metadata.reason) ? metadata.reason : "UNCLASSIFIED";
   if (Number.isInteger(metadata.retry) && Number(metadata.retry) >= 0 && Number(metadata.retry) <= 99)
     event.retry = Number(metadata.retry);
+  if (typeof metadata.eventId === "string" && /^[0-9a-f-]{36}$/i.test(metadata.eventId) &&
+    ["push_received", "notification_shown", "notification_clicked"].includes(type)) event.eventId = metadata.eventId;
   return event;
 }
 function cleanStored(value: unknown): DiagnosticEvent[] {
@@ -62,7 +65,7 @@ function cleanStored(value: unknown): DiagnosticEvent[] {
     const row = item as Record<string, unknown>;
     if (typeof row.timestamp !== "string" || !Number.isFinite(Date.parse(row.timestamp))) return [];
     const safe = safeDiagnosticEvent(row.type, { source: row.source, operation: row.operation,
-      reason: row.reason, retry: row.retry }, new Date(row.timestamp));
+      reason: row.reason, retry: row.retry, eventId: row.eventId }, new Date(row.timestamp));
     if (!safe) return [];
     if (typeof row.session === "string" && /^[a-f0-9]{8}$/.test(row.session)) safe.session = row.session;
     return [safe];

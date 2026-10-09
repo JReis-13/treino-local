@@ -11,7 +11,9 @@ test("support report sanitizer strips arbitrary fields, notes, loads, URLs and p
   const input = { debugReportVersion: 1, timestamp: "2026-10-08T08:00:00Z", token: secrets[0],
     app: { buildId: "1234abcd-20261008T080000", route: "/settings/", online: true, secret: secrets[1] },
     source: { latestSessionSync: "synced", historicalPendingSessions: 3, spreadsheetUrl: secrets[10] },
-    social: { authenticated: "yes", email: secrets[9], googleSub: secrets[11] },
+    social: { authenticated: "yes", email: secrets[9], googleSub: secrets[11],
+      lastHomeActivity: "ACTIVITY_1234567890abcdef1234", displayedActivity: "ACTIVITY_1234567890abcdef1234",
+      lastReactionActivity: "PRIVATE_WORKOUT" },
     push: { supported: true, permission: "granted", subscriptionPresent: true, endpoint: secrets[4],
       auth: secrets[6], p256dh: secrets[5], lastSubscriptionResult: secrets[3] },
     storage: { plans: 1, rawLocalStorage: secrets[2] },
@@ -29,6 +31,8 @@ test("support report sanitizer strips arbitrary fields, notes, loads, URLs and p
   for (const secret of secrets) assert(!json.includes(secret), `support report leaked a private fixture`);
   assert.equal((sanitized.source as Record<string, unknown>).latestSessionSync, "synced");
   assert.equal((sanitized.source as Record<string, unknown>).historicalPendingSessions, 3);
+  assert.equal((sanitized.social as Record<string, unknown>).lastHomeActivity, "ACTIVITY_1234567890abcdef1234");
+  assert.equal((sanitized.social as Record<string, unknown>).lastReactionActivity, undefined);
   assert.equal((sanitized.importer as Record<string, unknown>).exerciseCount, 16);
   assert.deepEqual((sanitized.importer as Record<string, unknown>).warningCodes, ["uncertain-load"]);
   const traceRow = ((sanitized.loadTrace as { rows: Record<string, unknown>[] }).rows)[0];
@@ -46,14 +50,20 @@ test("support report rejects wrong version and bounds event count", () => {
 });
 
 test("server keeps only safe push event-kind codes", () => {
+  const eventId = "c623ef42-2a43-4ec6-9b46-717ba90b0a5e";
   const report = sanitizeDebugReport({ debugReportVersion: 1, events: [
-    { type: "push_received", timestamp: "2026-10-09T04:36:20Z", reason: "FRIEND_WORKOUT", payload: "PRIVATE_WORKOUT" },
+    { type: "push_received", timestamp: "2026-10-09T04:36:20Z", reason: "FRIEND_WORKOUT",
+      eventId, payload: "PRIVATE_WORKOUT", load: "25kg" },
     { type: "notification_shown", timestamp: "2026-10-09T04:36:21Z", reason: "REACTION", endpoint: "SECRET_ENDPOINT" },
-  ] });
+  ], push: { recentDeliveries: [{ type: "workout", eventId, result: "sent", endpoint: "SECRET_ENDPOINT" },
+    { type: "workout", eventId: "PRIVATE_WORKOUT", result: "sent" }] } });
   assert.deepEqual((report.events as Array<{ reason: string }>).map((event) => event.reason),
     ["FRIEND_WORKOUT", "REACTION"]);
+  assert.equal((report.events as Array<{ eventId: string }>)[0].eventId, eventId);
+  assert.equal(((report.push as { recentDeliveries: unknown[] }).recentDeliveries).length, 1);
   assert(!JSON.stringify(report).includes("PRIVATE_WORKOUT"));
   assert(!JSON.stringify(report).includes("SECRET_ENDPOINT"));
+  assert(!JSON.stringify(report).includes("25kg"));
 });
 
 test("support codes are random, short and contain no database identity", () => {
