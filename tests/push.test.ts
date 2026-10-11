@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
 import postgres from "postgres";
 import webpush from "web-push";
 import { publishActivity, setReaction } from "../lib/social/server";
@@ -21,8 +20,9 @@ test("subscription validation rejects private endpoints and malformed keys", () 
 });
 
 test("isolated Postgres push lifecycle: new, retry, Replace, Add, reaction, preferences, two devices and 410", async (t) => {
-  if (existsSync(".env.local")) process.loadEnvFile(".env.local");
-  if (!process.env.DATABASE_URL) return t.skip("DATABASE_URL unavailable");
+  if (process.env.TREINO_TEST_DATABASE !== "isolated" || !process.env.TEST_DATABASE_URL)
+    return t.skip("Opt-in isolated TEST_DATABASE_URL required; use pnpm test --database");
+  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
   const keys = webpush.generateVAPIDKeys();
   process.env.VAPID_PUBLIC_KEY = keys.publicKey;
   process.env.VAPID_PRIVATE_KEY = keys.privateKey;

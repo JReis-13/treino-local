@@ -8,6 +8,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   reporter: "list",
+  outputDir: "test-results/deployed",
   use: {
     ...devices["Pixel 7"], browserName: "chromium", channel: "chrome",
     baseURL: "https://treino-local.vercel.app/",

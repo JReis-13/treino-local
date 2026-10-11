@@ -8,6 +8,7 @@ export default defineConfig({
   workers: 2,
   retries: 0,
   reporter: "list",
+  outputDir: "test-results/local",
   use: { baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000", trace: "retain-on-failure", screenshot: "only-on-failure" },
   projects: [
     { name: "Pixel 7 Chrome", use: { ...devices["Pixel 7"], browserName: "chromium", channel: "chrome" } },

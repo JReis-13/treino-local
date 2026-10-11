@@ -5,7 +5,12 @@ import assert from "node:assert/strict";
 import postgres from "postgres";
 import webpush from "web-push";
 
+const testDatabase = process.env.TEST_DATABASE_URL;
+if (!testDatabase) {
+  console.error("Explicit isolated TEST_DATABASE_URL required. Production DATABASE_URL is never used."); process.exit(1);
+}
 if (existsSync(".env.local")) process.loadEnvFile(".env.local");
+process.env.DATABASE_URL = testDatabase;
 if (!process.env.DATABASE_URL || !process.env.GOOGLE_OAUTH_SESSION_SECRET) {
   console.error("Database or Google session test configuration is missing."); process.exit(1);
 }

@@ -1,5 +1,22 @@
 # Testing Treino Local
 
+## Commands and release gates
+
+Use Node 24 and the pinned pnpm via `corepack pnpm`. `corepack pnpm workflow history --plan` (also `ui`, `push`, `release`) discovers relevant paths and initial tests. `--run` executes only a topic's unit seed. For another selection use `corepack pnpm test --summary --file session.test.ts`; repeat `--file` for additional files. `--list` prints selected files without executing them. Summaries omit passing test detail, keep aggregate counts/skips and show full failures. Unknown filenames/options fail instead of silently running unrelated tests.
+
+Release verification is sequential and broader than the seeds:
+
+1. `corepack pnpm install --frozen-lockfile`; `corepack pnpm lint`; `corepack pnpm typecheck`.
+2. `corepack pnpm test --summary`; `corepack pnpm test:workflow`.
+3. `corepack pnpm test:workbooks:private --require-private --summary`. Missing private fixtures are **NOT RUN**, with a failing exit code in this strict mode. Local optional mode still skips cleanly. The legacy `test:excel` has separate reviewed-fixture requirements described below.
+4. `corepack pnpm build`, then `corepack pnpm start`. In a second PowerShell terminal set `$env:E2E_BASE_URL='http://localhost:3000'` and `$env:E2E_PRODUCTION='1'`, then `corepack pnpm test:e2e`. Ensure this is the newly built server; stop only a server you own. Do not run builds, generators or competing servers concurrently. Local/deployed browser outputs use separate `test-results/local` and `test-results/deployed` folders; repeated runs of the same suite can replace its own artifacts.
+5. Database-backed coverage is a separate gate when social/push/support changes require it: supply `TEST_DATABASE_URL` **only for an isolated migrated test database**, then `corepack pnpm test --database --file push.test.ts --file diagnostics-db.test.ts --summary` and `corepack pnpm db:integration`. The latter also needs the existing test OAuth session configuration and an unused localhost:3000 port. Never use production: support retention tests can delete expired rows beyond synthetic users. Ordinary unit runs do not load `.env.local` or use `DATABASE_URL`. Do not print either URL. These commands do not migrate the schema; provisioning requires separate authorization.
+6. Follow the affected physical-phone/source/PWA checks in [production checklist](production-deploy-checklist.md) and [push verification](push-notifications.md#verification). After an authorized commit/push, set `$env:DEPLOYED_EXPECTED_REVISION=(git rev-parse HEAD)` and run `corepack pnpm test:deployed` to verify the deployed revision. A local pass does not establish live OAuth, notification delivery or production build identity.
+
+Record each gate as **PASS**, **FAIL**, or **NOT RUN** with its reason; unavailable private/DB/browser/phone/deployed checks cannot be called passed. For tooling/docs-only changes choose relevant tooling tests, lint/typecheck and review; do not run all physical workflows solely to generate performance numbers. No script commits, pushes, migrates or sends live notifications automatically.
+
+Unit runs have separate temporary directories and can run independently; full suites normally need only one run per unchanged revision. Lint excludes generated tests/browser artifacts. Prefer bounded reads and focused tests while developing; retain the full release gates above before a product release. See [workflow decisions and measurements](development-workflow.md).
+
 ## Real-phone check for this iteration
 
 On a long List workout, complete or skip every exercise and check that **Finish workout** appears above bottom navigation without scrolling; undo either state and confirm it disappears. Finish through the shortcut and verify the normal same-day Add/Replace prompt. In History detail, open **Delete workout record**, first keep the workout, then delete a disposable completed record; confirm History and Statistics update and an offline shared deletion retries on reconnection. Source Google/Excel dates and loads must remain unchanged. In Settings, download the JSON debug report and clear the log. Verify Friends sits directly below Current Training and above Choose a workout on Home; try recent workout, received reaction, empty state and temporary API failure. Recheck the previously confirmed publish, reaction, Add, Replace, Cancel, PWA update and source sync paths.

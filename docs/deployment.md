@@ -1,6 +1,8 @@
 # Deployment architecture
 
-Treino Local uses Next.js Route Handlers for Google OAuth and Sheets API calls. Pages, plans, active workouts, and history stay in the browser. A server-side encrypted HttpOnly cookie stores the Google refresh token; there is no cloud user database. The browser calls same-origin `/api/google/...` routes and never receives a Google token. The older `/api/google-connector` route and Apps Script sources remain only for legacy compatibility.
+Treino Local uses Next.js Route Handlers for Google OAuth and Sheets API calls. Pages, plans, active workouts, and full history stay in the browser. A server-side encrypted HttpOnly cookie stores the Google refresh token. Optional Friends/push and explicitly sent diagnostics use private Supabase/Postgres schemas; see [social boundaries](social-v1.md), [push](push-notifications.md) and [diagnostic retention](diagnostics.md). The browser calls same-origin `/api/google/...` routes and never receives a Google token. The older `/api/google-connector` route and Apps Script sources remain only for legacy compatibility.
+
+Use [testing release gates](testing.md#commands-and-release-gates) before publishing. An authorized push to `origin/main` triggers Vercel; verify the deployed commit prefix separately. Routine verification does not authorize database migrations or writes to production data.
 
 The PWA service worker bypasses all `/api/` requests. Already-imported plans, in-progress workouts, and local history remain usable offline. Finishing a session saves it locally before a best-effort Google write; Source can retry pending sessions. Excel import/direct write/safe-copy behavior is unchanged.
 

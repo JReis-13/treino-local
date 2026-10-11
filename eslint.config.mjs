@@ -7,5 +7,6 @@ export default defineConfig([
   ...nextTs,
   // Browser-only capability and storage snapshots are loaded after server rendering.
   { rules: { "react-hooks/set-state-in-effect": "off" } },
-  globalIgnores([".next/**", "out/**", "next-env.d.ts"]),
+  globalIgnores([".next/**", "out/**", "next-env.d.ts", ".test-build/**", "test-results/**",
+    "playwright-report/**", "screenshots/**", "coverage/**"]),
 ]);

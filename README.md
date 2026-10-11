@@ -10,15 +10,15 @@ When a completed exercise's actual load differs from the source load, an OAuth-c
 
 **Statistics** uses local plan and session records, including imported completion dates for workout counts. Imported dates have no invented duration or actual load. Duration, frequency, workout mix, and comparable numeric load trends are shown with plan, workout, and date filters. Statistics works offline and adds no cloud workout database. History shows separate same-day sessions and their save times. Export a fresh backup from Settings before changing devices or clearing browser data.
 
-Mobile-first, local-first workout app. Import a supported training workbook once, then use the saved plan without keeping the source open or being online. Each browser/device has its own plan library, active plan, in-progress workouts, and history. Google Sheets is the preferred optional sync source; local Excel is also supported. Google authorization is only for Sheet access; there is no Treino Local cloud account or database.
+Mobile-first, local-first workout app. Import a supported training workbook once, then use the saved plan without keeping the source open or being online. Each browser/device has its own plan library, active plan, in-progress workouts, and history. Google Sheets is the preferred optional sync source; local Excel is also supported. Optional Friends, push and consented support diagnostics use private server storage; private workbook contents and full workout history remain local. See [social boundaries](docs/social-v1.md) and [diagnostic privacy](docs/diagnostics.md).
 
 ## Run
 
 The Vercel build targets Node.js 24 and pnpm 10.34.6. To reproduce its dependency install locally in PowerShell:
 
 ```powershell
-pnpm dlx pnpm@10.34.6 install --frozen-lockfile
-pnpm dev
+corepack pnpm install --frozen-lockfile
+corepack pnpm dev
 ```
 
 Copy `.env.example` to `.env.local` and fill the developer-only OAuth values before testing Google locally. Open `http://localhost:3000`. A physical phone can use the app over private Wi-Fi with `pnpm dev:lan`, but Google OAuth is available only at its exact configured `localhost:3000` or production redirect origin; test phone OAuth on the production HTTPS site. See [the developer setup](docs/google-oauth-developer-setup.md).
@@ -34,16 +34,9 @@ Open `http://localhost:3000`. The build includes Node.js Route Handlers for Goog
 
 ## Checks
 
-```powershell
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm test:excel
-pnpm build
-$env:E2E_BASE_URL='http://localhost:3000'; $env:E2E_PRODUCTION='1'; pnpm test:e2e
-```
+For development routing and full release gates, use [development workflow](docs/development-workflow.md) and [testing](docs/testing.md). Start with `corepack pnpm workflow history --plan` (or `ui`, `push`, `release`). Database tests require an explicitly isolated `TEST_DATABASE_URL`; ordinary unit checks never use the production database.
 
-Run the mobile E2E command against `http://localhost:3000` or the printed LAN URL while `pnpm dev` / `pnpm dev:lan` runs to test development mode; unset `E2E_PRODUCTION` in that case. Playwright uses installed Chrome, emulating Pixel 7 and iPhone 13 sized browsers. Workbook tests use the two originals as **read-only local fixtures**, write only disposable temporary copies, and check source hashes. Set `WORKBOOK_FIXTURE_DIR` to their directory when they are not in the user's Downloads folder. Tests fail with a clear message when private fixtures are absent; no workbook is committed or bundled.
+The testing guide is the canonical command checklist, including Chrome phone emulation, optional read-only private fixtures and strict release prerequisites. No workbook is committed or bundled.
 
 ## Using the app
 
