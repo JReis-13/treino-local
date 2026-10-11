@@ -113,6 +113,9 @@ test("two phone users request, accept, share one workout, react and see the rece
     await page.goto("/");
     await page.getByRole("button", { name: "Start workout" }).click();
     await page.getByRole("link", { name: /Finish workout/ }).click();
+    await expect(page.getByRole("button", { name: /Save workout/ })).toBeVisible();
+    if (await page.getByRole("checkbox", { name: /Save this session with no completed exercises/ }).isVisible())
+      await page.getByRole("checkbox", { name: /Save this session with no completed exercises/ }).check();
     await page.getByRole("button", { name: /Save workout/ }).click();
     await expect.poll(() => state.activity?.workoutName).toBe("Workout A");
     expect(JSON.stringify(state.activity)).not.toContain("actualLoad");
@@ -143,6 +146,9 @@ test("Finish uses only final same-day IDs for social Add and Replace; Cancel and
     await page.goto("/");
     await page.getByRole("button", { name: "Start workout" }).click();
     await page.getByRole("link", { name: /Finish workout/ }).click();
+    await expect(page.getByRole("button", { name: /Save workout/ })).toBeVisible();
+    if (await page.getByRole("checkbox", { name: /Save this session with no completed exercises/ }).isVisible())
+      await page.getByRole("checkbox", { name: /Save this session with no completed exercises/ }).check();
   };
   const expectPublishSettled = async (count: number) => {
     await expect.poll(() => posts.length).toBe(count);
@@ -220,6 +226,9 @@ test("migrated phone History with an old workout ID opens the real Add/Replace d
   await page.getByRole("button", { name: "Start workout" }).click();
   await page.getByRole("checkbox", { name: "Complete Squat" }).click();
   await page.getByRole("link", { name: /Finish workout/ }).click();
+  await expect(page.getByRole("button", { name: /Save workout/ })).toBeVisible();
+  if (await page.getByRole("checkbox", { name: /Save this session with no completed exercises/ }).isVisible())
+    await page.getByRole("checkbox", { name: /Save this session with no completed exercises/ }).check();
   await page.getByRole("button", { name: /Save workout/ }).click();
   await expect(page.getByRole("dialog", { name: /already saved Workout A/ })).toBeVisible();
   await page.getByRole("button", { name: /Add another workout/ }).click();
@@ -228,6 +237,9 @@ test("migrated phone History with an old workout ID opens the real Add/Replace d
   await page.goto("/");
   await page.getByRole("button", { name: "Start workout" }).click();
   await page.getByRole("link", { name: /Finish workout/ }).click();
+  await expect(page.getByRole("button", { name: /Save workout/ })).toBeVisible();
+  if (await page.getByRole("checkbox", { name: /Save this session with no completed exercises/ }).isVisible())
+    await page.getByRole("checkbox", { name: /Save this session with no completed exercises/ }).check();
   await page.getByRole("button", { name: /Save workout/ }).click();
   await page.getByLabel("SESSION TO REPLACE").selectOption("S1");
   await page.getByRole("button", { name: /Replace previous workout/ }).click();
@@ -259,6 +271,9 @@ test("manual Share with friends publishes one session while automatic sharing st
   await page.goto("/");
   await page.getByRole("button", { name: "Start workout" }).click();
   await page.getByRole("link", { name: /Finish workout/ }).click();
+  await expect(page.getByRole("button", { name: /Save workout/ })).toBeVisible();
+  if (await page.getByRole("checkbox", { name: /Save this session with no completed exercises/ }).isVisible())
+    await page.getByRole("checkbox", { name: /Save this session with no completed exercises/ }).check();
   await page.getByRole("button", { name: /Save workout/ }).click();
   await expect(page.getByRole("region", { name: "Friends sharing" })).toContainText("Friends sharing is off");
   expect(manualPosts).toBe(0);

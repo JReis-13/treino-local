@@ -27,6 +27,9 @@ test("offline completion reconciles on reconnect and stays synced after reload",
   await context.setOffline(true);
   await page.getByRole("button", { name: "Start workout" }).first().tap();
   await page.getByRole("link", { name: /Finish workout/ }).tap();
+  await expect(page.getByRole("button", { name: /Save workout/ })).toBeVisible();
+  if (await page.getByRole("checkbox", { name: /Save this session with no completed exercises/ }).isVisible())
+    await page.getByRole("checkbox", { name: /Save this session with no completed exercises/ }).check();
   await page.getByRole("button", { name: /Save workout/ }).tap();
   await page.getByRole("link", { name: "Not now" }).tap();
   await page.getByRole("link", { name: "Home", exact: true }).tap();

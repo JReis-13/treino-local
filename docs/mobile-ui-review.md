@@ -1,5 +1,7 @@
 # Mobile UI review
 
+For the independent report's current issue classifications and subsequent narrow fixes, see [current UX review](current-ux-review.md). This document describes the earlier mockup implementation.
+
 The phone mockup guided interaction order, density, and emphasis. Labels and values remain tied to the imported plan and recorded sessions.
 
 | Screen | Mockup goal | What changed | Intentional deviation |

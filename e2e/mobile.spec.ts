@@ -65,7 +65,7 @@ test("mobile first launch, workout actions, reload, back/forward and history", a
   await expect(page.getByRole("progressbar", { name: "Workout progress" })).toHaveAttribute("aria-valuenow", "1");
   await expect(page.getByRole("textbox", { name: "Actual load for Agachamento goblet" })).toHaveValue("9");
   await page.getByRole("link", { name: /Finish workout/ }).tap();
-  await expect(page.getByRole("heading", { name: "Nice work." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review your session." })).toBeVisible();
   await page.getByRole("button", { name: /Save workout/ }).tap();
   await expect(page.getByRole("heading", { name: /Workout completed/ })).toBeVisible();
   await page.getByRole("link", { name: "Not now" }).tap();
@@ -314,6 +314,7 @@ test("fresh mobile user connects, imports by Sheet URL, finishes locally and syn
   await page.locator(".review-card").getByRole("button", { name: /Use this training/ }).tap();
   await page.getByRole("button", { name: "Start workout" }).first().tap();
   await page.getByRole("link", { name: /Finish workout/ }).tap();
+  await page.getByRole("checkbox", { name: /Save this session with no completed exercises/ }).check();
   await page.getByRole("button", { name: /Save workout/ }).tap();
   await expect.poll(() => operations.filter((item) => item === "sync").length).toBe(1);
   await page.getByRole("link", { name: "Not now" }).tap();

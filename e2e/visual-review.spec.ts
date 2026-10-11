@@ -55,6 +55,7 @@ test("phone screens stay compact and readable through the gym flow", async ({ pa
     await page.getByRole("link", { name: "Home", exact: true }).tap();
     await page.getByRole("button", { name: "Start workout" }).first().tap();
     await page.getByRole("link", { name: /Finish workout/ }).tap();
+    await page.getByRole("checkbox", { name: /Save this session with no completed exercises/ }).check();
     await page.getByRole("button", { name: /Save workout/ }).tap();
     await expect(page.getByRole("dialog")).toBeVisible();
     await capture("same-day-dialog");
