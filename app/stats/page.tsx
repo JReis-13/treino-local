@@ -27,7 +27,11 @@ export default function StatsPage() {
       selectedPlan === "all" ? `${workout.title} · ${plan.name}` : workout.title] as const));
   const exercises = [...new Map(entries.flatMap((entry) => entry.session?.workoutSnapshot.blocks.filter((block) => block.kind === "exercise")
     .map((block) => [`${entry.planId}|${block.id}`, `${block.name}${selectedPlan === "all" ? ` · ${data.plans.find((plan) => plan.id === entry.planId)?.name ?? "Removed plan"}` : ""}`] as const) ?? [])).entries()];
-  const chosenExercise = exercises.some(([id]) => id === exerciseId) ? exerciseId : exercises[0]?.[0];
+  const chosenExercise = exercises.some(([id]) => id === exerciseId) ? exerciseId :
+    exercises.find(([id]) => {
+      const [planId, blockId] = id.split("|");
+      return loadProgression(entries.filter((entry) => entry.planId === planId), blockId).points.length > 0;
+    })?.[0] ?? exercises[0]?.[0];
   const [exercisePlanId, exerciseBlockId] = chosenExercise?.split("|") ?? [];
   const progression = chosenExercise ? loadProgression(entries.filter((entry) => entry.planId === exercisePlanId), exerciseBlockId) : { points: [], mixedUnits: false };
   const firstLoad = progression.points[0]?.amount;

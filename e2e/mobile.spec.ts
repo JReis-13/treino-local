@@ -319,7 +319,7 @@ test("fresh mobile user connects, imports by Sheet URL, finishes locally and syn
   await expect.poll(() => operations.filter((item) => item === "sync").length).toBe(1);
   await page.getByRole("link", { name: "Not now" }).tap();
   await page.locator(".history-list a.history-card").first().tap();
-  await expect(page.getByText(/Synced/)).toBeVisible();
+  await expect(page.getByText("Synced to source", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Settings", exact: true }).tap();
   await page.getByRole("link", { name: /Training plans/ }).tap();
   await page.getByRole("button", { name: /\+ Add training/ }).tap();

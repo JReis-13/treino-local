@@ -10,13 +10,15 @@ import { sharedDurationLabel } from "@/lib/social/display";
 
 function localDay(value: string) { try { return new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(new Date(`${value}T12:00:00`)); } catch { return value; } }
 
-export function SocialHomeCard({ compact = false }: { compact?: boolean }) {
+export function SocialHomeCard({ compact = false, onConnectionChange }: { compact?: boolean;
+  onConnectionChange?: (state: "loading" | "ready" | "auth" | "unavailable") => void }) {
   const [snapshot, setSnapshot] = useState(() => cachedSocialHome());
   const [state, setState] = useState<"loading" | "ready" | "auth" | "unavailable">(snapshot ? "ready" : "loading");
   const [updating, setUpdating] = useState(false);
   const [message, setMessage] = useState("");
   const refreshSequence = useRef(0);
   const hasSnapshot = useRef(Boolean(snapshot));
+  useEffect(() => { onConnectionChange?.(state); }, [state, snapshot?.me.accountId, snapshot?.me.email, onConnectionChange]);
   useEffect(() => subscribeSocialChange(() => {
     if (hasSnapshot.current && !cachedSocialHome()) {
       hasSnapshot.current = false;

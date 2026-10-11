@@ -388,6 +388,20 @@ button,a,summary{-webkit-tap-highlight-color:transparent}
 .current-training-hero .hero-source-count{position:relative;z-index:1;margin:8px 0 0!important;color:var(--lime)!important;font-size:12px!important;max-width:calc(100% - 145px)}
 .load-editor{display:flex;flex-direction:column;gap:4px;min-width:0}
 .load-editor-focus{width:100%}
+.list-jump select{width:100%;min-height:44px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:white;color:var(--ink);font:inherit;font-size:13px}
+.list-jump{display:grid;gap:6px;font-size:13px}
+.workout-menu{position:absolute;right:0;top:48px;z-index:5;width:min(240px,calc(100vw - 40px));padding:10px;display:grid;gap:8px;background:white;border:1px solid var(--line);border-radius:10px;box-shadow:0 5px 18px #17232320}
+.workout-overflow .workout-menu button{position:static;min-width:0;width:100%;box-shadow:none}
+.workout-page:not(.focus-page) .active-workout-header{position:sticky;top:0;z-index:30;background:var(--paper)}
+.workout-page .exercise-card{scroll-margin-top:185px}
+@media(max-width:700px){
+  .workout-page:not(.focus-page) .exercise-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px 10px}
+  .workout-page:not(.focus-page) .exercise-card>*{grid-column:1/-1}
+  .workout-page:not(.focus-page) .exercise-card .load-reference{grid-column:1;align-content:center;align-self:center;margin:0;padding:0;border:0;gap:5px 8px}
+  .workout-page:not(.focus-page) .exercise-card .load-editor{grid-column:2}
+  .workout-page:not(.focus-page) .exercise-card:not(:has(.load-reference)) .load-editor{grid-column:1/-1}
+  .workout-page:not(.focus-page) .exercise-card .exercise-actions{margin-top:0}
+}
 .load-editor-focus .focus-load{width:100%}
 .load-save-status{display:block;color:var(--teal);font-size:11px;line-height:1.35}
 .load-save-failed{color:#a44d38}
