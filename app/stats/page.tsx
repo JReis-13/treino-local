@@ -16,14 +16,15 @@ export default function StatsPage() {
   const { data } = useApp();
   const [planId, setPlanId] = useState("active");
   const [workoutId, setWorkoutId] = useState("all");
-  const [range, setRange] = useState<StatsRange>("3m");
+  const [range, setRange] = useState<StatsRange>("all");
   const [exerciseId, setExerciseId] = useState("");
   const selectedPlan = planId === "active" ? data?.activePlanId ?? "all" : planId;
   const entries = useMemo(() => data ? filteredEntries(data, selectedPlan, workoutId, range) : [], [data, selectedPlan, workoutId, range]);
   if (!data) return <div className="loading">Loading statistics…</div>;
   const overview = statsOverview(entries, range);
-  const workouts = [...new Map(data.plans.filter((plan) => selectedPlan === "all" || plan.id === selectedPlan)
-    .flatMap((plan) => plan.workouts.map((workout) => [workout.id, workout.title] as const))).entries()];
+  const workouts = data.plans.filter((plan) => selectedPlan === "all" || plan.id === selectedPlan)
+    .flatMap((plan) => plan.workouts.map((workout) => [`${plan.id}|${workout.id}`,
+      selectedPlan === "all" ? `${workout.title} · ${plan.name}` : workout.title] as const));
   const exercises = [...new Map(entries.flatMap((entry) => entry.session?.workoutSnapshot.blocks.filter((block) => block.kind === "exercise")
     .map((block) => [`${entry.planId}|${block.id}`, `${block.name}${selectedPlan === "all" ? ` · ${data.plans.find((plan) => plan.id === entry.planId)?.name ?? "Removed plan"}` : ""}`] as const) ?? [])).entries()];
   const chosenExercise = exercises.some(([id]) => id === exerciseId) ? exerciseId : exercises[0]?.[0];
@@ -35,10 +36,11 @@ export default function StatsPage() {
   const percentChange = firstLoad && loadChange !== undefined ? Math.round(loadChange / firstLoad * 100) : undefined;
   const durations = entries.flatMap((entry) => entry.session ? [durationMinutes(entry.session.startedAt, entry.session.completedAt)] : [])
     .filter((value): value is number => value !== null).reverse();
-  const distribution = workouts.map(([id, label]) => ({ id, label, count: entries.filter((entry) => entry.workoutId === id).length })).filter((item) => item.count);
+  const distribution = workouts.map(([id, label]) => ({ id, label,
+    count: entries.filter((entry) => `${entry.planId}|${entry.workoutId}` === id).length })).filter((item) => item.count);
   return <div className="page-stack stats-page"><div className="page-heading"><p className="eyebrow">LOCAL RECORDS</p><h1>Statistics<span className="dot-accent">.</span></h1><p>Your recorded workouts on this device.</p></div>
     <div className="stats-filters"><label className="date-field"><span>PLAN</span><select value={planId} onChange={(event) => { setPlanId(event.target.value); setWorkoutId("all"); setExerciseId(""); }}><option value="active">Current plan</option><option value="all">All plans</option>{data.plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}</select></label><label className="date-field"><span>RANGE</span><select value={range} onChange={(event) => setRange(event.target.value as StatsRange)}><option value="4w">4 weeks</option><option value="3m">3 months</option><option value="6m">6 months</option><option value="all">All time</option></select></label></div>
-    <div className="stats-metrics"><div className="mini-panel"><small>WORKOUTS</small><strong>{overview.workouts}</strong></div><div className="mini-panel"><small>AVG DURATION</small><strong>{overview.averageDuration ?? "—"}{overview.averageDuration !== null ? " min" : ""}</strong></div><div className="mini-panel"><small>PER WEEK</small><strong>{overview.perWeek}</strong></div></div>
+    <div className="stats-metrics"><div className="mini-panel"><small>COMPLETED SESSIONS</small><strong>{overview.workouts}</strong></div><div className="mini-panel"><small>AVG DURATION</small><strong>{overview.averageDuration ?? "—"}{overview.averageDuration !== null ? " min" : ""}</strong></div><div className="mini-panel"><small>PER WEEK</small><strong>{overview.perWeek}</strong></div></div>
     <p className="quiet-note stats-context">{overview.durationSample} timed session{overview.durationSample === 1 ? "" : "s"} · {overview.exercisesCompleted} exercise block{overview.exercisesCompleted === 1 ? "" : "s"} completed. Imported dates have no duration or load.</p>
     <details className="stats-more-filter"><summary>{workoutId === "all" ? "All workouts" : workouts.find(([id]) => id === workoutId)?.[1] ?? "Workout"} · change filter</summary><label className="date-field"><span>WORKOUT</span><select value={workoutId} onChange={(event) => { setWorkoutId(event.target.value); setExerciseId(""); }}><option value="all">All workouts</option>{workouts.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></details>
     <section className="review-card"><h2>Workout duration</h2><p className="quiet-note">{overview.durationSample ? `${overview.durationSample} timed sessions${overview.shortest !== null ? ` · ${overview.shortest}–${overview.longest} min` : ""}` : "No recorded duration in this period."}</p>{overview.durationSample > 0 && <Trend values={durations} label="Workout duration trend in minutes" />}</section>

@@ -8,6 +8,7 @@ import { aggregateSync } from "@/lib/training/sync-state";
 import { syncLabel } from "@/lib/sync-status";
 import type { LegacyCompletion, TrainingSession } from "@/types/training";
 import { legacyIsHidden } from "@/lib/training/history-delete";
+import { matchingLocalSession } from "@/lib/training/history-match";
 import { readSocialDiagnostics } from "@/lib/social/client";
 
 type Entry = { type: "session"; session: TrainingSession; date: string } | { type: "legacy"; legacy: LegacyCompletion; planId: string; planName: string; date: string };
@@ -42,11 +43,7 @@ export default function HistoryPage() {
   for (const plan of data.plans.filter((item) => !planId || item.id === planId)) {
     for (const legacy of plan.legacyCompletions) {
       if (legacyIsHidden(data, plan.id, legacy)) continue;
-      if (sessions.some((session) => session.planId === plan.id && session.workoutId === legacy.workoutId && session.localDate === legacy.date &&
-        (session.completionReceipt?.slot === legacy.sourceSlot || (!session.completionReceipt &&
-          (plan.source.kind === "google" ? !session.duplicateDateAllowed &&
-            plan.legacyCompletions.filter((item) => item.workoutId === legacy.workoutId && item.date === legacy.date).length === 1 :
-            session.syncStatus === "synced"))))) continue;
+      if (matchingLocalSession(data, plan, legacy)) continue;
       entries.push({ type: "legacy", legacy, planId: plan.id, planName: plan.name, date: legacy.date });
     }
   }
@@ -75,7 +72,7 @@ export default function HistoryPage() {
         {removedSessions.length > 0 ? ` ${removedSessions.length} detailed local workout${removedSessions.length === 1 ? "" : "s"} preserved below.` : ""}
         {" "}These records are excluded from current History and Statistics. Friends sharing is unchanged.</span></div>}
     <label className="date-field"><span>TRAINING PLAN</span><select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="active">Current training</option><option value="all">All training</option>{data.plans.map((plan) => <option value={plan.id} key={plan.id}>{plan.name}</option>)}</select></label>
-    <div className="history-total"><strong>{entries.length}</strong><span>workouts<br />recorded</span></div>
+    <div className="history-total"><strong>{entries.length}</strong><span>completed<br />sessions</span></div>
       {entries.length ? <div className="history-list">{days.map((day) => <section className="history-day" key={day.date}><div className="history-day-heading"><strong>{formatLocalDate(day.date)}</strong><span>{day.items.length} workout{day.items.length === 1 ? "" : "s"}</span></div>{day.items.map((entry) => entry.type === "session" ? <Link className="history-card" key={entry.session.id} href={`/history/session/?id=${encodeURIComponent(entry.session.id)}`}><div className="history-avatar">✓</div><div className="history-copy"><strong>{entry.session.workoutSnapshot.title}</strong><span>{new Date(entry.session.completedAt!).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}{durationMinutes(entry.session.startedAt, entry.session.completedAt) === null ? "" : ` · ${durationMinutes(entry.session.startedAt, entry.session.completedAt)} min`} · {entry.session.blocks.filter((block) => block.completed).length}/{entry.session.blocks.length} done</span>{entry.session.sessionNote && <small className="history-note-preview">{entry.session.sessionNote}</small>}<small>{data.plans.find((plan) => plan.id === entry.session.planId)?.name ?? "Removed training"} · {entry.session.sourceReconciliation === "conflict" ? "Source match needs review" : entry.session.completionReceipt ? "Current source-linked" : "Saved locally"} · {syncLabel[aggregateSync(entry.session)]}</small></div><span className="history-arrow">›</span></Link>
       : <Link prefetch={false} className="history-card" key={`${entry.planId}:${entry.legacy.id}`} href={`/history/session/?plan=${encodeURIComponent(entry.planId)}&legacy=${encodeURIComponent(entry.legacy.id)}`}><div className="history-avatar imported">◷</div><div className="history-copy"><strong>Workout {entry.legacy.workoutId}</strong><span>Imported date · duration unavailable</span><small>{entry.planName}{entry.legacy.calories ? ` · ${entry.legacy.calories} kcal as recorded` : ""}</small></div><span className="history-arrow" aria-label="Open imported workout">›</span></Link>)}</section>)}</div>
       : <div className="empty-state"><h2>Your history starts here</h2><p>Finish a workout or import a plan with completion dates.</p><Link className="secondary-button" href="/">Choose a workout</Link></div>}

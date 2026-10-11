@@ -38,10 +38,9 @@ test("capture the eight core phone surfaces without horizontal overflow", async 
   await capture("list-note-preview-and-no-load");
   await page.getByRole("button", { name: "Focus", exact: true }).click();
   await capture("workout-focus");
-  await page.getByRole("button", { name: "Add note & history" }).click();
-  await expect(page.getByRole("dialog", { name: "Goblet squat" })).toBeVisible();
+  await page.getByRole("region", { name: "Focus mode" }).getByRole("tab", { name: "History" }).click();
+  await expect(page.getByRole("region", { name: "Focus mode" }).getByRole("tabpanel")).toBeVisible();
   await capture("exercise-detail");
-  await page.getByRole("button", { name: "Close exercise details" }).click();
   await page.getByRole("button", { name: "Mark complete" }).click();
   await capture("completed-workout-card");
   await page.getByRole("button", { name: "List", exact: true }).click();

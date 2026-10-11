@@ -11,7 +11,7 @@ export function exerciseLoadHistory(data: TrainingData, planId: string, name: st
       exerciseKey(block.name) === key ? [{ workout, block }] : [])) ?? [];
   if (candidates.length !== 1) return [];
   return resolveLoadHistory(data, planId, candidates[0].workout, candidates[0].block).matches.map((item) => ({
-    date: item.session.localDate!, completedAt: item.session.completedAt!, load: item.load,
+    sessionId: item.session.id, date: item.session.localDate!, completedAt: item.session.completedAt!, load: item.load,
   }));
 }
 

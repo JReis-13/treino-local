@@ -81,7 +81,8 @@ test("phone Focus and List share loads, queue, skips, timer and saved outcome", 
   await page.getByRole("button", { name: "Do later" }).click();
   await expect(page.locator(".focus-name")).toHaveText("Seated row");
   await expect(page.getByRole("button", { name: "Next →" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Note: Keep shoulders down/ })).toBeVisible();
+  await page.getByRole("region", { name: "Focus mode" }).getByRole("tab", { name: "Notes" }).click();
+  await expect(page.getByRole("region", { name: "Focus mode" }).getByRole("textbox", { name: "EXERCISE NOTE" })).toHaveValue("Keep shoulders down");
   await page.getByRole("button", { name: "Mark complete" }).click();
   await expect(page.locator(".focus-name")).toContainText("Single leg Romanian deadlift");
   await page.getByRole("button", { name: /Start 2:00 rest/ }).click();
@@ -203,15 +204,17 @@ test("Focus uses distinct pending, completed and skipped states with compact inl
     await page.screenshot({ path: testInfo.outputPath(`${name}.png`), animations: "disabled" });
   };
   await expect(focus.getByRole("heading", { name: "Lat pulldown" })).toBeVisible();
-  await expect(focus.getByText("Machine", { exact: false })).toBeVisible();
+  await expect(focus.getByText("Machine", { exact: false }).first()).toBeVisible();
   await expect(focus.getByText(/Current plan 35 kg/)).toBeVisible();
-  await expect(focus.getByText(/Last 30 kg/)).toBeVisible();
+  await expect(focus.getByText(/Last used 30 kg/)).toBeVisible();
   await expect(focus.getByRole("button", { name: "▶ Watch execution" })).toBeVisible();
   await expect(page.locator("iframe")).toHaveCount(0);
   await focus.getByRole("button", { name: "▶ Watch execution" }).click();
-  await expect(page.getByRole("dialog", { name: "Lat pulldown" }).locator("iframe")).toHaveCount(1);
-  await page.getByRole("button", { name: "Close exercise details" }).click();
+  await expect(focus.locator("iframe")).toHaveCount(1);
+  await focus.getByRole("tab", { name: "History" }).click();
   await expect(page.locator("iframe")).toHaveCount(0);
+  await expect(focus.getByRole("tabpanel").getByRole("link", { name: /30 kg/ })).toBeVisible();
+  await focus.getByRole("tab", { name: "Overview" }).click();
   await expect(focus.getByRole("button", { name: "Mark complete" })).toBeVisible();
   await expect(focus.getByText("✓ Completed")).toHaveCount(0);
   if (testInfo.project.name !== "Narrow phone Chrome") {
@@ -222,7 +225,8 @@ test("Focus uses distinct pending, completed and skipped states with compact inl
   await capture("focus-pending-load-video");
   await focus.getByRole("button", { name: "Mark complete" }).click();
   await expect(focus.getByRole("heading", { name: "Seated row" })).toBeVisible();
-  await expect(focus.getByRole("button", { name: /Note: Keep shoulders down/ })).toBeVisible();
+  await focus.getByRole("tab", { name: "Notes" }).click();
+  await expect(focus.getByRole("textbox", { name: "EXERCISE NOTE" })).toHaveValue("Keep shoulders down");
   await capture("focus-note-after-complete");
   await focus.getByRole("button", { name: "Start 2:00 rest" }).click();
   await expect(page.getByRole("group", { name: "Rest timer" })).toBeVisible();
@@ -236,9 +240,9 @@ test("Focus uses distinct pending, completed and skipped states with compact inl
   await expect(focus.getByRole("button", { name: "Mark complete" })).toBeVisible();
   await expect(focus.getByText("✓ Completed")).toHaveCount(0);
   await focus.getByRole("button", { name: "Next →" }).click();
-  await focus.getByRole("button", { name: /Note: Keep shoulders down/ }).click();
+  await focus.getByRole("tab", { name: "Notes" }).click();
   await expect(page.getByRole("tab", { name: "Notes" })).toHaveAttribute("aria-selected", "true");
-  await page.getByRole("button", { name: "Close exercise details" }).click();
+  await expect(focus.getByRole("textbox", { name: "EXERCISE NOTE" })).toHaveValue("Keep shoulders down");
   await capture("focus-with-note");
   await focus.getByText("More actions").click();
   await focus.getByRole("button", { name: "Skip today" }).click();

@@ -26,7 +26,7 @@ interface AppContextValue {
   undoSessionDeletion(sessionId: string): boolean;
   deleteLegacy(planId: string, legacyId: string): boolean;
   undoLegacyDeletion(planId: string, legacyId: string): boolean;
-  updateBlock(sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }): void;
+  updateBlock(sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }): boolean;
   moveBlockLater(sessionId: string, blockId: string): void;
   restoreQueue(sessionId: string, queueOrder: string[], focusBlockId?: string): void;
   skipBlock(sessionId: string, blockId: string, skipped: boolean): void;
@@ -167,10 +167,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     commit((current) => undoLegacyHistoryDeletion(current, planId, legacyId)), [commit]);
 
   const updateBlock = useCallback((sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }) => {
-    if (commit((current) => updateTrainingBlock(current, sessionId, blockId, change))) {
+    const saved = commit((current) => updateTrainingBlock(current, sessionId, blockId, change));
+    if (saved) {
       if (change.completed !== undefined) recordDiagnosticEvent(change.completed ? "exercise_completed" : "exercise_reopened", { sessionId });
       if (change.actualLoad !== undefined) recordDiagnosticEvent("today_load_manually_changed", { sessionId, operation: "load" });
     }
+    return saved;
   }, [commit]);
   const moveBlockLater = useCallback((sessionId: string, blockId: string) => {
     commit((current) => moveTrainingBlockLater(current, sessionId, blockId));

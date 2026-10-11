@@ -382,5 +382,26 @@ button,a,summary{-webkit-tap-highlight-color:transparent}
   .load-reference strong{font-size:.86rem}
   .load-field input{min-height:44px;font-size:1rem}
   .exercise-actions{margin-top:2px}
-  .focus-stage{padding:12px}
+.focus-stage{padding:12px}
 }
+
+.current-training-hero .hero-source-count{position:relative;z-index:1;margin:8px 0 0!important;color:var(--lime)!important;font-size:12px!important;max-width:calc(100% - 145px)}
+.load-editor{display:flex;flex-direction:column;gap:4px;min-width:0}
+.load-editor-focus{width:100%}
+.load-editor-focus .focus-load{width:100%}
+.load-save-status{display:block;color:var(--teal);font-size:11px;line-height:1.35}
+.load-save-failed{color:#a44d38}
+.load-save-failed button{border:0;background:transparent;color:inherit;text-decoration:underline;font-weight:800;padding:4px}
+.detail-active-controls{display:flex;flex-direction:column;gap:9px;padding:8px 0 14px}
+.detail-active-controls .detail-loads{margin:0}
+.exercise-support{display:flex;flex-direction:column;gap:8px;min-width:0}
+.focus-stage .exercise-support{border-top:1px solid var(--line);margin-top:4px;padding-top:4px}
+.detail-history-list>a{display:flex;justify-content:space-between;gap:10px;padding:11px 2px;border-bottom:1px solid var(--line);font-size:.78rem;min-height:44px;align-items:center}
+.detail-history-list>a:hover,.detail-history-list>a:focus-visible{color:var(--teal);text-decoration:underline}
+.diagnostic-receipts{display:flex;flex-direction:column;gap:7px;border-top:1px solid var(--line);padding-top:13px}
+.diagnostic-receipts h3{font-size:15px}
+.diagnostic-receipt{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.diagnostic-receipt span{display:flex;flex-direction:column;gap:3px;min-width:0}
+.diagnostic-receipt small{font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.diagnostic-receipt button{min-height:40px;flex-shrink:0}
+@media(max-width:700px){.current-training-hero{min-height:210px;padding-bottom:55px}.current-training-hero .hero-source-count{max-width:100%;padding-right:80px}.focus-stage .detail-video-frame{max-height:220px}}

@@ -10,7 +10,11 @@ test("support report sanitizer strips arbitrary fields, notes, loads, URLs and p
     "https://docs.google.com/spreadsheets/d/PRIVATE_ID", "FULL_GOOGLE_SUB"];
   const input = { debugReportVersion: 1, timestamp: "2026-10-08T08:00:00Z", token: secrets[0],
     app: { buildId: "1234abcd-20261008T080000", route: "/settings/", online: true, secret: secrets[1] },
-    source: { latestSessionSync: "synced", historicalPendingSessions: 3, spreadsheetUrl: secrets[10] },
+    source: { latestSessionSync: "synced", historicalPendingSessions: 3, visibleSessionCount: 8,
+      sourceOccurrences: [{ workoutIndex: 1, row: 9, status: "hidden", includedInHome: false,
+        date: "2026-10-10", exerciseName: "PRIVATE_EXERCISE", load: "95kg" },
+        { workoutIndex: 1, row: 99, status: "source record", includedInHome: true }],
+      spreadsheetUrl: secrets[10] },
     social: { authenticated: "yes", email: secrets[9], googleSub: secrets[11],
       lastHomeActivity: "ACTIVITY_1234567890abcdef1234", displayedActivity: "ACTIVITY_1234567890abcdef1234",
       lastReactionActivity: "PRIVATE_WORKOUT" },
@@ -31,6 +35,10 @@ test("support report sanitizer strips arbitrary fields, notes, loads, URLs and p
   for (const secret of secrets) assert(!json.includes(secret), `support report leaked a private fixture`);
   assert.equal((sanitized.source as Record<string, unknown>).latestSessionSync, "synced");
   assert.equal((sanitized.source as Record<string, unknown>).historicalPendingSessions, 3);
+  assert.deepEqual((sanitized.source as Record<string, unknown>).sourceOccurrences,
+    [{ workoutIndex: 1, row: 9, status: "hidden", includedInHome: false }]);
+  assert(!json.includes("2026-10-10"));
+  assert(!json.includes("PRIVATE_EXERCISE"));
   assert.equal((sanitized.social as Record<string, unknown>).lastHomeActivity, "ACTIVITY_1234567890abcdef1234");
   assert.equal((sanitized.social as Record<string, unknown>).lastReactionActivity, undefined);
   assert.equal((sanitized.importer as Record<string, unknown>).exerciseCount, 16);

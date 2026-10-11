@@ -7,7 +7,7 @@ import { formatLocalDate } from "@/lib/dates";
 import { activePlan } from "@/lib/training/session";
 import type { TrainingWorkout } from "@/types/training";
 import { SocialHomeCard } from "@/components/social-home-card";
-import { legacyIsHidden } from "@/lib/training/history-delete";
+import { planSessionCount, sourceOccurrenceAudit } from "@/lib/training/counts";
 
 export default function HomePage() {
   const router = useRouter();
@@ -19,8 +19,10 @@ export default function HomePage() {
     <SocialHomeCard />
     <div className="source-choice"><Link className="source-choice-card" href="/plans/?source=google"><strong>Connect Google Sheet</strong><span>Connect your Google account, then paste each training Sheet URL.</span><b>Continue →</b></Link><Link className="source-choice-card" href="/plans/?source=excel"><strong>Import Excel file</strong><span>Choose an .xlsx workbook from this device.</span><b>Continue →</b></Link></div></div>;
   const own = data.sessions.filter((session) => session.planId === plan.id && session.status === "completed");
-  const legacy = plan.legacyCompletions.filter((entry) => !legacyIsHidden(data, plan.id, entry) &&
-    !own.some((session) => session.workoutId === entry.workoutId && session.localDate === entry.date));
+  const completedSessions = planSessionCount(data, plan.id);
+  const sourceOccurrences = sourceOccurrenceAudit(data, plan);
+  const legacy = sourceOccurrences.filter((item) => item.status === "source record");
+  const hiddenSourceDates = sourceOccurrences.filter((item) => item.status === "hidden").length;
   const latest = [...own].sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""))[0];
   const inProgress = data.sessions.find((session) => session.planId === plan.id && session.status === "inProgress");
 
@@ -37,11 +39,11 @@ export default function HomePage() {
   }
 
   return <div className="page-stack home-page">
-    <section className="hero current-training-hero"><p className="eyebrow">CURRENT TRAINING</p><h1>{plan.name}</h1><p>Your workout plan is ready on this device, even offline.</p><div className="hero-stat"><strong>{own.length + legacy.length}</strong><span>workouts<br />recorded</span></div><Link className="hero-manage-link" href="/plans/">Switch training / manage plans →</Link></section>
+    <section className="hero current-training-hero"><p className="eyebrow">CURRENT TRAINING</p><h1>{plan.name}</h1><p>Your workout plan is ready on this device, even offline.</p><div className="hero-stat"><strong>{completedSessions}</strong><span>completed<br />sessions</span></div>{plan.source.kind === "google" && <p className="hero-source-count">{sourceOccurrences.length} current Sheet record{sourceOccurrences.length === 1 ? "" : "s"}{hiddenSourceDates ? ` · ${hiddenSourceDates} hidden from local History` : ""}</p>}<Link className="hero-manage-link" href="/plans/">Switch training / manage plans →</Link></section>
     <SocialHomeCard compact />
     {error && <div className="alert" role="alert">{error}</div>}
     {inProgress && <Link className="resume-banner" href={`/workout/?id=${encodeURIComponent(inProgress.workoutId)}`}><span><strong>{inProgress.workoutSnapshot.title} in progress</strong><small>Pick up where you left off</small></span><span aria-hidden="true">→</span></Link>}
-    <div className="section-heading"><div><p className="eyebrow">YOUR PROGRAM</p><h2>Choose a workout</h2></div><span className="section-count">{plan.workouts.length} WORKOUTS</span></div>
+    <div className="section-heading"><div><p className="eyebrow">YOUR PROGRAM</p><h2>Choose a workout</h2></div><span className="section-count">{plan.workouts.length} WORKOUT TYPES</span></div>
     <div className="workout-grid">{plan.workouts.map(workoutTile)}</div>
     <div className="overview-grid"><Link className="mini-panel" href="/history/"><span className="mini-icon">◷</span><span className="mini-label">HISTORY</span><strong>{latest ? latest.workoutSnapshot.title : legacy.length ? "Imported workouts" : "No sessions yet"}</strong><small>{latest?.localDate ? formatLocalDate(latest.localDate) : `${legacy.length} source dates`}</small></Link></div>
   </div>;

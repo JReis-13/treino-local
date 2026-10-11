@@ -62,10 +62,11 @@ test("a previously attempted write to a deleted slot stays local and cannot auto
   assert.equal(result.plans[0].lastReconciliation?.conflicts, 1);
 });
 
-test("one same-day local detail replaces one imported occurrence, while Add remains a separate workout", () => {
+test("only a verified same-day receipt replaces its source occurrence; pending Add remains separate", () => {
   const base = addTraining(emptyTrainingData(), source(8), undefined, "2026-10-01T00:00:00Z", "plan");
   const local = session("local", "2026-09-01");
-  assert.equal(historyEntries({ ...base, sessions: [local] }).length, 8);
+  assert.equal(historyEntries({ ...base, sessions: [local] }).length, 9);
+  assert.equal(historyEntries({ ...base, sessions: [session("linked", "2026-09-01", "E5")] }).length, 8);
   assert.equal(historyEntries({ ...base, sessions: [{ ...local, duplicateDateAllowed: true }] }).length, 9);
   const secondOccurrence = { ...source(8).legacyCompletions[0], id: "B:E99:2026-09-01", sourceSlot: "E99" };
   const ambiguous = { ...base, plans: [{ ...base.plans[0],

@@ -1,6 +1,7 @@
 import { durationMinutes, isLocalDate, localDateString } from "@/lib/dates";
 import type { TrainingData, TrainingSession } from "@/types/training";
 import { legacyIsHidden } from "@/lib/training/history-delete";
+import { matchingLocalSession } from "@/lib/training/history-match";
 
 export type StatsRange = "4w" | "3m" | "6m" | "all";
 export type StatsEntry = { id: string; planId: string; workoutId: string; date: string; session?: TrainingSession };
@@ -12,13 +13,7 @@ export function historyEntries(data: TrainingData): StatsEntry[] {
       date: session.localDate!, session }));
   for (const plan of data.plans) for (const legacy of plan.legacyCompletions) {
     if (legacyIsHidden(data, plan.id, legacy)) continue;
-    const matched = data.sessions.some((session) => session.status === "completed" &&
-      session.sourceReconciliation !== "removed" && session.planId === plan.id &&
-      session.workoutId === legacy.workoutId && session.localDate === legacy.date &&
-      (session.completionReceipt?.slot === legacy.sourceSlot || (!session.completionReceipt &&
-        (plan.source.kind === "google" ? !session.duplicateDateAllowed &&
-          plan.legacyCompletions.filter((item) => item.workoutId === legacy.workoutId && item.date === legacy.date).length === 1 :
-          session.syncStatus === "synced"))));
+    const matched = matchingLocalSession(data, plan, legacy);
     if (!matched) entries.push({ id: `${plan.id}:${legacy.id}`, planId: plan.id, workoutId: legacy.workoutId, date: legacy.date });
   }
   for (const archived of data.archivedSources ?? []) for (const legacy of archived.legacyCompletions) {
@@ -42,7 +37,8 @@ export function filteredEntries(data: TrainingData, planId: string, workoutId: s
   today = localDateString()): StatsEntry[] {
   const start = startOfRange(range, today);
   return historyEntries(data).filter((item) => (planId === "all" || item.planId === planId) &&
-    (workoutId === "all" || item.workoutId === workoutId) && (!start || item.date >= start) && item.date <= today);
+    (workoutId === "all" || (workoutId.includes("|") ? `${item.planId}|${item.workoutId}` === workoutId :
+      item.workoutId === workoutId)) && (!start || item.date >= start) && item.date <= today);
 }
 
 export function statsOverview(entries: StatsEntry[], range: StatsRange, today = localDateString()) {

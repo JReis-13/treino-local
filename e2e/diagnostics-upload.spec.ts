@@ -27,6 +27,7 @@ test("Send diagnostics is explicit and presents a copyable short ID", async ({ p
   expect(uploads).toBe(0);
   await page.getByRole("button", { name: "Send diagnostics" }).tap();
   await expect(page.getByText("ID: TL-7K2M9QRS")).toBeVisible();
-  await expect(page.getByText(/Stored privately for 14 days/)).toBeVisible();
+  await expect(page.getByText(/already uploaded privately for 14 days/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Recent diagnostic receipts" })).toBeVisible();
   expect(uploads).toBe(1);
 });

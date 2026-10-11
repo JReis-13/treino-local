@@ -11,16 +11,13 @@ import { ExerciseDetail } from "@/components/exercise-detail";
 import { suggestedRest } from "@/lib/training/rest-timer";
 import { currentFocusId, remainingExerciseOrder, sessionExerciseOrder } from "@/lib/training/queue";
 import { exerciseNote } from "@/lib/training/exercise-notes";
-import { safeVideoUrl } from "@/lib/video-url";
-
-function LoadEditor({ name, value, onLoad }: { name: string; value?: string; onLoad: (value: string) => void }) {
-  return <label className="load-field"><span>LOAD TODAY</span><input inputMode="decimal" type="text" value={value ?? ""} onChange={(event) => onLoad(event.target.value)} onBlur={(event) => onLoad(normalizeLoad(event.target.value))} placeholder="Enter load used" aria-label={`Actual load for ${name}`} /></label>;
-}
+import { LoadInput } from "@/components/load-input";
+import { ExerciseSupportTabs } from "@/components/exercise-support-tabs";
 
 function BlockCard({ block, index, completed, skipped, actualLoad, previousLoad, currentPlanLoad, planChanged, note, restSuggestion, timerActive, onComplete, onLoad, onDetails, onNotes, onStartRest, onLater, onSkip, onUndoSkip }: {
   block: WorkoutBlock; index: number; completed: boolean; skipped: boolean; actualLoad?: string; previousLoad?: string; currentPlanLoad?: string; planChanged?: boolean;
   note?: string; restSuggestion?: { seconds: number; label: string }; timerActive: boolean;
-  onComplete: () => void; onLoad: (value: string) => void; onDetails: (opener: HTMLElement) => void; onNotes: (opener: HTMLElement) => void;
+  onComplete: () => void; onLoad: (value: string) => boolean; onDetails: (opener: HTMLElement) => void; onNotes: (opener: HTMLElement) => void;
   onStartRest: () => void; onLater: () => void; onSkip: (opener: HTMLElement) => void; onUndoSkip: () => void;
 }) {
   const [showOptionalLoad, setShowOptionalLoad] = useState(false);
@@ -29,7 +26,7 @@ function BlockCard({ block, index, completed, skipped, actualLoad, previousLoad,
     <div className="exercise-head">{!skipped && <button type="button" className="completion-toggle" role="checkbox" aria-checked={completed} aria-label={`${completed ? "Reopen" : "Complete"} ${block.kind === "exercise" ? block.name : block.heading}`} onClick={onComplete}><span className={`complete-dot ${completed ? "on" : ""}`} aria-hidden="true">{completed ? "✓" : ""}</span><span>{completed ? "Undo" : "Done"}</span></button>}<div className="exercise-heading"><span className="exercise-number">{String(index + 1).padStart(2, "0")}</span><h3>{block.kind === "exercise" ? block.name : block.heading}</h3>{block.kind === "exercise" && <p className="exercise-prescription">{block.prescription || "See source plan"}</p>}{skipped && <span className="skipped-feedback">Skipped today</span>}</div></div>
     {block.kind === "exercise" ? <>
       {(block.defaultLoad || currentPlanLoad || previousLoad) && <div className="load-reference">{currentPlanLoad && <div><span>Current plan</span><strong>{currentPlanLoad}</strong></div>}{planChanged && block.defaultLoad !== currentPlanLoad && block.defaultLoad && <div><span>Plan when started</span><strong>{block.defaultLoad}</strong></div>}{previousLoad && <div><span>Last used</span><strong>{previousLoad}</strong></div>}</div>}
-      {!skipped && block.section !== "Warm-up" && (hasLoad ? <LoadEditor name={block.name} value={actualLoad} onLoad={onLoad} /> : <button type="button" className="add-load-button" onClick={() => setShowOptionalLoad(true)}>+ Record a load</button>)}
+      {!skipped && block.section !== "Warm-up" && (hasLoad ? <LoadInput name={block.name} value={actualLoad} onLoad={onLoad} /> : <button type="button" className="add-load-button" onClick={() => setShowOptionalLoad(true)}>+ Record a load</button>)}
       {!skipped && block.section !== "Warm-up" && currentPlanLoad && normalizeLoad(actualLoad ?? "") !== normalizeLoad(currentPlanLoad) &&
         <button type="button" className="inline-action" onClick={() => onLoad(currentPlanLoad)}>Use current plan load for today</button>}
       {note && <button type="button" className="list-note-preview" onClick={(event) => onNotes(event.currentTarget)}>Note: {note}</button>}
@@ -117,7 +114,6 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
   const focusIndex = exerciseOrder.indexOf(displayedFocusId ?? "");
   const focusState = ownSession?.blocks.find((state) => state.blockId === displayedFocusId);
   const focusPreviousLoad = focusBlock?.kind === "exercise" ? lastUsedLoad(data, plan.id, focusBlock.id) : undefined;
-  const focusNote = focusBlock?.kind === "exercise" ? exerciseNote(data, plan.id, focusBlock.name) : "";
   const focusHasLoad = Boolean(focusBlock?.kind === "exercise" && (focusState?.actualLoad || focusBlock.defaultLoad || currentPlanLoad(focusBlock) || focusPreviousLoad));
   const focusPartnerNames = focusBlock?.kind === "exercise" && focusBlock.groupId ? blocks.filter((block) => block.kind === "exercise" && block.groupId === focusBlock.groupId && block.id !== focusBlock.id).map((block) => block.kind === "exercise" ? block.name : "") : [];
   const otherBlocks = blocks.filter((block) => block.kind !== "exercise" || !remaining.includes(block.id));
@@ -174,17 +170,16 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
         <h2 className="focus-name" tabIndex={-1} aria-live="polite">{focusBlock.name}</h2>
         <p className="focus-prescription">{focusBlock.prescription || "See source plan"}{focusBlock.equipment ? ` · ${focusBlock.equipment}` : ""}</p>
         {focusPartnerNames.length > 0 && <p className="focus-group">Paired with {focusPartnerNames.join(", ")}</p>}
-        {!focusState?.skipped && focusBlock.section !== "Warm-up" && (focusHasLoad || optionalLoadId === focusBlock.id ? <label className="focus-load"><span>LOAD TODAY</span><input inputMode="decimal" type="text" value={focusState?.actualLoad ?? ""} onChange={(event) => updateBlock(ownSession.id, focusBlock.id, { actualLoad: event.target.value })} onBlur={(event) => updateBlock(ownSession.id, focusBlock.id, { actualLoad: normalizeLoad(event.target.value) })} placeholder="Enter load used" aria-label={`Actual load for ${focusBlock.name}`} /></label> : <button type="button" className="focus-optional-load" onClick={() => setOptionalLoadId(focusBlock.id)}>+ Add load (optional)</button>)}
+        {(focusBlock.defaultLoad || currentPlanLoad(focusBlock) || focusPreviousLoad) && <p className="focus-reference">{currentPlanLoad(focusBlock) && <span>Current plan <strong>{currentPlanLoad(focusBlock)}</strong></span>}{planChanged && focusBlock.defaultLoad !== currentPlanLoad(focusBlock) && focusBlock.defaultLoad && <span>Plan when started <strong>{focusBlock.defaultLoad}</strong></span>}{focusPreviousLoad && <span>Last used <strong>{focusPreviousLoad}</strong></span>}</p>}
+        {!focusState?.skipped && focusBlock.section !== "Warm-up" && (focusHasLoad || optionalLoadId === focusBlock.id ? <LoadInput key={`load-${focusBlock.id}`} variant="focus" name={focusBlock.name} value={focusState?.actualLoad} onLoad={(value) => updateBlock(ownSession.id, focusBlock.id, { actualLoad: value })} /> : <button type="button" className="focus-optional-load" onClick={() => setOptionalLoadId(focusBlock.id)}>+ Add load (optional)</button>)}
         {!focusState?.skipped && focusBlock.section !== "Warm-up" && currentPlanLoad(focusBlock) &&
           normalizeLoad(focusState?.actualLoad ?? "") !== normalizeLoad(currentPlanLoad(focusBlock) ?? "") &&
           <button type="button" className="inline-action" onClick={() => updateBlock(ownSession.id, focusBlock.id, { actualLoad: currentPlanLoad(focusBlock)! })}>Use current plan load for today</button>}
-        {(focusBlock.defaultLoad || currentPlanLoad(focusBlock) || focusPreviousLoad) && <p className="focus-reference">{currentPlanLoad(focusBlock) && <span>Current plan <strong>{currentPlanLoad(focusBlock)}</strong></span>}{planChanged && focusBlock.defaultLoad !== currentPlanLoad(focusBlock) && focusBlock.defaultLoad && <span>Plan when started <strong>{focusBlock.defaultLoad}</strong></span>}{focusPreviousLoad && <span>Last <strong>{focusPreviousLoad}</strong></span>}</p>}
         {focusRestSuggestion && <p className="focus-rest">Rest: {focusRestSuggestion.label}</p>}
-        {(safeVideoUrl(focusBlock.videoUrl) || focusNote) && <div className="focus-context">{safeVideoUrl(focusBlock.videoUrl) && <button type="button" onClick={(event) => openDetail(focusBlock.id, true, event.currentTarget)}>▶ Watch execution</button>}{focusNote && <button type="button" className="focus-note" onClick={(event) => openDetail(focusBlock.id, false, event.currentTarget, true)}>Note: {focusNote}</button>}</div>}
         {focusState?.completed ? <div className="focus-state is-completed" role="status"><strong>✓ Completed</strong><div><button type="button" onClick={() => { complete(focusBlock.id, true); setFocus(ownSession.id, true, focusBlock.id); }}>Undo</button>{focusRestSuggestion && !data.restTimer && <button type="button" onClick={() => startRestTimer(ownSession.id, focusRestSuggestion.seconds)}>Start {Math.floor(focusRestSuggestion.seconds / 60)}:{String(focusRestSuggestion.seconds % 60).padStart(2, "0")} rest</button>}</div></div>
           : focusState?.skipped ? <div className="focus-state is-skipped" role="status"><strong>Skipped today</strong><button type="button" onClick={() => { skipBlock(ownSession.id, focusBlock.id, false); setReviewBlockId(null); }}>Undo skip</button></div>
           : <button type="button" className="primary-button focus-complete" onClick={() => complete(focusBlock.id, false)}>Mark complete</button>}
-        <div className="focus-detail-links"><button type="button" onClick={(event) => openDetail(focusBlock.id, false, event.currentTarget, true)}>{focusNote ? "Edit note & history" : "Add note & history"}</button></div>
+        <ExerciseSupportTabs key={`support-${focusBlock.id}`} block={focusBlock} session={ownSession} />
         {!focusState?.completed && !focusState?.skipped && <details key={focusBlock.id} className="focus-more"><summary>More actions</summary><div className="focus-secondary"><button type="button" onClick={() => doLater(focusBlock.id)}>Do later</button><button type="button" onClick={(event) => askSkip(focusBlock.id, event.currentTarget)}>Skip today</button></div></details>}
         <div className="focus-navigation"><button type="button" disabled={focusIndex <= 0} onClick={() => navigateFocus(exerciseOrder[focusIndex - 1])}>← Previous</button><span>{focusIndex + 1} / {exerciseOrder.length}</span><button type="button" disabled={focusIndex >= exerciseOrder.length - 1} onClick={() => navigateFocus(exerciseOrder[focusIndex + 1])}>Next →</button></div>
       </> : <div className="focus-finished"><h2>All active exercises are done</h2><p>{ownSession.blocks.filter((state) => state.completed && exerciseOrder.includes(state.blockId)).length} completed · {skippedCount} skipped today</p><Link className="primary-button" href="/finish/">Finish workout →</Link></div>}

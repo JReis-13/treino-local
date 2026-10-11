@@ -13,6 +13,7 @@ import { localDateString } from "@/lib/dates";
 import { planLineageKey, sameDayDecision, sessionPlanLineageKey, workoutLineageKey } from "@/lib/training/identity";
 import type { TrainingData } from "@/types/training";
 import { collectDebugReport } from "@/lib/diagnostics-report";
+import { planSessionCount, sourceOccurrenceAudit } from "@/lib/training/counts";
 
 function short(value: string | undefined): string { return value ? `${value.slice(0, 8)}…` : "none"; }
 function fingerprint(value: string): string {
@@ -90,6 +91,7 @@ export default function DebugPage() {
       "Device connector version": connector?.version ? String(connector.version) : "not configured" }))).catch(() => {});
   }, []);
   const plan = data?.plans.find((item) => item.id === data.activePlanId);
+  const sourceAudit = data && plan ? sourceOccurrenceAudit(data, plan) : [];
   const session = data?.sessions.find((item) => item.status === "inProgress" && item.planId === data.activePlanId);
   const lastCompleted = data?.sessions.filter((item) => item.status === "completed")
     .sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""))[0];
@@ -124,6 +126,12 @@ export default function DebugPage() {
         {row.decision.match ? "MATCH" : "NO MATCH"} · {row.decision.reason} · {row.date} · {row.name} · session {row.session} · plan {row.plan} ({row.planLineage}, v{row.version}) · workout {row.workout} ({row.workoutLineage})
       </p>)}
     </section>
+    {data && plan && <section className="review-card"><p className="eyebrow">LOCAL HISTORY ONLY</p><h2>Source occurrence check</h2>
+      <p>{planSessionCount(data, plan.id)} visible completed sessions · {sourceAudit.length} current source records. This table stays on this device and is not included with exact dates in an uploaded diagnostic.</p>
+      {sourceAudit.map((item) => <p className="quiet-note" key={`${item.workoutId}:${item.sourceSlot}:${item.date}`}>
+        {item.workoutId}!{item.sourceSlot} · {item.date} · {item.status} · {item.includedInHome ? "included in Home" : "not included in Home"}
+      </p>)}
+    </section>}
     {message && <p className="context-note" role="status">{message}</p>}
     <button type="button" className="secondary-button" onClick={() => { setDiagnostics(readDiagnostics()); setSocial(readSocialDiagnostics()); setEnvironment((current) => ({ ...current, Online: String(navigator.onLine), Path: window.location.pathname })); }}>Refresh diagnostics</button>
     <button type="button" className="secondary-button" onClick={() => void copyReport()}>Copy diagnostics</button>

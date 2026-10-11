@@ -51,7 +51,7 @@ test("mobile first launch, workout actions, reload, back/forward and history", a
   await expect(page.getByRole("heading", { name: /Choose your training/ })).toBeVisible();
   await importFile(page, jonatha);
   await expectNoHorizontalOverflow(page);
-  await expect(page.getByText("2 WORKOUTS", { exact: true })).toBeVisible();
+  await expect(page.getByText("2 WORKOUT TYPES", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Start workout" }).first().tap();
   await expectNoHorizontalOverflow(page);
   await expect(page.getByRole("checkbox", { name: /Complete/ }).first()).toBeVisible();
@@ -119,7 +119,7 @@ test("mobile plan switching isolates history and renders cardio instructions", a
   await page.goto("/");
   await importFile(page, milena);
   await expectNoHorizontalOverflow(page);
-  await expect(page.getByText("3 WORKOUTS")).toBeVisible();
+  await expect(page.getByText("3 WORKOUT TYPES")).toBeVisible();
   await page.getByRole("link", { name: "History", exact: true }).tap();
   await expect(page.locator(".history-total strong")).toHaveText("20");
   await page.getByRole("link", { name: "Plans", exact: true }).tap();
@@ -345,5 +345,5 @@ test("local backup rejects malformed JSON and restores a reviewed plan", async (
   await expect(page.getByText(/Backup restored/)).toBeVisible();
   await expect(page.getByRole("button", { name: /Download previous data safety snapshot/ })).toBeVisible();
   await page.getByRole("link", { name: "Home", exact: true }).tap();
-  await expect(page.getByText("2 WORKOUTS", { exact: true })).toBeVisible();
+  await expect(page.getByText("2 WORKOUT TYPES", { exact: true })).toBeVisible();
 });

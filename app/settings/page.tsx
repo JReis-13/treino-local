@@ -10,6 +10,7 @@ import { clearSocialPreference } from "@/lib/social/client";
 import { retrySocialDeletionsForCurrentAccount } from "@/lib/social/client";
 import { clearDiagnosticLog, recordDiagnosticEvent } from "@/lib/diagnostic-log";
 import { collectDebugReport, downloadDebugReport } from "@/lib/diagnostics-report";
+import { readDiagnosticReceipts, rememberDiagnosticReceipt, type DiagnosticReceipt } from "@/lib/diagnostic-receipts";
 import type { TrainingData } from "@/types/training";
 
 function downloadJson(text: string, filename: string) {
@@ -30,11 +31,13 @@ export default function SettingsPage() {
   const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
   const [diagnosticsMessage, setDiagnosticsMessage] = useState("");
   const [diagnosticCode, setDiagnosticCode] = useState("");
+  const [recentReceipts, setRecentReceipts] = useState<DiagnosticReceipt[]>([]);
   const [section, setSection] = useState("");
   useEffect(() => { const read = () => setSection(window.location.hash.slice(1));
     read(); window.addEventListener("hashchange", read); window.addEventListener("popstate", read);
     return () => { window.removeEventListener("hashchange", read); window.removeEventListener("popstate", read); }; }, []);
   useEffect(() => { try { setHasSafetySnapshot(Boolean(localStorage.getItem(SAFETY_SNAPSHOT_KEY))); } catch { /* Storage status is shown on restore. */ } }, []);
+  useEffect(() => { setRecentReceipts(readDiagnosticReceipts()); }, []);
   useEffect(() => {
     googleStatus().then((status) => { setGoogleConnected(status.connected); setGoogleEmail(status.email); })
       .catch(() => setGoogleConnected(false));
@@ -103,7 +106,11 @@ export default function SettingsPage() {
           const result: unknown = await response.json();
           const code = (result as { code?: unknown }).code;
           if (typeof code !== "string" || !/^TL-[A-HJ-NP-Z2-9]{8}$/.test(code)) throw new Error("invalid response");
-          setDiagnosticCode(code); setDiagnosticsMessage("Diagnostics sent. Stored privately for 14 days. Share this ID with support/Codex.");
+          setDiagnosticCode(code);
+          try { setRecentReceipts(rememberDiagnosticReceipt({ code, sentAt: new Date().toISOString(), result: "sent",
+            buildId: process.env.NEXT_PUBLIC_TREINO_BUILD_ID ?? "development" })); }
+          catch { /* The server upload succeeded; local receipt storage is optional. */ }
+          setDiagnosticsMessage("Diagnostic sent successfully. The report is already uploaded privately for 14 days. Keep the code only if support needs to locate it.");
           recordDiagnosticEvent("diagnostic_upload_success");
         } catch { setDiagnosticsMessage("Could not send diagnostics. Your local report is still available to download.");
           recordDiagnosticEvent("diagnostic_upload_failed", { reason: "FAILED" }); }
@@ -114,8 +121,9 @@ export default function SettingsPage() {
         catch { setDiagnosticsMessage("Could not clear the diagnostic log."); }
       })()}>Clear local diagnostic log</button></div>
       {!googleConnected && <p className="quiet-note">Connect Google to send diagnostics. Download remains available without an account.</p>}
-      {diagnosticCode && <div className="context-note"><strong>ID: {diagnosticCode}</strong><button type="button" className="inline-action" onClick={() => void navigator.clipboard.writeText(diagnosticCode).then(() => setDiagnosticsMessage("Diagnostic ID copied.")).catch(() => setDiagnosticsMessage("Could not copy the ID. You can select it above."))}>Copy ID</button></div>}
+      {diagnosticCode && <div className="context-note"><strong>Report ID: {diagnosticCode}</strong><button type="button" className="inline-action" onClick={() => void navigator.clipboard.writeText(diagnosticCode).then(() => setDiagnosticsMessage("Diagnostic ID copied.")).catch(() => setDiagnosticsMessage("Could not copy the ID. You can select it above."))}>Copy code</button></div>}
       {diagnosticsMessage && <p className="quiet-note" role="status">{diagnosticsMessage}</p>}
+      {recentReceipts.length > 0 && <div className="diagnostic-receipts"><h3>Recent diagnostic receipts</h3><p className="quiet-note">These codes identify reports already uploaded. Only the code, send time and build are saved here.</p>{recentReceipts.map((receipt) => <div className="diagnostic-receipt" key={receipt.code}><span><strong>{receipt.code}</strong><small>Sent {new Date(receipt.sentAt).toLocaleString()} · Build {receipt.buildId}</small></span><button type="button" className="inline-action" aria-label={`Copy ${receipt.code}`} onClick={() => void navigator.clipboard.writeText(receipt.code).then(() => setDiagnosticsMessage("Diagnostic ID copied.")).catch(() => setDiagnosticsMessage("Could not copy the ID. You can select it above."))}>Copy</button></div>)}</div>}
       <div className="connection-actions"><Link className="inline-action" href="/debug/">View live diagnostics →</Link>
       <button type="button" className="inline-action" onClick={() => void retrySocialDeletionsForCurrentAccount().then(() =>
         setDiagnosticsMessage("Pending Friends deletions checked for this Google account.")).catch(() =>

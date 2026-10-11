@@ -7,6 +7,7 @@ import { formatLocalDate } from "@/lib/dates";
 import { type ReactionEmoji, type SocialActivity } from "@/lib/social/model";
 import { recordSocialReaction, socialFetch } from "@/lib/social/client";
 import { applyReaction, SocialReactions } from "@/components/social-reactions";
+import { sharedDurationLabel } from "@/lib/social/display";
 
 type Page = { displayName: string; activities: SocialActivity[]; nextCursor: string | null };
 function amsterdamTime(value: string) {
@@ -75,7 +76,7 @@ export default function FriendHistoryPage() {
         <div className="friend-history-list">{page.activities.map((activity) => <article className="social-activity" key={activity.id}>
           <small>{formatLocalDate(activity.localDate)} · {amsterdamTime(activity.completedAt)}</small>
           <strong>{activity.workoutName}</strong>
-          <span>{[activity.durationMinutes === null ? "" : `${activity.durationMinutes} min`,
+          <span>{[sharedDurationLabel(activity.durationMinutes),
             activity.totalExercises === null ? "" : `${activity.completedExercises}/${activity.totalExercises} completed`].filter(Boolean).join(" · ")}</span>
           <SocialReactions activity={activity} onReact={(emoji) => void react(activity.id, emoji)} />
         </article>)}</div>}

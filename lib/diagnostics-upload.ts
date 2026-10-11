@@ -68,6 +68,14 @@ export function sanitizeDebugReport(input: unknown): Dict {
     completionSync: state, loadSync: state, aggregateSync: state, latestSessionSync: state,
     pendingSessions: bounded, historicalPendingSessions: bounded, receiptPresent: boolean,
     sourceRecordCount: bounded, activeSourceBackedCount: bounded, localOnlySessionCount: bounded,
+    visibleSessionCount: bounded,
+    sourceOccurrences: (v) => Array.isArray(v) ? v.slice(0, 24).flatMap((item) => {
+      const safe = fields(item, { workoutIndex: (x) => bounded(x, 8), row: (x) => bounded(x, 16),
+        status: (x) => oneOf(x, ["hidden", "represented by local session", "source record"]),
+        includedInHome: boolean });
+      return safe.workoutIndex && typeof safe.row === "number" && safe.row >= 5 && safe.status &&
+        typeof safe.includedInHome === "boolean" ? [safe] : [];
+    }) : undefined,
     archivedRecordCount: bounded, removedOccurrenceCount: bounded, ambiguousMatchCount: bounded,
     pendingStaleWrites: bounded, lastReconciliationResult: (v) => oneOf(v, ["none", "verified", "conflict"]) });
   const social = fields(source.social, { authenticated: yesNo, userReady: yesNo, friendCount: bounded,

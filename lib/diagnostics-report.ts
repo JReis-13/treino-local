@@ -7,6 +7,7 @@ import { hasActiveWorkout } from "@/lib/training/active-workout";
 import { deviceSubscription, getPushStatus, notificationPermission, pushSupported, readPushDiagnostics } from "@/lib/push/client";
 import { planLineageKey, sameDayDecision, sessionPlanLineageKey, workoutLineageKey } from "@/lib/training/identity";
 import { aggregateSync } from "@/lib/training/sync-state";
+import { planSessionCount, sourceOccurrenceAudit } from "@/lib/training/counts";
 import type { TrainingData } from "@/types/training";
 
 function fingerprint(value: string | undefined): string {
@@ -118,6 +119,13 @@ export async function collectDebugReport(data: TrainingData | null) {
       ambiguousMatchCount: plan?.lastReconciliation?.conflicts ?? 0,
       pendingStaleWrites: completed.filter((item) => item.planId === plan?.id && item.sourceReconciliation === "conflict").length,
       activeSourceBackedCount: (plan?.legacyCompletions.length ?? 0),
+      visibleSessionCount: data && plan ? planSessionCount(data, plan.id) : 0,
+      sourceOccurrences: data && plan ? sourceOccurrenceAudit(data, plan).slice(0, 24).flatMap((item) => {
+        const row = /^E(\d{1,2})$/.exec(item.sourceSlot);
+        const workoutIndex = plan.workouts.findIndex((workout) => workout.id === item.workoutId) + 1;
+        return row && workoutIndex > 0 ? [{ workoutIndex, row: Number(row[1]), status: item.status,
+          includedInHome: item.includedInHome }] : [];
+      }) : [],
       localOnlySessionCount: completed.filter((item) => item.planId === plan?.id && !item.completionReceipt &&
         item.sourceReconciliation !== "removed").length,
       lastReconciliationResult: plan?.lastReconciliation ? "verified" : "none" },

@@ -8,6 +8,45 @@ const base = { schemaVersion: 5, activePlanId: "home-plan", exerciseNotes: [], s
   ] })),
 }] };
 
+test("Home counts all nine verified source occurrences and isolates the selected plan", async ({ page, context }) => {
+  const dates = { A: ["2026-09-12", "2026-09-19", "2026-09-26", "2026-10-03", "2026-10-10"],
+    B: ["2026-09-15", "2026-09-23", "2026-09-30", "2026-10-07"] };
+  const jonatha = { ...base.plans[0], id: "J", name: "Jonatha", source: { kind: "google", filename: "private", template: "jonatha-v1",
+    mappings: {}, spreadsheetId: "synthetic-source-1234567890", authMode: "oauth" },
+    legacyCompletions: Object.entries(dates).flatMap(([workoutId, values]) => values.map((date, index) => ({
+      id: `${workoutId}:E${index + 5}:${date}`, workoutId, sourceSlot: `E${index + 5}`, date }))) };
+  const milena = { ...base.plans[0], id: "M", name: "Milena", legacyCompletions: [], workouts: base.plans[0].workouts.slice(0, 1) };
+  const seed = { ...base, activePlanId: "J", plans: [jonatha, milena] };
+  await page.addInitScript((value) => {
+    if (!localStorage.getItem("treino-local:v2")) localStorage.setItem("treino-local:v2", JSON.stringify(value));
+  }, seed);
+  await page.goto("/");
+  await expect(page.locator(".hero-stat")).toContainText("9");
+  await expect(page.locator(".hero-source-count")).toContainText("9 current Sheet records");
+  await page.goto("/debug/");
+  await expect(page.getByRole("heading", { name: "Source occurrence check" }).locator("..")).toContainText("A!E9 · 2026-10-10 · source record · included in Home");
+  await page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("treino-local:v2")!);
+    data.hiddenLegacyCompletions = [{ planId: "J", ...data.plans[0].legacyCompletions.find((row: { workoutId: string; sourceSlot: string }) =>
+      row.workoutId === "A" && row.sourceSlot === "E9") }];
+    localStorage.setItem("treino-local:v2", JSON.stringify(data));
+  });
+  await page.goto("/");
+  await expect(page.locator(".hero-stat")).toContainText("8");
+  await expect(page.locator(".hero-source-count")).toContainText("9 current Sheet records · 1 hidden from local History");
+  await page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("treino-local:v2")!);
+    data.activePlanId = "M";
+    localStorage.setItem("treino-local:v2", JSON.stringify(data));
+  });
+  await page.reload();
+  await expect(page.locator(".current-training-hero")).toContainText("Milena");
+  await expect(page.locator(".hero-stat")).toContainText("0");
+  await context.setOffline(true);
+  await expect(page.locator(".hero-stat")).toContainText("0");
+  await context.setOffline(false);
+});
+
 test("Home places Friends between Current Training and workout choice on four phone widths", async ({ page }, testInfo) => {
   await page.addInitScript((data) => { localStorage.setItem("treino-local:v2", JSON.stringify(data)); }, base);
   await page.route("**/api/social/**", (route) => {

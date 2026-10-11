@@ -6,6 +6,10 @@ import { readGoogleTraining, registerCompletion, sourceProof, writeGoogleLoads }
 import { addTraining, refreshTraining } from "../lib/training/library";
 import { historyEntries } from "../lib/training/statistics";
 import { emptyTrainingData } from "../lib/training/storage";
+import { parseTrainingData } from "../lib/training/storage";
+import { parseTrainingSnapshot } from "../lib/import/template-parser";
+import { planSessionCount, sourceOccurrenceAudit } from "../lib/training/counts";
+import { finalizeTrainingSession, startTrainingSession } from "../lib/training/session";
 import { fixturePath, reviewedJonathaPath } from "./fixture-path";
 
 process.env.APP_BASE_URL = "http://localhost:3000";
@@ -13,6 +17,58 @@ process.env.GOOGLE_OAUTH_CLIENT_ID = "test-client";
 process.env.GOOGLE_OAUTH_CLIENT_SECRET = "test-secret";
 process.env.GOOGLE_OAUTH_SESSION_SECRET = "a".repeat(64);
 const spreadsheetId = "a".repeat(44);
+
+test("user-confirmed nine Jonatha date slots survive parsing, Home count and reconciliation", async () => {
+  const workbook = await snapshotFromXlsx(new Uint8Array(await readFile(reviewedJonathaPath())));
+  const confirmed = { A: ["2026-09-12", "2026-09-19", "2026-09-26", "2026-10-03", "2026-10-10"],
+    B: ["2026-09-15", "2026-09-23", "2026-09-30", "2026-10-07"] };
+  for (const [workoutId, dates] of Object.entries(confirmed)) {
+    const sheet = workbook.sheets.find((item) => item.name === `TREINO ${workoutId}`)!;
+    for (let row = 5; row <= 16; row++) {
+      const target = sheet.cells[`E${row}`];
+      target.raw = dates[row - 5] ? String(dateToSerial(dates[row - 5])) : "";
+      target.displayed = dates[row - 5] ?? "";
+      target.rawType = "n";
+    }
+  }
+  const imported = parseTrainingSnapshot(workbook, { kind: "google", filename: "private", template: "",
+    mappings: {}, spreadsheetId, authMode: "oauth" }, "Private plan");
+  if (imported.source.kind !== "google") throw new Error("Expected Google source");
+  imported.source.sourceProof = sourceProof(spreadsheetId, imported.sourceFingerprint);
+  const identities = imported.legacyCompletions.map((item) => `${item.workoutId}!${item.sourceSlot}:${item.date}`);
+  assert.equal(new Set(identities).size, 9);
+  assert.deepEqual(imported.legacyCompletions.reduce<Record<string, number>>((counts, item) =>
+    ({ ...counts, [item.workoutId]: (counts[item.workoutId] ?? 0) + 1 }), {}), { A: 5, B: 4 });
+  assert.deepEqual(imported.legacyCompletions.filter((item) => item.workoutId === "A").map((item) => item.sourceSlot),
+    ["E5", "E6", "E7", "E8", "E9"]);
+  assert.deepEqual(imported.legacyCompletions.filter((item) => item.workoutId === "B").map((item) => item.sourceSlot),
+    ["E5", "E6", "E7", "E8"]);
+  assert.deepEqual(imported.legacyCompletions.filter((item) => item.workoutId === "A").map((item) => item.date), confirmed.A);
+  assert.deepEqual(imported.legacyCompletions.filter((item) => item.workoutId === "B").map((item) => item.date), confirmed.B);
+  let data = addTraining(emptyTrainingData(), imported, undefined, "2026-10-11T08:00:00Z", "jonatha-private");
+  assert.equal(planSessionCount(data, "jonatha-private"), 9);
+  assert(sourceOccurrenceAudit(data, data.plans[0]).every((item) => item.includedInHome && item.status === "source record"));
+  // A local History deletion hides only its matching occurrence; the verified Sheet still contains nine.
+  const omitted = data.plans[0].legacyCompletions.find((item) => item.workoutId === "A" && item.sourceSlot === "E9")!;
+  const hidden = { ...data, hiddenLegacyCompletions: [{ planId: "jonatha-private", ...omitted }] };
+  assert.equal(planSessionCount(hidden, "jonatha-private"), 8);
+  assert.deepEqual(sourceOccurrenceAudit(hidden, hidden.plans[0]).filter((item) => !item.includedInHome)
+    .map((item) => `${item.workoutId}!${item.sourceSlot}:${item.date}`), [`A!E9:${omitted.date}`]);
+  // A genuinely new offline workout on a source date has no receipt and must remain distinct.
+  const started = startTrainingSession(data, "jonatha-private", "A", new Date("2026-10-11T08:00:00Z"), "new-local");
+  data = finalizeTrainingSession(started.data, started.session.id, omitted.date,
+    new Date("2026-10-11T09:00:00Z")).data;
+  assert.equal(planSessionCount(data, "jonatha-private"), 10);
+  data = refreshTraining(data, "jonatha-private", imported);
+  assert.equal(planSessionCount(parseTrainingData(JSON.stringify(data)), "jonatha-private"), 10);
+  const withoutE9 = { ...imported, legacyCompletions: imported.legacyCompletions.filter((item) => item.id !== omitted.id) };
+  data = refreshTraining(data, "jonatha-private", withoutE9);
+  assert.equal(data.plans[0].legacyCompletions.length, 8);
+  assert.equal(planSessionCount(data, "jonatha-private"), 9); // eight Sheet dates plus unsynced local workout
+  data = refreshTraining(data, "jonatha-private", imported);
+  assert.equal(planSessionCount(data, "jonatha-private"), 10);
+  console.log("Private source occurrence audit (not uploaded):", identities.join(", "));
+});
 
 async function fixtureGrid(filename = "TREINO 1 JONATHA.xlsx"): Promise<GoogleGrid> {
   const snapshot = await snapshotFromXlsx(new Uint8Array(await readFile(filename === "TREINO 1 JONATHA.xlsx" ? reviewedJonathaPath() : fixturePath(filename))));
