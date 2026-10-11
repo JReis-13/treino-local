@@ -146,7 +146,8 @@ export interface TrainingData {
   exerciseNotes: ExerciseNote[];
   restTimer?: RestTimer;
   archivedSources?: Array<{ planId: string; planName: string; legacyCompletions: LegacyCompletion[] }>;
-  hiddenLegacyCompletions?: Array<{ planId: string; id: string; workoutId: string; date: string; sourceSlot: string }>;
+  hiddenLegacyCompletions?: Array<{ planId: string; id: string; workoutId: string; date: string; sourceSlot: string;
+    reason?: "history_delete"; hiddenAt?: string; reviewedAt?: string }>;
   pendingHistoryDeletions?: Array<{ session: TrainingSession; expiresAt: string }>;
   pendingLegacyDeletions?: Array<{ planId: string; legacyId: string; expiresAt: string }>;
 }

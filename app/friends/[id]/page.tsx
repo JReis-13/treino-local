@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatLocalDate } from "@/lib/dates";
 import { type ReactionEmoji, type SocialActivity } from "@/lib/social/model";
-import { recordSocialReaction, socialFetch } from "@/lib/social/client";
+import { invalidateSocialHome, recordSocialReaction, socialFetch, updateCachedSocialHome } from "@/lib/social/client";
 import { applyReaction, SocialReactions } from "@/components/social-reactions";
 import { sharedDurationLabel } from "@/lib/social/display";
 
@@ -57,6 +57,9 @@ export default function FriendHistoryPage() {
       await socialFetch(`activities/${encodeURIComponent(activityId)}/reaction`, next ? "PUT" : "DELETE",
         next ? { emoji: next } : undefined);
       recordSocialReaction(true, undefined, activityId);
+      updateCachedSocialHome((home) => ({ ...home, activities: home.activities.map((activity) =>
+        activity.id === activityId ? applyReaction(activity, next) : activity) }));
+      invalidateSocialHome();
     } catch (cause) {
       recordSocialReaction(false, cause, activityId);
       setPage((current) => current ? { ...current, activities: current.activities.map((item) =>
@@ -65,7 +68,7 @@ export default function FriendHistoryPage() {
     }
   }
   return <div className="page-stack friend-history-page"><div className="page-heading">
-    <Link className="back-link" href="/settings/friends/">← Friends</Link>
+    <Link className="back-link" href="/friends/">← Friends</Link>
     <p className="eyebrow">SHARED WORKOUTS</p><h1>{page?.displayName ?? "Friend"}<span className="dot-accent">.</span></h1>
     <p>Workout history shared with you</p></div>
     {state === "loading" && <p className="quiet-note" role="status">Loading shared workouts…</p>}

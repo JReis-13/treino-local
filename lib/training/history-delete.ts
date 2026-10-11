@@ -2,16 +2,26 @@ import type { LegacyCompletion, TrainingData, TrainingSession } from "@/types/tr
 
 type HiddenLegacy = NonNullable<TrainingData["hiddenLegacyCompletions"]>[number];
 
-export function legacyIsHidden(data: TrainingData, planId: string, legacy: LegacyCompletion): boolean {
+function sameOccurrence(item: HiddenLegacy, planId: string, legacy: LegacyCompletion): boolean {
+  return item.planId === planId && (item.id === legacy.id ||
+    (item.workoutId === legacy.workoutId && item.date === legacy.date && item.sourceSlot === legacy.sourceSlot));
+}
+
+export function hiddenLegacyRecord(data: TrainingData, planId: string, legacy: LegacyCompletion): HiddenLegacy | undefined {
+  return data.hiddenLegacyCompletions?.find((item) => sameOccurrence(item, planId, legacy));
+}
+
+export function pendingLegacyDeletion(data: TrainingData, planId: string, legacy: LegacyCompletion): boolean {
   return (data.pendingLegacyDeletions ?? []).some((item) => item.planId === planId && item.legacyId === legacy.id) ||
     (data.pendingHistoryDeletions ?? []).some(({ session }) => session.planId === planId &&
-    session.workoutId === legacy.workoutId && session.localDate === legacy.date &&
-    (session.completionReceipt?.slot === legacy.sourceSlot || (!session.completionReceipt &&
-      data.plans.find((plan) => plan.id === planId)?.legacyCompletions.filter((item) =>
-        item.workoutId === legacy.workoutId && item.date === legacy.date).length === 1))) ||
-    (data.hiddenLegacyCompletions ?? []).some((item) => item.planId === planId &&
-    (item.id === legacy.id || (item.workoutId === legacy.workoutId && item.date === legacy.date &&
-      item.sourceSlot === legacy.sourceSlot)));
+      session.workoutId === legacy.workoutId && session.localDate === legacy.date &&
+      (session.completionReceipt?.slot === legacy.sourceSlot || (!session.completionReceipt &&
+        data.plans.find((plan) => plan.id === planId)?.legacyCompletions.filter((item) =>
+          item.workoutId === legacy.workoutId && item.date === legacy.date).length === 1)));
+}
+
+export function legacyIsHidden(data: TrainingData, planId: string, legacy: LegacyCompletion): boolean {
+  return pendingLegacyDeletion(data, planId, legacy) || Boolean(hiddenLegacyRecord(data, planId, legacy));
 }
 
 export const HISTORY_UNDO_MS = 15_000;
@@ -43,7 +53,28 @@ export function finalizeHistoryDeletion(data: TrainingData, sessionId: string): 
 function rememberLegacy(data: TrainingData, planId: string, legacy: LegacyCompletion): HiddenLegacy[] {
   const hidden = data.hiddenLegacyCompletions ?? [];
   return legacyIsHidden(data, planId, legacy) ? hidden : [...hidden, { planId, id: legacy.id,
-    workoutId: legacy.workoutId, date: legacy.date, sourceSlot: legacy.sourceSlot }];
+    workoutId: legacy.workoutId, date: legacy.date, sourceSlot: legacy.sourceSlot,
+    reason: "history_delete", hiddenAt: new Date().toISOString(), reviewedAt: new Date().toISOString() }];
+}
+
+/** A current verified Google occurrence can be made visible again without recreating a local session. */
+export function restoreHiddenSourceDate(data: TrainingData, planId: string, legacyId: string): TrainingData {
+  const plan = data.plans.find((item) => item.id === planId);
+  const legacy = plan?.legacyCompletions.find((item) => item.id === legacyId);
+  if (!plan || plan.source.kind !== "google" || !plan.lastReconciliation || !legacy)
+    throw new Error("A current verified Sheet record is required for recovery.");
+  if (pendingLegacyDeletion(data, planId, legacy)) throw new Error("Wait for the deletion Undo period to finish.");
+  if (!hiddenLegacyRecord(data, planId, legacy)) throw new Error("This source record is already visible.");
+  return { ...data, hiddenLegacyCompletions: (data.hiddenLegacyCompletions ?? []).filter((item) =>
+    !sameOccurrence(item, planId, legacy)) };
+}
+
+export function keepHiddenSourceDate(data: TrainingData, planId: string, legacyId: string): TrainingData {
+  const plan = data.plans.find((item) => item.id === planId);
+  const legacy = plan?.legacyCompletions.find((item) => item.id === legacyId);
+  if (!legacy || !hiddenLegacyRecord(data, planId, legacy)) throw new Error("Hidden source record not found.");
+  return { ...data, hiddenLegacyCompletions: (data.hiddenLegacyCompletions ?? []).map((item) =>
+    sameOccurrence(item, planId, legacy) ? { ...item, reviewedAt: new Date().toISOString() } : item) };
 }
 
 /** Remove only a completed local record; source spreadsheets and active drafts are untouched. */

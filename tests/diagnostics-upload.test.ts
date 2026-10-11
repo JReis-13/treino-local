@@ -11,7 +11,7 @@ test("support report sanitizer strips arbitrary fields, notes, loads, URLs and p
   const input = { debugReportVersion: 1, timestamp: "2026-10-08T08:00:00Z", token: secrets[0],
     app: { buildId: "1234abcd-20261008T080000", route: "/settings/", online: true, secret: secrets[1] },
     source: { latestSessionSync: "synced", historicalPendingSessions: 3, visibleSessionCount: 8,
-      sourceOccurrences: [{ workoutIndex: 1, row: 9, status: "hidden", includedInHome: false,
+      sourceOccurrences: [{ workoutIndex: 1, row: 9, status: "hidden", reason: "LEGACY_UNATTRIBUTED", reviewed: false, includedInHome: false,
         date: "2026-10-10", exerciseName: "PRIVATE_EXERCISE", load: "95kg" },
         { workoutIndex: 1, row: 99, status: "source record", includedInHome: true }],
       spreadsheetUrl: secrets[10] },
@@ -36,7 +36,7 @@ test("support report sanitizer strips arbitrary fields, notes, loads, URLs and p
   assert.equal((sanitized.source as Record<string, unknown>).latestSessionSync, "synced");
   assert.equal((sanitized.source as Record<string, unknown>).historicalPendingSessions, 3);
   assert.deepEqual((sanitized.source as Record<string, unknown>).sourceOccurrences,
-    [{ workoutIndex: 1, row: 9, status: "hidden", includedInHome: false }]);
+    [{ workoutIndex: 1, row: 9, status: "hidden", reason: "LEGACY_UNATTRIBUTED", reviewed: false, includedInHome: false }]);
   assert(!json.includes("2026-10-10"));
   assert(!json.includes("PRIVATE_EXERCISE"));
   assert.equal((sanitized.social as Record<string, unknown>).lastHomeActivity, "ACTIVITY_1234567890abcdef1234");

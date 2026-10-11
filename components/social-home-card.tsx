@@ -4,63 +4,77 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type ReactionEmoji } from "@/lib/social/model";
 import { applyReaction, SocialReactions } from "@/components/social-reactions";
-import { cacheSocialPreference, flushSocialOutbox, recordSocialDisplayedActivity, recordSocialHomeFetch,
-  recordSocialReaction, socialFetch, socialPreferenceRevision, type SocialHome, type SocialMe } from "@/lib/social/client";
+import { cachedSocialHome, fetchSocialHome, invalidateSocialHome, recordSocialDisplayedActivity,
+  recordSocialHomeFetch, recordSocialReaction, socialFetch, subscribeSocialChange, updateCachedSocialHome } from "@/lib/social/client";
 import { sharedDurationLabel } from "@/lib/social/display";
 
 function localDay(value: string) { try { return new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(new Date(`${value}T12:00:00`)); } catch { return value; } }
 
 export function SocialHomeCard({ compact = false }: { compact?: boolean }) {
-  const [me, setMe] = useState<SocialMe | null>(null);
-  const [home, setHome] = useState<SocialHome | null>(null);
-  const [state, setState] = useState<"loading" | "ready" | "auth" | "unavailable">("loading");
+  const [snapshot, setSnapshot] = useState(() => cachedSocialHome());
+  const [state, setState] = useState<"loading" | "ready" | "auth" | "unavailable">(snapshot ? "ready" : "loading");
+  const [updating, setUpdating] = useState(false);
   const [message, setMessage] = useState("");
   const refreshSequence = useRef(0);
-  const refresh = useCallback(async () => {
+  const hasSnapshot = useRef(Boolean(snapshot));
+  useEffect(() => subscribeSocialChange(() => {
+    if (hasSnapshot.current && !cachedSocialHome()) {
+      hasSnapshot.current = false;
+      setSnapshot(null); setState("auth"); setUpdating(false);
+    }
+  }), []);
+  const refresh = useCallback(async (force = true) => {
     const sequence = ++refreshSequence.current;
-    const revision = socialPreferenceRevision();
+    setUpdating(Boolean(cachedSocialHome()));
     try {
-      const identity = await socialFetch<SocialMe>("me");
-      cacheSocialPreference(identity, revision);
-      await flushSocialOutbox();
-      const result = await socialFetch<SocialHome>("home");
-      recordSocialHomeFetch(true, undefined, result.activities[0]?.id);
-      if (sequence === refreshSequence.current) { setMe(identity); setHome(result); setState("ready");
-        recordSocialDisplayedActivity(result.activities[0]?.id); }
+      const result = await fetchSocialHome(force);
+      recordSocialHomeFetch(true, undefined, result.home.activities[0]?.id);
+      if (sequence === refreshSequence.current) { hasSnapshot.current = true; setSnapshot(result); setState("ready"); setUpdating(false); setMessage("");
+        recordSocialDisplayedActivity(result.home.activities[0]?.id); }
     } catch (cause) {
       recordSocialHomeFetch(false, cause);
-      if (sequence === refreshSequence.current) setState((cause as { status?: number }).status === 401 ? "auth" : "unavailable");
+      if (sequence === refreshSequence.current) { setUpdating(false);
+        if ((cause as { status?: number }).status === 401) { setSnapshot(null); setState("auth"); }
+        else if (cachedSocialHome()) { setState("ready"); setMessage("Could not update Friends. Showing the last confirmed activity."); }
+        else setState("unavailable"); }
     }
   }, []);
   useEffect(() => {
-    void refresh();
-    const foreground = () => { if (document.visibilityState === "visible") void refresh(); };
+    void refresh(true);
+    const foreground = () => { if (document.visibilityState === "visible") void refresh(true); };
     document.addEventListener("visibilitychange", foreground);
     window.addEventListener("online", foreground);
     return () => { document.removeEventListener("visibilitychange", foreground); window.removeEventListener("online", foreground); };
   }, [refresh]);
   async function react(id: string, emoji: ReactionEmoji) {
-    const previous = home;
+    const previous = snapshot?.home;
     if (!previous) return;
     const original = previous.activities.find((item) => item.id === id);
     if (!original) return;
     const current = original.myReaction;
     const next = current === emoji ? null : emoji;
     ++refreshSequence.current;
-    setHome((value) => value ? { ...value, activities: value.activities.map((item) =>
-      item.id === id ? applyReaction(item, next) : item) } : value);
+    const optimistic = (value: typeof previous) => ({ ...value, activities: value.activities.map((item) =>
+      item.id === id ? applyReaction(item, next) : item) });
+    setSnapshot((value) => value ? { ...value, home: optimistic(value.home) } : value);
+    updateCachedSocialHome(optimistic);
     setMessage("");
-    try { await socialFetch(`activities/${encodeURIComponent(id)}/reaction`, next ? "PUT" : "DELETE", next ? { emoji: next } : undefined); recordSocialReaction(true, undefined, id); await refresh(); }
-    catch (cause) { recordSocialReaction(false, cause, id); setHome((value) => value ? { ...value,
-      activities: value.activities.map((item) => item.id === id && item.myReaction === next ? original : item) } : value);
+    try { await socialFetch(`activities/${encodeURIComponent(id)}/reaction`, next ? "PUT" : "DELETE", next ? { emoji: next } : undefined); recordSocialReaction(true, undefined, id); invalidateSocialHome(); await refresh(true); }
+    catch (cause) { recordSocialReaction(false, cause, id); setSnapshot((value) => value ? { ...value, home: { ...value.home,
+      activities: value.home.activities.map((item) => item.id === id && item.myReaction === next ? original : item) } } : value);
+      updateCachedSocialHome((value) => ({ ...value, activities: value.activities.map((item) =>
+        item.id === id && item.myReaction === next ? original : item) }));
       setMessage("Reaction could not be saved. Try again."); }
   }
+  const me = snapshot?.me;
+  const home = snapshot?.home;
   const latest = home?.activities[0];
   const received = home?.received[0];
-  return <section className={`social-home-card ${compact ? "social-home-compact" : ""}`} aria-label="Friends"><div className="social-heading"><div><p className="eyebrow">FRIENDS</p><h2>{compact ? "Friends" : "Latest together"}</h2></div><Link href="/settings/friends/">Manage →</Link></div>
+  return <section className={`social-home-card ${compact ? "social-home-compact" : ""}`} aria-label="Friends"><div className="social-heading"><div><p className="eyebrow">FRIENDS</p><h2>{compact ? "Friends" : "Recent activity"}</h2></div>{compact ? <Link href="/friends/">Open Friends →</Link> : <button type="button" className="inline-action" onClick={() => void refresh(true)}>Refresh</button>}</div>
     {state === "loading" && <p className="quiet-note">Loading friends…</p>}
     {state === "auth" && <p className="quiet-note">Connect Google to use Friends. <Link href="/settings/#connections">Connect →</Link></p>}
-    {state === "unavailable" && <p className="quiet-note">Friends are temporarily unavailable. Your workouts remain on this device. <button type="button" className="inline-action" onClick={() => void refresh()}>Retry</button></p>}
+    {state === "unavailable" && <p className="quiet-note">Friends are temporarily unavailable. Your workouts remain on this device. <button type="button" className="inline-action" onClick={() => void refresh(true)}>Retry</button></p>}
+    {updating && state === "ready" && <small className="social-updating" role="status">Updating friends…</small>}
     {state === "ready" && home && (compact ? <>
       {home.friendCount === 0 ? <p className="quiet-note">No friends yet. Connect in Friends settings.</p> :
         latest ? <article className="social-activity"><Link href={`/friends/${latest.friendshipId}/`}><strong>{latest.displayName}</strong><span>{latest.workoutName} · {localDay(latest.localDate)}</span></Link><small>{[sharedDurationLabel(latest.durationMinutes), latest.totalExercises === null ? "" : `${latest.completedExercises}/${latest.totalExercises} completed`].filter(Boolean).join(" · ")}</small><SocialReactions activity={latest} onReact={(emoji) => void react(latest.id, emoji)} /><Link className="inline-action" href={`/friends/${latest.friendshipId}/`}>View workouts →</Link></article> :

@@ -72,7 +72,9 @@ export function sanitizeDebugReport(input: unknown): Dict {
     sourceOccurrences: (v) => Array.isArray(v) ? v.slice(0, 24).flatMap((item) => {
       const safe = fields(item, { workoutIndex: (x) => bounded(x, 8), row: (x) => bounded(x, 16),
         status: (x) => oneOf(x, ["hidden", "represented by local session", "source record"]),
-        includedInHome: boolean });
+        reason: (x) => oneOf(x, ["PENDING_DELETION", "HISTORY_DELETE", "LEGACY_UNATTRIBUTED",
+          "SOURCE_LINKED_LOCAL", "SOURCE_RECORD", "RECONCILIATION_CONFLICT"]),
+        reviewed: boolean, includedInHome: boolean });
       return safe.workoutIndex && typeof safe.row === "number" && safe.row >= 5 && safe.status &&
         typeof safe.includedInHome === "boolean" ? [safe] : [];
     }) : undefined,

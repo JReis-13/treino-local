@@ -124,7 +124,7 @@ export async function collectDebugReport(data: TrainingData | null) {
         const row = /^E(\d{1,2})$/.exec(item.sourceSlot);
         const workoutIndex = plan.workouts.findIndex((workout) => workout.id === item.workoutId) + 1;
         return row && workoutIndex > 0 ? [{ workoutIndex, row: Number(row[1]), status: item.status,
-          includedInHome: item.includedInHome }] : [];
+          reason: item.reason, reviewed: item.reviewed, includedInHome: item.includedInHome }] : [];
       }) : [],
       localOnlySessionCount: completed.filter((item) => item.planId === plan?.id && !item.completionReceipt &&
         item.sourceReconciliation !== "removed").length,

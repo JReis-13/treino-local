@@ -7,7 +7,6 @@ import { connectGoogle, disconnectGoogle, googleStatus } from "@/lib/google/clie
 import { createBackup, MAX_BACKUP_BYTES, parseBackup, SAFETY_SNAPSHOT_KEY } from "@/lib/training/backup";
 import { parseTrainingData } from "@/lib/training/storage";
 import { clearSocialPreference } from "@/lib/social/client";
-import { retrySocialDeletionsForCurrentAccount } from "@/lib/social/client";
 import { clearDiagnosticLog, recordDiagnosticEvent } from "@/lib/diagnostic-log";
 import { collectDebugReport, downloadDebugReport } from "@/lib/diagnostics-report";
 import { readDiagnosticReceipts, rememberDiagnosticReceipt, type DiagnosticReceipt } from "@/lib/diagnostic-receipts";
@@ -76,6 +75,7 @@ export default function SettingsPage() {
   return <div className="page-stack settings-page"><div className="page-heading"><Link className="back-link" href={section ? "/settings/" : "/"} onClick={() => setSection("")}>← {section ? "Settings" : "Home"}</Link><p className="eyebrow">ON THIS DEVICE</p><h1>{section === "connections" ? "Connections & Sync" : section === "data" ? "Data & Backup" : section === "diagnostics" ? "Diagnostics" : section === "about" ? "About" : "Settings"}<span className="dot-accent">.</span></h1>{!section && <p>Find the controls you need.</p>}</div>
     {(message || error) && <div className={error ? "alert" : "context-note"} role="status">{error ?? message}</div>}
     {!section && <nav className="settings-menu" aria-label="Settings sections">
+      <Link href="/plans/"><strong>Training plans</strong><span>Switch, import and manage your workouts</span><b>→</b></Link>
       <Link href="/settings/friends/"><strong>Friends & Notifications</strong><span>Manage friends, sharing and push preferences</span><b>→</b></Link>
       <Link href="#connections" onClick={() => setSection("connections")}><strong>Connections & Sync</strong><span>Google account, training sources and pending sync</span><b>→</b></Link>
       <Link href="#data" onClick={() => setSection("data")}><strong>Data & Backup</strong><span>Export, import and restore local data</span><b>→</b></Link>
@@ -124,10 +124,7 @@ export default function SettingsPage() {
       {diagnosticCode && <div className="context-note"><strong>Report ID: {diagnosticCode}</strong><button type="button" className="inline-action" onClick={() => void navigator.clipboard.writeText(diagnosticCode).then(() => setDiagnosticsMessage("Diagnostic ID copied.")).catch(() => setDiagnosticsMessage("Could not copy the ID. You can select it above."))}>Copy code</button></div>}
       {diagnosticsMessage && <p className="quiet-note" role="status">{diagnosticsMessage}</p>}
       {recentReceipts.length > 0 && <div className="diagnostic-receipts"><h3>Recent diagnostic receipts</h3><p className="quiet-note">These codes identify reports already uploaded. Only the code, send time and build are saved here.</p>{recentReceipts.map((receipt) => <div className="diagnostic-receipt" key={receipt.code}><span><strong>{receipt.code}</strong><small>Sent {new Date(receipt.sentAt).toLocaleString()} · Build {receipt.buildId}</small></span><button type="button" className="inline-action" aria-label={`Copy ${receipt.code}`} onClick={() => void navigator.clipboard.writeText(receipt.code).then(() => setDiagnosticsMessage("Diagnostic ID copied.")).catch(() => setDiagnosticsMessage("Could not copy the ID. You can select it above."))}>Copy</button></div>)}</div>}
-      <div className="connection-actions"><Link className="inline-action" href="/debug/">View live diagnostics →</Link>
-      <button type="button" className="inline-action" onClick={() => void retrySocialDeletionsForCurrentAccount().then(() =>
-        setDiagnosticsMessage("Pending Friends deletions checked for this Google account.")).catch(() =>
-        setDiagnosticsMessage("Could not check Friends deletions right now."))}>Retry pending Friends deletions</button></div>
+      <div className="connection-actions"><Link className="inline-action" href="/debug/">View live diagnostics →</Link></div>
     </section></>}
     {section === "data" && <section className="review-card"><h2>Data backup</h2><p className="quiet-note">Export includes saved plans, versions, sessions and history. It excludes Google tokens and legacy connector credentials. A restored Google plan needs Google connected before syncing.</p>
       <div className="connection-actions"><button type="button" className="primary-button" onClick={() => { try { downloadJson(createBackup(data), `treino-local-backup-${new Date().toISOString().slice(0, 10)}.json`); setMessage("Backup download started."); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Backup export failed."); } }}>Export backup</button>

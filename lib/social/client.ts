@@ -21,7 +21,13 @@ interface SocialDiagnostics { lastPublishResult?: string; lastPublishAt?: string
 export interface SocialFriend { id: string; status: "pending" | "accepted" | "declined"; direction: "incoming" | "outgoing"; displayName: string; email: string }
 export interface SocialHome { activities: SocialActivity[]; received: Array<{ displayName: string; emoji: string; workoutName: string }>; friendCount: number }
 export type SocialMe = { email: string; displayName: string; sharingEnabled: boolean; accountId?: string };
+const SOCIAL_FRESH_MS = 30_000;
+let homeCache: { owner: string; me: SocialMe; home: SocialHome; fetchedAt: number } | null = null;
+let friendsCache: { owner: string; friends: SocialFriend[]; fetchedAt: number } | null = null;
+let homeRequest: Promise<{ me: SocialMe; home: SocialHome }> | null = null;
+let friendsRequest: Promise<SocialFriend[]> | null = null;
 let preferenceRevision = 0;
+let cacheRevision = 0;
 const unboundThisPage = new Set<string>();
 const unboundDeleteThisPage = new Set<string>();
 const publishing = new Set<string>();
@@ -32,6 +38,71 @@ export function subscribeSocialChange(listener: () => void): () => void {
   return () => { window.removeEventListener("treino-social-change", listener); window.removeEventListener("storage", listener); };
 }
 export function socialPreferenceRevision(): number { return preferenceRevision; }
+
+function ownerOf(me: Pick<SocialMe, "accountId" | "email">): string {
+  return me.accountId ? `id:${me.accountId}` : `email:${me.email.toLowerCase()}`;
+}
+function currentOwner(): string | null { const preference = readPreference(); return preference ? ownerOf(preference) : null; }
+export function cachedSocialHome(): { me: SocialMe; home: SocialHome } | null {
+  return homeCache?.owner === currentOwner() ? { me: homeCache.me, home: homeCache.home } : null;
+}
+export function cachedSocialFriends(): SocialFriend[] | null {
+  return friendsCache?.owner === currentOwner() ? friendsCache.friends : null;
+}
+export function invalidateSocialHome(drop = false): void {
+  ++cacheRevision; homeRequest = null; friendsRequest = null;
+  if (drop) { homeCache = null; friendsCache = null; }
+  else if (homeCache) homeCache.fetchedAt = 0;
+  if (friendsCache) friendsCache.fetchedAt = 0;
+}
+export function updateCachedSocialHome(update: (current: SocialHome) => SocialHome): void {
+  // A response started before this stable-ID update must not overwrite it.
+  ++cacheRevision; homeRequest = null; friendsRequest = null;
+  if (homeCache?.owner === currentOwner()) homeCache = { ...homeCache, home: update(homeCache.home) };
+}
+export async function fetchSocialHome(force = false): Promise<{ me: SocialMe; home: SocialHome }> {
+  const cached = cachedSocialHome();
+  if (!force && cached && homeCache && Date.now() - homeCache.fetchedAt < SOCIAL_FRESH_MS) return cached;
+  if (homeRequest) return homeRequest;
+  const revision = preferenceRevision;
+  const generation = cacheRevision;
+  const request = (async () => {
+    const me = await socialFetch<SocialMe>("me");
+    if (!me.email) throw new Error("Friends account identity is unavailable.");
+    if (revision !== preferenceRevision) throw new Error("Friends account changed during refresh.");
+    cacheSocialPreference(me, revision);
+    const confirmedRevision = preferenceRevision;
+    const home = await socialFetch<SocialHome>("home", "GET", undefined, { expectedAccountId: me.accountId });
+    if (generation !== cacheRevision || confirmedRevision !== preferenceRevision || currentOwner() !== ownerOf(me))
+      throw new Error("Friends account changed during refresh.");
+    homeCache = { owner: ownerOf(me), me, home, fetchedAt: Date.now() };
+    return { me, home };
+  })();
+  homeRequest = request;
+  try { return await request; }
+  catch (cause) { if ((cause as { status?: number; code?: string })?.status === 401 ||
+    (cause as { code?: string })?.code === "accountChanged") clearSocialPreference(); throw cause; }
+  finally { if (homeRequest === request) homeRequest = null; }
+}
+export async function fetchSocialFriends(force = false): Promise<SocialFriend[]> {
+  const cached = cachedSocialFriends();
+  if (!force && cached && friendsCache && Date.now() - friendsCache.fetchedAt < SOCIAL_FRESH_MS) return cached;
+  if (friendsRequest) return friendsRequest;
+  const request = (async () => {
+    const generation = cacheRevision;
+    const { me } = await fetchSocialHome();
+    const revision = preferenceRevision;
+    const result = await socialFetch<{ friends: SocialFriend[] }>("friends", "GET", undefined, { expectedAccountId: me.accountId });
+    if (generation !== cacheRevision || revision !== preferenceRevision || currentOwner() !== ownerOf(me)) throw new Error("Friends account or data changed during refresh.");
+    friendsCache = { owner: ownerOf(me), friends: result.friends, fetchedAt: Date.now() };
+    return result.friends;
+  })();
+  friendsRequest = request;
+  try { return await request; }
+  catch (cause) { if ((cause as { status?: number })?.status === 401 ||
+    (cause as { code?: string })?.code === "accountChanged") clearSocialPreference(); throw cause; }
+  finally { if (friendsRequest === request) friendsRequest = null; }
+}
 
 function safeResult(cause: unknown): string {
   const status = (cause as { status?: unknown })?.status;
@@ -86,12 +157,14 @@ export function readSocialDiagnostics(): { sharingCached: string; accountBound: 
 }
 function publishResult(result: string, sessionId?: string): void {
   recordDiagnostic({ lastPublishResult: result, lastPublishAt: new Date().toISOString(), lastPublishSessionId: sessionId });
+  if (result === "success" || result === "queued") invalidateSocialHome();
   if (["queued", "success"].includes(result) || result === "network_error" || result.startsWith("http_"))
     recordDiagnosticEvent(result === "queued" ? "social_publish_queued" : result === "success" ? "social_publish_success" : "social_publish_failed",
       { sessionId, operation: "publish", reason: result.toUpperCase() });
   changed();
 }
 function deleteResult(result: string): void {
+  if (result === "success" || result === "queued") invalidateSocialHome();
   recordDiagnostic({ lastDeleteResult: result, lastDeleteAt: new Date().toISOString() }); changed();
   recordDiagnosticEvent(result === "queued" ? "social_delete_queued" : result === "success" ? "social_delete_success" : "social_delete_failed",
     { operation: "delete", reason: result.toUpperCase() });
@@ -109,12 +182,18 @@ export async function socialFetch<T>(path: string, method = "GET", body?: object
 }
 export function cacheSocialPreference(me: SocialMe, expectedRevision?: number, changedOnServer = false): void {
   if (expectedRevision !== undefined && expectedRevision !== preferenceRevision) return;
-  try { localStorage.setItem(PREFERENCE_KEY, JSON.stringify({ email: me.email, accountId: me.accountId,
+  try { const previous = readPreference();
+    if (previous && (previous.accountId !== me.accountId || previous.email !== me.email)) {
+      homeCache = null; friendsCache = null; preferenceRevision++;
+    }
+    localStorage.setItem(PREFERENCE_KEY, JSON.stringify({ email: me.email, accountId: me.accountId,
     sharingEnabled: me.sharingEnabled } satisfies Preference)); if (changedOnServer) preferenceRevision++; changed(); }
   catch { /* No persistent storage. Workout saving still works. */ }
 }
 export function clearSocialPreference(): void {
-  try { localStorage.removeItem(PREFERENCE_KEY); preferenceRevision++; } catch { /* Keep local workouts. */ }
+  ++cacheRevision;
+  homeCache = null; friendsCache = null; homeRequest = null; friendsRequest = null;
+  try { localStorage.removeItem(PREFERENCE_KEY); preferenceRevision++; changed(); } catch { /* Keep local workouts. */ }
 }
 export async function refreshSocialPreference(): Promise<SocialMe | null> {
   const revision = preferenceRevision;
@@ -203,6 +282,11 @@ function sameOwner(item: QueuedActivity, me: SocialMe): boolean {
 function sameDeleteOwner(item: QueuedDeletion, me: SocialMe): boolean {
   return item.ownerAccountId ? item.ownerAccountId === me.accountId :
     item.ownerEmail ? item.ownerEmail === me.email : unboundDeleteThisPage.has(item.clientSessionId);
+}
+export function socialDeletionRetryState(me: SocialMe): { pending: number; result: string; retryable: boolean } {
+  const pending = readDeleteOutbox().filter((item) => item.ready && sameDeleteOwner(item, me)).length;
+  const result = pending ? readSocialDiagnostics().lastDeleteResult : "none";
+  return { pending, result, retryable: pending > 0 && /^(network_error|http_429|http_5\d\d)$/.test(result) };
 }
 /** Stage a deletion locally without network access; activation follows the saved History change. */
 export function queueSocialDeletion(clientSessionId: string): boolean {

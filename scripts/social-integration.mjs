@@ -60,6 +60,13 @@ try {
   assert.equal((await call(2, "me")).status, 200);
   const accountA = (await call(0, "me")).data.accountId;
   const accountC = (await call(2, "me")).data.accountId;
+  for (const path of ["home", "friends"]) {
+    const mismatch = await call(0, path, "GET", undefined, base, { "X-Treino-Social-Account": accountC });
+    assert.equal(mismatch.status, 409);
+    assert.equal(mismatch.data.code, "accountChanged");
+    assert(!mismatch.data.activities && !mismatch.data.friends, "mismatched cached reads expose no social data");
+    assert.equal((await call(0, path, "GET", undefined, base, { "X-Treino-Social-Account": accountA })).status, 200);
+  }
   assert(accountA && accountC && accountA !== accountC);
   assert.equal((await call(0, "friends", "POST", { email: emails[1] }, "https://evil.invalid")).status, 403);
   assert.equal((await call(0, "friends", "POST", { email: emails[1] })).status, 201);

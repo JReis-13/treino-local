@@ -8,11 +8,15 @@ const base = { schemaVersion: 5, activePlanId: "home-plan", exerciseNotes: [], s
   ] })),
 }] };
 
-test("Home counts all nine verified source occurrences and isolates the selected plan", async ({ page, context }) => {
+test("Home counts all nine verified source occurrences and isolates the selected plan", async ({ page, context }, testInfo) => {
+  let recoveryWrites = 0;
+  await page.route("**/api/google/sheets/register-completion", (route) => { recoveryWrites++; return route.fulfill({ json: {} }); });
+  await page.route("**/api/social/activities", (route) => { if (route.request().method() !== "GET") recoveryWrites++; return route.fulfill({ json: {} }); });
   const dates = { A: ["2026-09-12", "2026-09-19", "2026-09-26", "2026-10-03", "2026-10-10"],
     B: ["2026-09-15", "2026-09-23", "2026-09-30", "2026-10-07"] };
   const jonatha = { ...base.plans[0], id: "J", name: "Jonatha", source: { kind: "google", filename: "private", template: "jonatha-v1",
     mappings: {}, spreadsheetId: "synthetic-source-1234567890", authMode: "oauth" },
+    lastReconciliation: { at: "2026-10-11T12:00:00Z", sourceCount: 9, removedCount: 0, archivedSessions: 0, conflicts: 0 },
     legacyCompletions: Object.entries(dates).flatMap(([workoutId, values]) => values.map((date, index) => ({
       id: `${workoutId}:E${index + 5}:${date}`, workoutId, sourceSlot: `E${index + 5}`, date }))) };
   const milena = { ...base.plans[0], id: "M", name: "Milena", legacyCompletions: [], workouts: base.plans[0].workouts.slice(0, 1) };
@@ -23,17 +27,28 @@ test("Home counts all nine verified source occurrences and isolates the selected
   await page.goto("/");
   await expect(page.locator(".hero-stat")).toContainText("9");
   await expect(page.locator(".hero-source-count")).toContainText("9 current Sheet records");
+  await page.screenshot({ path: testInfo.outputPath("home-nine-source.png"), fullPage: true });
   await page.goto("/debug/");
   await expect(page.getByRole("heading", { name: "Source occurrence check" }).locator("..")).toContainText("A!E9 · 2026-10-10 · source record · included in Home");
   await page.evaluate(() => {
     const data = JSON.parse(localStorage.getItem("treino-local:v2")!);
     data.hiddenLegacyCompletions = [{ planId: "J", ...data.plans[0].legacyCompletions.find((row: { workoutId: string; sourceSlot: string }) =>
-      row.workoutId === "A" && row.sourceSlot === "E9") }];
+      row.workoutId === "A" && row.sourceSlot === "E8") }];
     localStorage.setItem("treino-local:v2", JSON.stringify(data));
   });
   await page.goto("/");
   await expect(page.locator(".hero-stat")).toContainText("8");
-  await expect(page.locator(".hero-source-count")).toContainText("9 current Sheet records · 1 hidden from local History");
+  await expect(page.locator(".hero-source-count")).toContainText("9 current Sheet records");
+  await page.screenshot({ path: testInfo.outputPath("home-hidden-review.png"), fullPage: true });
+  await page.getByRole("link", { name: /1 source record needs review/ }).click();
+  await expect(page.getByRole("heading", { name: "Records to review" })).toBeVisible();
+  await expect(page.locator(".source-review-row")).toContainText("03 de out.");
+  await expect(page.locator(".source-review-row")).toContainText("older record does not say whether deletion was intentional");
+  await expect(page.locator(".history-total strong")).toHaveText("8");
+  await page.screenshot({ path: testInfo.outputPath("history-hidden-review.png"), fullPage: true });
+  await page.getByRole("button", { name: "Keep hidden" }).click();
+  await page.goto("/");
+  await expect(page.locator(".hero-source-review")).toHaveCount(0);
   await page.evaluate(() => {
     const data = JSON.parse(localStorage.getItem("treino-local:v2")!);
     data.activePlanId = "M";
@@ -45,6 +60,23 @@ test("Home counts all nine verified source occurrences and isolates the selected
   await context.setOffline(true);
   await expect(page.locator(".hero-stat")).toContainText("0");
   await context.setOffline(false);
+  await page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("treino-local:v2")!);
+    data.activePlanId = "J";
+    localStorage.setItem("treino-local:v2", JSON.stringify(data));
+  });
+  await page.goto("/history/");
+  await expect(page.locator(".source-review-row")).toContainText("Kept hidden on this device");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Restore source date" }).click();
+  await expect(page.locator(".history-total strong")).toHaveText("9");
+  await expect(page.locator(".source-review-row")).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("history-nine-recovered.png"), fullPage: true });
+  await page.getByRole("link", { name: "Stats", exact: true }).click();
+  await expect(page.locator(".stats-metrics .mini-panel").first().locator("strong")).toHaveText("9");
+  await page.goto("/");
+  await expect(page.locator(".hero-stat")).toContainText("9");
+  expect(recoveryWrites).toBe(0);
 });
 
 test("Home places Friends between Current Training and workout choice on four phone widths", async ({ page }, testInfo) => {

@@ -11,7 +11,8 @@ import { extendRest, pauseRest, resumeRest, skipRest, startRest } from "@/lib/tr
 import { trainingStorage } from "@/lib/training/storage";
 import { activateQueuedSocialDeletion, flushSocialOutbox, queueSocialActivity, queueSocialDeletion,
   reconcileQueuedSocialDeletions, refreshSocialPreference, undoQueuedSocialDeletion } from "@/lib/social/client";
-import { completedSessionForDeletion, finalizeHistoryDeletion, finalizeLegacyHistoryDeletion, stageHistoryDeletion,
+import { completedSessionForDeletion, finalizeHistoryDeletion, finalizeLegacyHistoryDeletion, keepHiddenSourceDate,
+  restoreHiddenSourceDate, stageHistoryDeletion,
   stageLegacyHistoryDeletion, undoHistoryDeletion, undoLegacyHistoryDeletion } from "@/lib/training/history-delete";
 import { plannedCompletionSlot } from "@/lib/sync/logic";
 import { recordDiagnosticEvent } from "@/lib/diagnostic-log";
@@ -26,6 +27,8 @@ interface AppContextValue {
   undoSessionDeletion(sessionId: string): boolean;
   deleteLegacy(planId: string, legacyId: string): boolean;
   undoLegacyDeletion(planId: string, legacyId: string): boolean;
+  restoreSourceDate(planId: string, legacyId: string): boolean;
+  keepSourceDateHidden(planId: string, legacyId: string): boolean;
   updateBlock(sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }): boolean;
   moveBlockLater(sessionId: string, blockId: string): void;
   restoreQueue(sessionId: string, queueOrder: string[], focusBlockId?: string): void;
@@ -165,6 +168,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [commit]);
   const undoLegacyDeletion = useCallback((planId: string, legacyId: string): boolean =>
     commit((current) => undoLegacyHistoryDeletion(current, planId, legacyId)), [commit]);
+  const restoreSourceDate = useCallback((planId: string, legacyId: string): boolean =>
+    commit((current) => restoreHiddenSourceDate(current, planId, legacyId)), [commit]);
+  const keepSourceDateHidden = useCallback((planId: string, legacyId: string): boolean =>
+    commit((current) => keepHiddenSourceDate(current, planId, legacyId)), [commit]);
 
   const updateBlock = useCallback((sessionId: string, blockId: string, change: { completed?: boolean; actualLoad?: string }) => {
     const saved = commit((current) => updateTrainingBlock(current, sessionId, blockId, change));
@@ -487,7 +494,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not restore local data."); return false; }
   }, []);
 
-  return <AppContext.Provider value={{ data, error, start, cancel, deleteSession, undoSessionDeletion, deleteLegacy, undoLegacyDeletion, updateBlock, moveBlockLater, restoreQueue, skipBlock, setFocus, correctSessionLoad, finish,
+  return <AppContext.Provider value={{ data, error, start, cancel, deleteSession, undoSessionDeletion, deleteLegacy, undoLegacyDeletion,
+    restoreSourceDate, keepSourceDateHidden, updateBlock, moveBlockLater, restoreQueue, skipBlock, setFocus, correctSessionLoad, finish,
     saveExerciseNote, startRestTimer, pauseRestTimer, resumeRestTimer, extendRestTimer, skipRestTimer,
     addPlan, refreshPlan, migrateGooglePlan,
     setActivePlan, renamePlan, removePlan, updateSource, setSyncStatus, setSessionSync, applySourceLoads,

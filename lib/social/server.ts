@@ -37,7 +37,11 @@ export async function currentSocialUser(request: Request, mutate = false) {
     values (${randomUUID()}, ${session.sub}, ${email}, ${fallback})
     on conflict (google_sub) do update set email = excluded.email, updated_at = now()
     returning id, email, display_name, sharing_enabled`;
-  return rows[0] as { id: string; email: string; display_name: string; sharing_enabled: boolean };
+  const user = rows[0] as { id: string; email: string; display_name: string; sharing_enabled: boolean };
+  const expectedAccount = request.headers.get("x-treino-social-account");
+  if (expectedAccount && expectedAccount !== user.id)
+    throw new SocialError("The connected Friends account changed. Refresh to continue.", 409, "accountChanged");
+  return user;
 }
 
 export async function friendsFor(userId: string) {

@@ -122,13 +122,15 @@ test("mobile plan switching isolates history and renders cardio instructions", a
   await expect(page.getByText("3 WORKOUT TYPES")).toBeVisible();
   await page.getByRole("link", { name: "History", exact: true }).tap();
   await expect(page.locator(".history-total strong")).toHaveText("20");
-  await page.getByRole("link", { name: "Plans", exact: true }).tap();
+  await page.getByRole("link", { name: "Settings", exact: true }).tap();
+  await page.getByRole("link", { name: /Training plans/ }).tap();
   await chooseExcelFile(page, jonatha);
   await expect(page.getByRole("heading", { name: "Training ready" })).toBeVisible();
   await page.locator(".review-card").getByRole("button", { name: /Use this training/ }).tap();
   await page.getByRole("link", { name: "History", exact: true }).tap();
   await expect(page.locator(".history-total strong")).toHaveText("0");
-  await page.getByRole("link", { name: "Plans", exact: true }).tap();
+  await page.getByRole("link", { name: "Settings", exact: true }).tap();
+  await page.getByRole("link", { name: /Training plans/ }).tap();
   await page.getByRole("article").filter({ hasText: "TREINO 4 MILENA" }).getByRole("button", { name: "Use this training" }).tap();
   await expect(page.getByText("3 WORKOUTS")).toBeVisible();
   await page.getByRole("button", { name: "Start workout" }).last().tap();
@@ -141,7 +143,8 @@ test("mobile plan switching isolates history and renders cardio instructions", a
 test("very long training names stay inside a small phone viewport", async ({ page }) => {
   await page.goto("/");
   await importFile(page, milena);
-  await page.getByRole("link", { name: "Plans", exact: true }).tap();
+  await page.getByRole("link", { name: "Settings", exact: true }).tap();
+  await page.getByRole("link", { name: /Training plans/ }).tap();
   page.once("dialog", (dialog) => void dialog.accept("Very long training name — strength and conditioning programme for a small phone screen"));
   await page.locator(".active-plan-card .plan-manage summary").tap();
   await page.locator(".active-plan-card").getByRole("button", { name: "Rename locally" }).tap();
@@ -316,7 +319,8 @@ test("fresh mobile user connects, imports by Sheet URL, finishes locally and syn
   await page.getByRole("link", { name: "Not now" }).tap();
   await page.locator(".history-list a.history-card").first().tap();
   await expect(page.getByText(/Synced/)).toBeVisible();
-  await page.getByRole("link", { name: "Plans", exact: true }).tap();
+  await page.getByRole("link", { name: "Settings", exact: true }).tap();
+  await page.getByRole("link", { name: /Training plans/ }).tap();
   await page.getByRole("button", { name: /\+ Add training/ }).tap();
   await page.getByRole("button", { name: /Use Google Sheets/ }).tap();
   await page.getByLabel("PASTE GOOGLE SHEETS LINK").fill(secondUrl);

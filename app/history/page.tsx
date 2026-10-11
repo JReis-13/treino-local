@@ -9,12 +9,13 @@ import { syncLabel } from "@/lib/sync-status";
 import type { LegacyCompletion, TrainingSession } from "@/types/training";
 import { legacyIsHidden } from "@/lib/training/history-delete";
 import { matchingLocalSession } from "@/lib/training/history-match";
+import { sourceOccurrenceAudit } from "@/lib/training/counts";
 import { readSocialDiagnostics } from "@/lib/social/client";
 
 type Entry = { type: "session"; session: TrainingSession; date: string } | { type: "legacy"; legacy: LegacyCompletion; planId: string; planName: string; date: string };
 
 export default function HistoryPage() {
-  const { data, error, undoSessionDeletion, undoLegacyDeletion } = useApp();
+  const { data, error, undoSessionDeletion, undoLegacyDeletion, restoreSourceDate, keepSourceDateHidden } = useApp();
   const [filter, setFilter] = useState("active");
   const [deletedMessage, setDeletedMessage] = useState("");
   const [clock, setClock] = useState(() => Date.now());
@@ -39,6 +40,10 @@ export default function HistoryPage() {
   const sourceDateCount = data.plans.filter((item) => (!planId || item.id === planId) &&
     item.source.kind === "google" && item.lastReconciliation)
     .reduce((sum, item) => sum + item.legacyCompletions.length, 0);
+  const sourceReviews = data.plans.filter((item) => (!planId || item.id === planId) && item.source.kind === "google")
+    .flatMap((plan) => sourceOccurrenceAudit(data, plan).flatMap((item, index) =>
+      item.status === "hidden" || item.reason === "RECONCILIATION_CONFLICT" ?
+        [{ ...item, plan, legacy: plan.legacyCompletions[index] }] : []));
   const entries: Entry[] = sessions.map((session) => ({ type: "session", session, date: session.localDate! }));
   for (const plan of data.plans.filter((item) => !planId || item.id === planId)) {
     for (const legacy of plan.legacyCompletions) {
@@ -72,6 +77,22 @@ export default function HistoryPage() {
         {removedSessions.length > 0 ? ` ${removedSessions.length} detailed local workout${removedSessions.length === 1 ? "" : "s"} preserved below.` : ""}
         {" "}These records are excluded from current History and Statistics. Friends sharing is unchanged.</span></div>}
     <label className="date-field"><span>TRAINING PLAN</span><select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="active">Current training</option><option value="all">All training</option>{data.plans.map((plan) => <option value={plan.id} key={plan.id}>{plan.name}</option>)}</select></label>
+    {sourceReviews.length > 0 && <section className="review-card source-review" id="source-review"><p className="eyebrow">SOURCE HISTORY</p><h2>Records to review</h2><p className="quiet-note">These dates are in the saved source snapshot. Restoring a hidden date makes its source-linked entry visible again; it does not recreate deleted workout details or Friends activity.</p>
+      {sourceReviews.map((item) => <article className="source-review-row" key={`${item.plan.id}:${item.workoutId}:${item.sourceSlot}:${item.date}`}>
+        <strong>Workout {item.workoutId} · {formatLocalDate(item.date)}</strong><small>{item.plan.name} · {item.plan.lastReconciliation ? "Present in the last verified Google Sheet refresh" : "Source verification pending"}</small>
+        <p>{item.reason === "PENDING_DELETION" ? "Deletion Undo period is active. Use Undo above to keep the original record." :
+          item.reason === "HISTORY_DELETE" ? "Deleted from local History. The source date remains in Google Sheets." :
+          item.reason === "LEGACY_UNATTRIBUTED" ? "Previously hidden on this device. This older record does not say whether deletion was intentional." :
+          "A local workout and source date have a reconciliation conflict. No record was automatically changed."}</p>
+        {item.status === "hidden" && item.reason !== "PENDING_DELETION" && <div className="source-review-actions">
+          {item.plan.lastReconciliation && <button type="button" className="primary-button" onClick={() => {
+            if (window.confirm("Restore this source date in local History? This will not recover deleted workout details or re-share it with friends."))
+              restoreSourceDate(item.plan.id, item.legacy.id);
+          }}>Restore source date</button>}
+          {!item.reviewed && <button type="button" className="secondary-button" onClick={() => keepSourceDateHidden(item.plan.id, item.legacy.id)}>Keep hidden</button>}
+        </div>}{item.reviewed && <small>Kept hidden on this device. You can still restore the source date later.</small>}
+      </article>)}
+    </section>}
     <div className="history-total"><strong>{entries.length}</strong><span>completed<br />sessions</span></div>
       {entries.length ? <div className="history-list">{days.map((day) => <section className="history-day" key={day.date}><div className="history-day-heading"><strong>{formatLocalDate(day.date)}</strong><span>{day.items.length} workout{day.items.length === 1 ? "" : "s"}</span></div>{day.items.map((entry) => entry.type === "session" ? <Link className="history-card" key={entry.session.id} href={`/history/session/?id=${encodeURIComponent(entry.session.id)}`}><div className="history-avatar">✓</div><div className="history-copy"><strong>{entry.session.workoutSnapshot.title}</strong><span>{new Date(entry.session.completedAt!).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}{durationMinutes(entry.session.startedAt, entry.session.completedAt) === null ? "" : ` · ${durationMinutes(entry.session.startedAt, entry.session.completedAt)} min`} · {entry.session.blocks.filter((block) => block.completed).length}/{entry.session.blocks.length} done</span>{entry.session.sessionNote && <small className="history-note-preview">{entry.session.sessionNote}</small>}<small>{data.plans.find((plan) => plan.id === entry.session.planId)?.name ?? "Removed training"} · {entry.session.sourceReconciliation === "conflict" ? "Source match needs review" : entry.session.completionReceipt ? "Current source-linked" : "Saved locally"} · {syncLabel[aggregateSync(entry.session)]}</small></div><span className="history-arrow">›</span></Link>
       : <Link prefetch={false} className="history-card" key={`${entry.planId}:${entry.legacy.id}`} href={`/history/session/?plan=${encodeURIComponent(entry.planId)}&legacy=${encodeURIComponent(entry.legacy.id)}`}><div className="history-avatar imported">◷</div><div className="history-copy"><strong>Workout {entry.legacy.workoutId}</strong><span>Imported date · duration unavailable</span><small>{entry.planName}{entry.legacy.calories ? ` · ${entry.legacy.calories} kcal as recorded` : ""}</small></div><span className="history-arrow" aria-label="Open imported workout">›</span></Link>)}</section>)}</div>

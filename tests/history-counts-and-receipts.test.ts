@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { addTraining, refreshTraining } from "../lib/training/library";
 import { planSessionCount, sourceOccurrenceAudit } from "../lib/training/counts";
+import { deleteLegacyHistory, keepHiddenSourceDate, restoreHiddenSourceDate } from "../lib/training/history-delete";
+import { filteredEntries } from "../lib/training/statistics";
 import { emptyTrainingData, parseTrainingData } from "../lib/training/storage";
 import { readDiagnosticReceipts, rememberDiagnosticReceipt } from "../lib/diagnostic-receipts";
 import { sharedDurationLabel } from "../lib/social/display";
@@ -57,6 +59,40 @@ test("a local hidden source occurrence remains visible in the verified Sheet cou
   assert.equal(planSessionCount(next, "J"), 1);
   assert.equal(sourceOccurrenceAudit(next, next.plans[0]).length, 2);
   assert.deepEqual(sourceOccurrenceAudit(next, next.plans[0]).map((item) => item.includedInHome), [true, false]);
+});
+
+test("real-phone A E8 is identifiable and requires explicit non-destructive recovery", () => {
+  const dates = ["2026-09-12", "2026-09-19", "2026-09-26", "2026-10-03", "2026-10-10"];
+  const original = source("Jonatha", dates, "J");
+  original.legacyCompletions.push(...["2026-09-15", "2026-09-23", "2026-09-30", "2026-10-07"].map((date, index) =>
+    ({ id: `B:E${index + 5}:${date}`, workoutId: "B", sourceSlot: `E${index + 5}`, date })));
+  original.workouts.push({ id: "B", title: "Workout B", description: "", blocks: [
+    { kind: "exercise", id: "B-EX", section: "Strength", name: "Exercise B", prescription: "3x8" }] });
+  let data = addTraining(emptyTrainingData(), original, undefined, undefined, "J");
+  data = refreshTraining(data, "J", original);
+  const target = data.plans[0].legacyCompletions.find((item) => item.workoutId === "A" && item.sourceSlot === "E8")!;
+  data = { ...data, sessions: [local("J", "linked-e9", "2026-10-10", "E9")],
+    hiddenLegacyCompletions: [{ planId: "J", ...target }] }; // old saved tombstone has no provenance
+  const audit = sourceOccurrenceAudit(data, data.plans[0]);
+  assert.equal(audit.length, 9);
+  assert.deepEqual(audit.filter((item) => !item.includedInHome).map((item) =>
+    `${item.workoutId}!${item.sourceSlot}:${item.date}`), ["A!E8:2026-10-03"]);
+  assert.equal(audit.find((item) => item.sourceSlot === "E8" && item.workoutId === "A")?.reason, "LEGACY_UNATTRIBUTED");
+  assert.equal(planSessionCount(data, "J"), 8);
+  assert.equal(filteredEntries(data, "J", "all", "all", "2026-10-11").length, 8);
+  data = keepHiddenSourceDate(data, "J", target.id);
+  assert.equal(sourceOccurrenceAudit(data, data.plans[0]).find((item) => item.workoutId === "A" && item.sourceSlot === "E8")?.reviewed, true);
+  assert.equal(planSessionCount(data, "J"), 8);
+  data = restoreHiddenSourceDate(data, "J", target.id);
+  assert.equal(planSessionCount(data, "J"), 9);
+  assert.equal(filteredEntries(data, "J", "all", "all", "2026-10-11").length, 9);
+  assert.equal(data.sessions.length, 1, "existing detailed session retains its ID and details");
+  assert.equal(data.plans[0].legacyCompletions.length, 9, "restoration changes no source records");
+  assert.throws(() => restoreHiddenSourceDate(data, "J", target.id));
+  const explicitlyDeleted = deleteLegacyHistory(data, "J", target.id);
+  assert.equal(sourceOccurrenceAudit(explicitlyDeleted, explicitlyDeleted.plans[0]).find((item) =>
+    item.workoutId === "A" && item.sourceSlot === "E8")?.reason, "HISTORY_DELETE");
+  assert.equal(planSessionCount(explicitlyDeleted, "J"), 8, "a newly deleted record is never auto-restored");
 });
 
 test("recent diagnostic receipts keep only validated IDs and metadata, never report bodies", () => {

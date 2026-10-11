@@ -165,7 +165,10 @@ export function parseTrainingData(raw: string): TrainingData {
     (value.hiddenLegacyCompletions !== undefined && (!Array.isArray(value.hiddenLegacyCompletions) ||
       !value.hiddenLegacyCompletions.every((item: unknown) => record(item) && typeof item.planId === "string" &&
         typeof item.id === "string" && typeof item.workoutId === "string" && typeof item.sourceSlot === "string" &&
-        typeof item.date === "string" && isLocalDate(item.date)))) ||
+        typeof item.date === "string" && isLocalDate(item.date) &&
+        (item.reason === undefined || item.reason === "history_delete") &&
+        (item.hiddenAt === undefined || (typeof item.hiddenAt === "string" && Number.isFinite(Date.parse(item.hiddenAt)))) &&
+        (item.reviewedAt === undefined || (typeof item.reviewedAt === "string" && Number.isFinite(Date.parse(item.reviewedAt))))))) ||
     (value.pendingHistoryDeletions !== undefined && (!Array.isArray(value.pendingHistoryDeletions) ||
       !value.pendingHistoryDeletions.every((item: unknown) => record(item) && validSession(item.session) &&
         (item.session as TrainingSession).status === "completed" && typeof item.expiresAt === "string" &&

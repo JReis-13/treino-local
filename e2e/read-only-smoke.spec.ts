@@ -9,7 +9,8 @@ test("public routes render and navigation stays responsive without changing user
     await expect(page.locator("main")).toBeVisible();
   }
   await page.goto("/");
-  await page.getByRole("link", { name: "Plans", exact: true }).click();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("link", { name: /Training plans/ }).click();
   await expect(page).toHaveURL(/\/plans\/?$/);
   await page.getByRole("link", { name: "History", exact: true }).click();
   await expect(page).toHaveURL(/\/history\/?$/);

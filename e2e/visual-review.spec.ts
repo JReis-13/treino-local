@@ -28,7 +28,8 @@ test("phone screens stay compact and readable through the gym flow", async ({ pa
     await expect(page.getByRole("heading", { name: "Training ready" })).toBeVisible();
     await capture("import-review");
     await page.locator(".import-review").getByRole("button", { name: /Use this training/ }).tap();
-    await page.getByRole("link", { name: "Plans", exact: true }).tap();
+    await page.getByRole("link", { name: "Settings", exact: true }).tap();
+  await page.getByRole("link", { name: /Training plans/ }).tap();
     await capture("plans-active");
     await page.getByRole("link", { name: "Home", exact: true }).tap();
     await page.getByRole("button", { name: "Start workout" }).first().tap();

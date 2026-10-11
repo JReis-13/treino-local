@@ -22,7 +22,8 @@ export default function HomePage() {
   const completedSessions = planSessionCount(data, plan.id);
   const sourceOccurrences = sourceOccurrenceAudit(data, plan);
   const legacy = sourceOccurrences.filter((item) => item.status === "source record");
-  const hiddenSourceDates = sourceOccurrences.filter((item) => item.status === "hidden").length;
+  const sourceNeedsReview = sourceOccurrences.filter((item) =>
+    (!item.includedInHome && !item.reviewed) || item.reason === "RECONCILIATION_CONFLICT").length;
   const latest = [...own].sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""))[0];
   const inProgress = data.sessions.find((session) => session.planId === plan.id && session.status === "inProgress");
 
@@ -39,7 +40,7 @@ export default function HomePage() {
   }
 
   return <div className="page-stack home-page">
-    <section className="hero current-training-hero"><p className="eyebrow">CURRENT TRAINING</p><h1>{plan.name}</h1><p>Your workout plan is ready on this device, even offline.</p><div className="hero-stat"><strong>{completedSessions}</strong><span>completed<br />sessions</span></div>{plan.source.kind === "google" && <p className="hero-source-count">{sourceOccurrences.length} current Sheet record{sourceOccurrences.length === 1 ? "" : "s"}{hiddenSourceDates ? ` · ${hiddenSourceDates} hidden from local History` : ""}</p>}<Link className="hero-manage-link" href="/plans/">Switch training / manage plans →</Link></section>
+    <section className="hero current-training-hero"><p className="eyebrow">CURRENT TRAINING</p><h1>{plan.name}</h1><p>Your workout plan is ready on this device, even offline.</p><div className="hero-stat"><strong>{completedSessions}</strong><span>completed<br />sessions</span></div>{plan.source.kind === "google" && <p className="hero-source-count">{sourceOccurrences.length} current Sheet record{sourceOccurrences.length === 1 ? "" : "s"}</p>}{sourceNeedsReview > 0 && <Link className="hero-source-review" href="/history/#source-review">{sourceNeedsReview} source record{sourceNeedsReview === 1 ? "" : "s"} need{sourceNeedsReview === 1 ? "s" : ""} review · Review →</Link>}<Link className="hero-manage-link" href="/plans/">Switch training / manage plans →</Link></section>
     <SocialHomeCard compact />
     {error && <div className="alert" role="alert">{error}</div>}
     {inProgress && <Link className="resume-banner" href={`/workout/?id=${encodeURIComponent(inProgress.workoutId)}`}><span><strong>{inProgress.workoutSnapshot.title} in progress</strong><small>Pick up where you left off</small></span><span aria-hidden="true">→</span></Link>}

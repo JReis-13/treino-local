@@ -8,6 +8,7 @@ test("Settings destinations are visible and browser Back restores the menu", asy
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith("/me")) return route.fulfill({ json: { email: "test@example.invalid", displayName: "Tester",
       accountId: "test-account", sharingEnabled: false } });
+    if (path.endsWith("/home")) return route.fulfill({ json: { friendCount: 0, activities: [], received: [] } });
     return route.fulfill({ json: { friends: [] } });
   });
   await page.route("**/api/push/status", (route) => route.fulfill({ json: { configured: false, publicKey: null,

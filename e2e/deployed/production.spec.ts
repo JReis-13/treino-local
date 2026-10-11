@@ -45,7 +45,7 @@ test("production build and read-only navigation", async ({ page }) => {
   console.log(`DEPLOYED_ORIGIN ${new URL(page.url()).origin}; BUILD ${build.match(/BUILD\s+([^\s]+)/)?.[1] ?? "unknown"}`);
   for (const [route, heading] of [
     ["/", /Choose your training/], ["/plans/", /Training plans/], ["/history/", /History/],
-    ["/stats/", /Statistics/], ["/settings/", /Settings/], ["/settings/friends/", /Friends/],
+    ["/stats/", /Statistics/], ["/friends/", /Friends/], ["/settings/", /Settings/], ["/settings/friends/", /Friends/],
   ] as const) {
     await page.goto(new URL(route, origin).toString());
     await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
