@@ -1,3 +1,4 @@
+import { saveLoad } from "../load-editor-helpers";
 import { expect, test, type Page } from "@playwright/test";
 import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -190,7 +191,7 @@ test("Excel safe-copy sync reconciles after reconnect and reload", async ({ page
     await importWorkbook(page, fixture.copy);
     await page.getByRole("button", { name: "Start workout" }).first().tap();
     await page.getByRole("checkbox", { name: /Complete/ }).first().tap();
-    await page.getByRole("textbox", { name: /Actual load for Agachamento goblet/ }).fill("9");
+    await saveLoad(page.getByRole("textbox", { name: /Actual load for Agachamento goblet/ }), "9");
     await page.getByRole("link", { name: /Finish workout/ }).tap();
     await page.getByRole("button", { name: /Save workout/ }).tap();
     await page.getByRole("link", { name: "Not now" }).tap();

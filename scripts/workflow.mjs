@@ -11,7 +11,7 @@ const routes = {
   ui: {
     docs: ["docs/mobile-ui-review.md", "docs/testing.md"],
     sources: ["app", "components", "app/globals.css"],
-    tests: ["session.test.ts", "training-queue.test.ts", "exercise-context.test.ts"],
+    tests: ["session.test.ts", "training-queue.test.ts", "exercise-context.test.ts", "load-editor.test.ts", "mobile-audit-fixture.test.ts"],
     browser: "e2e/mobile.spec.ts",
   },
   push: {

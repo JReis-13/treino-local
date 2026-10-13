@@ -3,17 +3,17 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SocialHomeCard } from "@/components/social-home-card";
-import { cachedSocialFriends, fetchSocialFriends, subscribeSocialChange, type SocialFriend } from "@/lib/social/client";
+import { cachedSocialFriends, fetchSocialFriends, knownSocialDisconnected, subscribeSocialChange, type SocialFriend } from "@/lib/social/client";
 
 export default function FriendsPage() {
   const [friends, setFriends] = useState<SocialFriend[] | null>(() => cachedSocialFriends());
-  const [state, setState] = useState<"loading" | "ready" | "auth" | "error">(friends ? "ready" : "loading");
+  const [state, setState] = useState<"loading" | "ready" | "auth" | "error">(friends ? "ready" : knownSocialDisconnected() ? "auth" : "loading");
   const [updating, setUpdating] = useState(false);
   const sequence = useRef(0);
   const refresh = useCallback(async () => {
     const request = ++sequence.current;
     const cached = cachedSocialFriends();
-    setFriends(cached); setUpdating(true); setState(cached ? "ready" : "loading");
+    setFriends(cached); setUpdating(true); setState(cached ? "ready" : knownSocialDisconnected() ? "auth" : "loading");
     try {
       const result = await fetchSocialFriends(true);
       if (request === sequence.current) { setFriends(result); setState("ready"); }

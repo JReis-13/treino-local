@@ -1,3 +1,4 @@
+import { saveLoad } from "./load-editor-helpers";
 import { expect, test } from "@playwright/test";
 import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -45,7 +46,7 @@ test("phone screens stay compact and readable through the gym flow", async ({ pa
     await page.evaluate(() => { document.documentElement.style.fontSize = ""; });
     await page.getByRole("checkbox", { name: /Complete Agachamento goblet/ }).tap();
     await capture("exercise-completed");
-    await page.getByRole("textbox", { name: "Actual load for Agachamento goblet" }).fill("7,5");
+    await saveLoad(page.getByRole("textbox", { name: "Actual load for Agachamento goblet" }), "7,5");
     await page.getByRole("link", { name: /Finish workout/ }).tap();
     await page.getByRole("button", { name: /Save workout/ }).tap();
     await page.getByRole("link", { name: "Not now" }).tap();

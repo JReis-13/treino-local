@@ -2,6 +2,7 @@ import { isLocalDate } from "@/lib/dates";
 import { cell, display, serialToDate, type SourceCell, type SourceSheet, type SourceSnapshot } from "@/lib/import/snapshot";
 import type { CompletionMapping, ImportedTraining, ImportWarning, InstructionBlock, TrainingSource, TrainingWorkout } from "@/types/training";
 import { normalizeLoad } from "@/lib/training/loads";
+import { layoutGuidance } from "@/lib/import/validation";
 
 const lines = (value: string): string[] => value.split(/\r?\n/).map((line) => line.trim().replace(/\s+/g, " ")).filter(Boolean);
 const simple = (value: string): string => value.trim().replace(/\s+/g, " ").toLowerCase();
@@ -177,7 +178,7 @@ function fingerprint(input: unknown): string {
 
 export function parseTrainingSnapshot(snapshot: SourceSnapshot, source: TrainingSource, name: string): ImportedTraining {
   const sheets = snapshot.sheets.filter((sheet) => /^TREINO\s/i.test(sheet.name));
-  if (!sheets.length || sheets.length > 8) throw new Error("This spreadsheet format is not a supported workout template.");
+  if (!sheets.length || sheets.length > 8) throw new Error(`This spreadsheet format is not a supported workout template. ${layoutGuidance(snapshot)}`);
   const warnings: ImportWarning[] = [];
   const workouts: TrainingWorkout[] = [];
   const legacyCompletions: ImportedTraining["legacyCompletions"] = [];
@@ -185,12 +186,14 @@ export function parseTrainingSnapshot(snapshot: SourceSnapshot, source: Training
   let template: TemplateVariant | undefined;
   for (const sheet of sheets) {
     if (!simple(display(sheet, "C1")).includes("plano de treino") || !simple(display(sheet, "E4")).includes("dias de treino")) {
-      throw new Error(`${sheet.name}: workbook markers do not match the supported template family.`);
+      throw new Error(`Workbook markers do not match the supported template family. ${layoutGuidance(snapshot)}`);
     }
     const id = sheet.name.replace(/^TREINO\s+/i, "").trim();
     if (!id || workouts.some((workout) => workout.id === id)) throw new Error(`Duplicate or missing workout name: ${sheet.name}.`);
     const isInstruction = !simple(display(sheet, "E18")).includes("aquecimento") && /semana/i.test(display(sheet, "E18"));
-    const variant = isInstruction ? template ?? "milena-v1" : variantFor(sheet);
+    let variant: TemplateVariant;
+    try { variant = isInstruction ? template ?? "milena-v1" : variantFor(sheet); }
+    catch { throw new Error(`Equipment/video headers do not match a supported workbook layout. ${layoutGuidance(snapshot)}`); }
     if (template && template !== variant && !isInstruction) throw new Error("Workout sheets use incompatible known layouts.");
     if (!template) template = variant;
     const grid = completionGrid(sheet, id, warnings);
@@ -202,6 +205,7 @@ export function parseTrainingSnapshot(snapshot: SourceSnapshot, source: Training
       warn(warnings, "workout-content", error instanceof Error ? error.message : "Workout content could not be identified.", sheet.name, "activationBlocker");
     }
   }
+  if (!workouts.length) throw new Error(`No usable workouts were found. ${layoutGuidance(snapshot)}`);
   const nextSource = source.kind === "builtin" ? source : { ...source, template: template ?? "unknown", mappings };
   const legacyWorkouts = workouts.map((workout) => ({ ...workout, blocks: workout.blocks.map((block) => {
     if (block.kind !== "exercise") return block;

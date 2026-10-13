@@ -1,3 +1,4 @@
+import { saveLoad } from "./load-editor-helpers";
 import { expect, test } from "@playwright/test";
 
 const initial = {
@@ -71,12 +72,12 @@ test("phone Focus and List share loads, queue, skips, timer and saved outcome", 
   await page.getByRole("textbox", { name: "Actual load for Lat pulldown" }).focus();
   await expect.poll(async () => { const box = await page.getByRole("textbox", { name: "Actual load for Lat pulldown" }).boundingBox(); return Boolean(box && box.y >= 0 && box.y + box.height <= 420); }).toBe(true);
   await page.setViewportSize(viewport);
-  await page.getByRole("textbox", { name: "Actual load for Lat pulldown" }).fill("37.5 kg");
+  await saveLoad(page.getByRole("textbox", { name: "Actual load for Lat pulldown" }), "37.5 kg");
   await page.getByRole("button", { name: "List", exact: true }).click();
-  await expect(page.locator(".exercise-card").filter({ hasText: "Lat pulldown" }).getByRole("textbox", { name: "Actual load for Lat pulldown" })).toHaveValue("37.5 kg");
-  await page.locator(".exercise-card").filter({ hasText: "Lat pulldown" }).getByRole("textbox", { name: "Actual load for Lat pulldown" }).fill("38 kg");
+  await expect(page.locator(".exercise-card").filter({ hasText: "Lat pulldown" }).getByRole("textbox", { name: "Actual load for Lat pulldown" })).toHaveValue("37.5");
+  await saveLoad(page.locator(".exercise-card").filter({ hasText: "Lat pulldown" }).getByRole("textbox", { name: "Actual load for Lat pulldown" }), "38 kg");
   await page.getByRole("button", { name: "Focus", exact: true }).click();
-  await expect(page.getByRole("textbox", { name: "Actual load for Lat pulldown" })).toHaveValue("38 kg");
+  await expect(page.getByRole("textbox", { name: "Actual load for Lat pulldown" })).toHaveValue("38");
   await page.getByText("More actions", { exact: true }).click();
   await page.getByRole("button", { name: "Do later" }).click();
   await expect(page.locator(".focus-name")).toHaveText("Seated row");

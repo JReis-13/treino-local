@@ -1,6 +1,6 @@
 # Mobile UI review
 
-For the latest five audit areas see [focused UX review](focused-ux-review.md). Earlier issue classifications and fixes are in [current UX review](current-ux-review.md). This document describes the earlier mockup implementation.
+For current load confirmation, navigation recovery and the reusable audit workbook see [mobile load editing](mobile-load-editing.md). Earlier five-area findings are in [focused UX review](focused-ux-review.md), and prior issue classifications are in [current UX review](current-ux-review.md). This document describes the earlier mockup implementation.
 
 The phone mockup guided interaction order, density, and emphasis. Labels and values remain tied to the imported plan and recorded sessions.
 

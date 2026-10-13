@@ -1,3 +1,4 @@
+import { saveLoad } from "./load-editor-helpers";
 import { expect, test, type Page } from "@playwright/test";
 import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -57,7 +58,7 @@ test("mobile first launch, workout actions, reload, back/forward and history", a
   await expect(page.getByRole("checkbox", { name: /Complete/ }).first()).toBeVisible();
   await page.getByRole("checkbox", { name: /Complete/ }).first().tap();
   await expect(page.getByRole("checkbox", { name: /Reopen/ }).first()).toHaveAttribute("aria-checked", "true");
-  await page.getByRole("textbox", { name: "Actual load for Agachamento goblet" }).fill("9");
+  await saveLoad(page.getByRole("textbox", { name: "Actual load for Agachamento goblet" }), "9");
   await page.goBack();
   await expect(page.getByText(/in progress/)).toBeVisible();
   await page.goForward();
@@ -86,7 +87,7 @@ test("same-day Add and Replace keep distinct history entries and statistics offl
     await toggle.tap();
     if (completeTwo) await page.getByRole("checkbox", { name: /Complete/ }).first().tap();
     await expect(page.getByRole("checkbox", { name: /Reopen Agachamento goblet/ })).toHaveAttribute("aria-checked", "true");
-    await page.getByRole("textbox", { name: "Actual load for Agachamento goblet" }).fill("7,5");
+    await saveLoad(page.getByRole("textbox", { name: "Actual load for Agachamento goblet" }), "7,5");
     await page.getByRole("link", { name: /Finish workout/ }).tap();
     await page.getByRole("button", { name: /Save workout/ }).tap();
   };

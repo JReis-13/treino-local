@@ -28,6 +28,9 @@ let homeRequest: Promise<{ me: SocialMe; home: SocialHome }> | null = null;
 let friendsRequest: Promise<SocialFriend[]> | null = null;
 let preferenceRevision = 0;
 let cacheRevision = 0;
+let disconnected = false;
+export const knownSocialDisconnected = () => disconnected && currentOwner() === null;
+export const socialViewScope = () => currentOwner() ?? "device-local";
 const unboundThisPage = new Set<string>();
 const unboundDeleteThisPage = new Set<string>();
 const publishing = new Set<string>();
@@ -81,7 +84,7 @@ export async function fetchSocialHome(force = false): Promise<{ me: SocialMe; ho
   homeRequest = request;
   try { return await request; }
   catch (cause) { if ((cause as { status?: number; code?: string })?.status === 401 ||
-    (cause as { code?: string })?.code === "accountChanged") clearSocialPreference(); throw cause; }
+    (cause as { code?: string })?.code === "accountChanged") clearSocialPreference((cause as { status?: number })?.status === 401); throw cause; }
   finally { if (homeRequest === request) homeRequest = null; }
 }
 export async function fetchSocialFriends(force = false): Promise<SocialFriend[]> {
@@ -100,7 +103,7 @@ export async function fetchSocialFriends(force = false): Promise<SocialFriend[]>
   friendsRequest = request;
   try { return await request; }
   catch (cause) { if ((cause as { status?: number })?.status === 401 ||
-    (cause as { code?: string })?.code === "accountChanged") clearSocialPreference(); throw cause; }
+    (cause as { code?: string })?.code === "accountChanged") clearSocialPreference((cause as { status?: number })?.status === 401); throw cause; }
   finally { if (friendsRequest === request) friendsRequest = null; }
 }
 
@@ -182,6 +185,7 @@ export async function socialFetch<T>(path: string, method = "GET", body?: object
 }
 export function cacheSocialPreference(me: SocialMe, expectedRevision?: number, changedOnServer = false): void {
   if (expectedRevision !== undefined && expectedRevision !== preferenceRevision) return;
+  disconnected = false;
   try { const previous = readPreference();
     if (previous && (previous.accountId !== me.accountId || previous.email !== me.email)) {
       homeCache = null; friendsCache = null; preferenceRevision++;
@@ -190,7 +194,8 @@ export function cacheSocialPreference(me: SocialMe, expectedRevision?: number, c
     sharingEnabled: me.sharingEnabled } satisfies Preference)); if (changedOnServer) preferenceRevision++; changed(); }
   catch { /* No persistent storage. Workout saving still works. */ }
 }
-export function clearSocialPreference(): void {
+export function clearSocialPreference(confirmedDisconnected = true): void {
+  disconnected = confirmedDisconnected;
   ++cacheRevision;
   homeCache = null; friendsCache = null; homeRequest = null; friendsRequest = null;
   try { localStorage.removeItem(PREFERENCE_KEY); preferenceRevision++; changed(); } catch { /* Keep local workouts. */ }

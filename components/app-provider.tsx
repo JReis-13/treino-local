@@ -16,6 +16,7 @@ import { completedSessionForDeletion, finalizeHistoryDeletion, finalizeLegacyHis
   stageLegacyHistoryDeletion, undoHistoryDeletion, undoLegacyHistoryDeletion } from "@/lib/training/history-delete";
 import { plannedCompletionSlot } from "@/lib/sync/logic";
 import { recordDiagnosticEvent } from "@/lib/diagnostic-log";
+import { loadDrafts, pruneLoadDrafts } from "@/lib/training/load-drafts";
 import type { ImportedTraining, SourceSyncStatus, TrainingData, TrainingPlanRecord, TrainingSession, TrainingSource } from "@/types/training";
 
 interface AppContextValue {
@@ -60,6 +61,14 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<TrainingData | null>(null);
+  useEffect(() => { if (data) pruneLoadDrafts(data.sessions.filter((session) => session.status === "inProgress")
+    .map((session) => ({ id: session.id, blockIds: session.workoutSnapshot.blocks.map((block) => block.id),
+      confirmed: Object.fromEntries(session.blocks.map((block) => [block.blockId, block.actualLoad])) }))); }, [data]);
+  useEffect(() => {
+    const protect = (event: BeforeUnloadEvent) => { if (Object.keys(loadDrafts()).length) { event.preventDefault(); event.returnValue = ""; } };
+    window.addEventListener("beforeunload", protect);
+    return () => window.removeEventListener("beforeunload", protect);
+  }, []);
   const dataRef = useRef<TrainingData | null>(null);
   const storageBlocked = useRef(false);
   const reconciling = useRef(new Set<string>());
@@ -248,6 +257,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const extendRestTimer = useCallback((seconds: number) => commit((current) => extendRest(current, seconds)), [commit]);
   const skipRestTimer = useCallback(() => commit((current) => skipRest(current)), [commit]);
   const finish = useCallback((sessionId: string, localDate: string, choice: "normal" | "add" | "replace" = "normal", replaceId?: string, note = "") => {
+    if (Object.values(loadDrafts()).some((draft) => draft.sessionId === sessionId)) {
+      setError("Save or discard unsaved load edits before finishing this workout."); return null;
+    }
     recordDiagnosticEvent("workout_finish_started", { sessionId });
     if (choice === "add") recordDiagnosticEvent("same_day_add", { sessionId });
     if (choice === "replace") recordDiagnosticEvent("same_day_replace", { sessionId });

@@ -11,12 +11,13 @@ import { legacyIsHidden } from "@/lib/training/history-delete";
 import { matchingLocalSession } from "@/lib/training/history-match";
 import { sourceOccurrenceAudit } from "@/lib/training/counts";
 import { readSocialDiagnostics } from "@/lib/social/client";
+import { useHistoryView } from "@/components/use-history-view";
 
 type Entry = { type: "session"; session: TrainingSession; date: string } | { type: "legacy"; legacy: LegacyCompletion; planId: string; planName: string; date: string };
 
 export default function HistoryPage() {
   const { data, error, undoSessionDeletion, undoLegacyDeletion, restoreSourceDate, keepSourceDateHidden } = useApp();
-  const [filter, setFilter] = useState("active");
+  const [filter, setFilter] = useHistoryView(Boolean(data));
   const [deletedMessage, setDeletedMessage] = useState("");
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 1000);

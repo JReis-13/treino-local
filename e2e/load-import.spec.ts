@@ -1,3 +1,4 @@
+import { saveLoad } from "./load-editor-helpers";
 import { expect, test } from "@playwright/test";
 
 test("sanitized workbook import shows independent Plan, Last and Today loads on phone", async ({ page }) => {
@@ -17,7 +18,7 @@ test("sanitized workbook import shows independent Plan, Last and Today loads on 
   await expect(beta).toContainText("12.5");
   await expect(alpha).not.toContainText("Last used");
   await expect(alpha.getByRole("textbox", { name: "Actual load for Exercise Alpha" })).toHaveValue("7.5");
-  await alpha.getByRole("textbox", { name: "Actual load for Exercise Alpha" }).fill("10");
+  await saveLoad(alpha.getByRole("textbox", { name: "Actual load for Exercise Alpha" }), "10");
   await alpha.getByRole("checkbox", { name: /Complete Exercise Alpha/ }).tap();
   await page.getByRole("link", { name: /Finish workout/ }).tap();
   await page.getByRole("button", { name: /Save workout/ }).tap();

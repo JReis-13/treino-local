@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { draftKey, loadDrafts, serverLoadDrafts, subscribeLoadDrafts } from "@/lib/training/load-drafts";
 import { useApp } from "@/components/app-provider";
 import { activePlan } from "@/lib/training/session";
 import type { WorkoutBlock } from "@/types/training";
@@ -15,19 +16,21 @@ import { LoadInput } from "@/components/load-input";
 import { ExerciseSupportTabs } from "@/components/exercise-support-tabs";
 import { useDialogFocus } from "@/components/use-dialog-focus";
 
-function BlockCard({ block, index, completed, skipped, actualLoad, previousLoad, currentPlanLoad, planChanged, note, restSuggestion, timerActive, onComplete, onLoad, onDetails, onNotes, onStartRest, onLater, onSkip, onUndoSkip }: {
+function BlockCard({ sessionId, block, index, completed, skipped, actualLoad, previousLoad, currentPlanLoad, planChanged, note, restSuggestion, timerActive, onComplete, onLoad, onDetails, onNotes, onStartRest, onLater, onSkip, onUndoSkip }: {
+  sessionId: string;
   block: WorkoutBlock; index: number; completed: boolean; skipped: boolean; actualLoad?: string; previousLoad?: string; currentPlanLoad?: string; planChanged?: boolean;
   note?: string; restSuggestion?: { seconds: number; label: string }; timerActive: boolean;
   onComplete: () => void; onLoad: (value: string) => boolean; onDetails: (opener: HTMLElement) => void; onNotes: (opener: HTMLElement) => void;
   onStartRest: () => void; onLater: () => void; onSkip: (opener: HTMLElement) => void; onUndoSkip: () => void;
 }) {
   const [showOptionalLoad, setShowOptionalLoad] = useState(false);
-  const hasLoad = block.kind === "exercise" && (Boolean(block.defaultLoad || currentPlanLoad || previousLoad || actualLoad?.trim()) || showOptionalLoad);
+  const pending = useSyncExternalStore(subscribeLoadDrafts, loadDrafts, serverLoadDrafts)[draftKey(sessionId, block.id)];
+  const hasLoad = block.kind === "exercise" && (Boolean(block.defaultLoad || currentPlanLoad || previousLoad || actualLoad?.trim() || pending) || showOptionalLoad);
   return <article id={`exercise-${block.id}`} tabIndex={-1} className={`exercise-card ${completed ? "is-complete" : ""} ${skipped ? "is-skipped" : ""}`}>
     <div className="exercise-head">{!skipped && <button type="button" className="completion-toggle" role="checkbox" aria-checked={completed} aria-label={`${completed ? "Reopen" : "Complete"} ${block.kind === "exercise" ? block.name : block.heading}`} onClick={onComplete}><span className={`complete-dot ${completed ? "on" : ""}`} aria-hidden="true">{completed ? "✓" : ""}</span><span>{completed ? "Undo" : "Done"}</span></button>}<div className="exercise-heading"><span className="exercise-number">{String(index + 1).padStart(2, "0")}</span><h3>{block.kind === "exercise" ? block.name : block.heading}</h3>{block.kind === "exercise" && <p className="exercise-prescription">{block.prescription || "See source plan"}</p>}{skipped && <span className="skipped-feedback">Skipped today</span>}</div></div>
     {block.kind === "exercise" ? <>
       {(block.defaultLoad || currentPlanLoad || previousLoad) && <div className="load-reference">{currentPlanLoad && <div><span>Current plan</span><strong>{currentPlanLoad}</strong></div>}{planChanged && block.defaultLoad !== currentPlanLoad && block.defaultLoad && <div><span>Plan when started</span><strong>{block.defaultLoad}</strong></div>}{previousLoad && <div><span>Last used</span><strong>{previousLoad}</strong></div>}</div>}
-      {!skipped && block.section !== "Warm-up" && (hasLoad ? <LoadInput name={block.name} value={actualLoad} onLoad={onLoad} /> : <button type="button" className="add-load-button" onClick={() => setShowOptionalLoad(true)}>+ Record a load</button>)}
+      {!skipped && block.section !== "Warm-up" && (hasLoad ? <LoadInput sessionId={sessionId} blockId={block.id} name={block.name} value={actualLoad} onLoad={onLoad} /> : <button type="button" className="add-load-button" onClick={() => setShowOptionalLoad(true)}>+ Record a load</button>)}
       {!skipped && block.section !== "Warm-up" && currentPlanLoad && normalizeLoad(actualLoad ?? "") !== normalizeLoad(currentPlanLoad) &&
         <button type="button" className="inline-action" onClick={() => onLoad(currentPlanLoad)}>Use current plan load for today</button>}
       {note && <button type="button" className="list-note-preview" onClick={(event) => onNotes(event.currentTarget)}>Note: {note}</button>}
@@ -69,6 +72,7 @@ function WorkoutHeader({ title, count, total, skipped, startedAt, focusMode, onL
 export function WorkoutView({ workoutId }: { workoutId?: string }) {
   const router = useRouter();
   const { data, error, start, cancel, updateBlock, moveBlockLater, restoreQueue, skipBlock, setFocus, startRestTimer } = useApp();
+  const drafts = useSyncExternalStore(subscribeLoadDrafts, loadDrafts, serverLoadDrafts);
   const [queryId, setQueryId] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ blockId: string; launchVideo: boolean; launchNotes: boolean } | null>(null);
   const [detailOpener, setDetailOpener] = useState<HTMLElement | null>(null);
@@ -126,7 +130,7 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
   const focusIndex = exerciseOrder.indexOf(displayedFocusId ?? "");
   const focusState = ownSession?.blocks.find((state) => state.blockId === displayedFocusId);
   const focusPreviousLoad = focusBlock?.kind === "exercise" ? lastUsedLoad(data, plan.id, focusBlock.id) : undefined;
-  const focusHasLoad = Boolean(focusBlock?.kind === "exercise" && (focusState?.actualLoad || focusBlock.defaultLoad || currentPlanLoad(focusBlock) || focusPreviousLoad));
+  const focusHasLoad = Boolean(focusBlock?.kind === "exercise" && (focusState?.actualLoad || focusBlock.defaultLoad || currentPlanLoad(focusBlock) || focusPreviousLoad || drafts[draftKey(ownSession?.id ?? "", focusBlock.id)]));
   const focusPartnerNames = focusBlock?.kind === "exercise" && focusBlock.groupId ? blocks.filter((block) => block.kind === "exercise" && block.groupId === focusBlock.groupId && block.id !== focusBlock.id).map((block) => block.kind === "exercise" ? block.name : "") : [];
   const otherBlocks = blocks.filter((block) => block.kind !== "exercise" || !remaining.includes(block.id));
   const pendingBlocks = exerciseOrder.flatMap((blockId) => remaining.includes(blockId) ? blocks.filter((block) => block.id === blockId) : []);
@@ -183,7 +187,7 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
         <p className="focus-prescription">{focusBlock.prescription || "See source plan"}{focusBlock.equipment ? ` · ${focusBlock.equipment}` : ""}</p>
         {focusPartnerNames.length > 0 && <p className="focus-group">Paired with {focusPartnerNames.join(", ")}</p>}
         {(focusBlock.defaultLoad || currentPlanLoad(focusBlock) || focusPreviousLoad) && <p className="focus-reference">{currentPlanLoad(focusBlock) && <span>Current plan <strong>{currentPlanLoad(focusBlock)}</strong></span>}{planChanged && focusBlock.defaultLoad !== currentPlanLoad(focusBlock) && focusBlock.defaultLoad && <span>Plan when started <strong>{focusBlock.defaultLoad}</strong></span>}{focusPreviousLoad && <span>Last used <strong>{focusPreviousLoad}</strong></span>}</p>}
-        {!focusState?.skipped && focusBlock.section !== "Warm-up" && (focusHasLoad || optionalLoadId === focusBlock.id ? <LoadInput key={`load-${focusBlock.id}`} variant="focus" name={focusBlock.name} value={focusState?.actualLoad} onLoad={(value) => updateBlock(ownSession.id, focusBlock.id, { actualLoad: value })} /> : <button type="button" className="focus-optional-load" onClick={() => setOptionalLoadId(focusBlock.id)}>+ Add load (optional)</button>)}
+        {!focusState?.skipped && focusBlock.section !== "Warm-up" && (focusHasLoad || optionalLoadId === focusBlock.id ? <LoadInput sessionId={ownSession.id} blockId={focusBlock.id} key={`load-${focusBlock.id}`} variant="focus" name={focusBlock.name} value={focusState?.actualLoad} onLoad={(value) => updateBlock(ownSession.id, focusBlock.id, { actualLoad: value })} /> : <button type="button" className="focus-optional-load" onClick={() => setOptionalLoadId(focusBlock.id)}>+ Add load (optional)</button>)}
         {!focusState?.skipped && focusBlock.section !== "Warm-up" && currentPlanLoad(focusBlock) &&
           normalizeLoad(focusState?.actualLoad ?? "") !== normalizeLoad(currentPlanLoad(focusBlock) ?? "") &&
           <button type="button" className="inline-action" onClick={() => updateBlock(ownSession.id, focusBlock.id, { actualLoad: currentPlanLoad(focusBlock)! })}>Use current plan load for today</button>}
@@ -199,7 +203,7 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
     </section> : <>
     <section className="exercise-section"><div className="section-heading"><div><p className="eyebrow">TODAY’S QUEUE</p><h2>Remaining</h2></div><span className="section-count">{remaining.length} EXERCISES</span></div><div className="exercise-list">{pendingBlocks.map((block) => {
       const state = ownSession.blocks.find((item) => item.blockId === block.id);
-      return <BlockCard key={block.id} block={block} index={blocks.findIndex((item) => item.id === block.id)} completed={false} skipped={false} actualLoad={state?.actualLoad} currentPlanLoad={currentPlanLoad(block)} planChanged={planChanged}
+      return <BlockCard sessionId={ownSession.id} key={block.id} block={block} index={blocks.findIndex((item) => item.id === block.id)} completed={false} skipped={false} actualLoad={state?.actualLoad} currentPlanLoad={currentPlanLoad(block)} planChanged={planChanged}
         previousLoad={block.kind === "exercise" ? lastUsedLoad(data, plan.id, block.id) : undefined}
         note={block.kind === "exercise" ? exerciseNote(data, plan.id, block.name) : undefined}
         restSuggestion={block.kind === "exercise" && block.section !== "Warm-up" ? restSuggestion : undefined}
@@ -212,7 +216,7 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
     })}</div></section>
     {otherBlocks.length > 0 && <section className="exercise-section"><div className="section-heading"><div><p className="eyebrow">YOUR PLAN</p><h2>Done, skipped & guidance</h2></div></div><div className="exercise-list">{otherBlocks.map((block) => {
       const state = ownSession.blocks.find((item) => item.blockId === block.id);
-      return <BlockCard key={block.id} block={block} index={blocks.findIndex((item) => item.id === block.id)} completed={state?.completed ?? false} skipped={state?.skipped ?? false} actualLoad={state?.actualLoad} currentPlanLoad={currentPlanLoad(block)} planChanged={planChanged}
+      return <BlockCard sessionId={ownSession.id} key={block.id} block={block} index={blocks.findIndex((item) => item.id === block.id)} completed={state?.completed ?? false} skipped={state?.skipped ?? false} actualLoad={state?.actualLoad} currentPlanLoad={currentPlanLoad(block)} planChanged={planChanged}
         previousLoad={block.kind === "exercise" ? lastUsedLoad(data, plan.id, block.id) : undefined} note={block.kind === "exercise" ? exerciseNote(data, plan.id, block.name) : undefined} restSuggestion={block.kind === "exercise" && block.section !== "Warm-up" ? restSuggestion : undefined}
         timerActive={data.restTimer?.sessionId === ownSession.id} onComplete={() => complete(block.id, state?.completed ?? false)}
         onLoad={(actualLoad) => updateBlock(ownSession.id, block.id, { actualLoad })} onDetails={(opener) => openDetail(block.id, false, opener)} onNotes={(opener) => openDetail(block.id, false, opener, true)}

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type ReactionEmoji } from "@/lib/social/model";
 import { applyReaction, SocialReactions } from "@/components/social-reactions";
-import { cachedSocialHome, fetchSocialHome, invalidateSocialHome, recordSocialDisplayedActivity,
+import { cachedSocialHome, fetchSocialHome, invalidateSocialHome, knownSocialDisconnected, recordSocialDisplayedActivity,
   recordSocialHomeFetch, recordSocialReaction, socialFetch, subscribeSocialChange, updateCachedSocialHome } from "@/lib/social/client";
 import { sharedDurationLabel } from "@/lib/social/display";
 
@@ -13,7 +13,7 @@ function localDay(value: string) { try { return new Intl.DateTimeFormat(undefine
 export function SocialHomeCard({ compact = false, onConnectionChange }: { compact?: boolean;
   onConnectionChange?: (state: "loading" | "ready" | "auth" | "unavailable") => void }) {
   const [snapshot, setSnapshot] = useState(() => cachedSocialHome());
-  const [state, setState] = useState<"loading" | "ready" | "auth" | "unavailable">(snapshot ? "ready" : "loading");
+  const [state, setState] = useState<"loading" | "ready" | "auth" | "unavailable">(snapshot ? "ready" : knownSocialDisconnected() ? "auth" : "loading");
   const [updating, setUpdating] = useState(false);
   const [message, setMessage] = useState("");
   const refreshSequence = useRef(0);

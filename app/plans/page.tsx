@@ -9,6 +9,7 @@ import { removeConnectorKey } from "@/lib/connector/credentials";
 import { loadFileHandle, removeFileHandle, saveFileHandle } from "@/lib/import/file-handles";
 import { snapshotFromXlsx } from "@/lib/import/snapshot";
 import { parseTrainingSnapshot } from "@/lib/import/template-parser";
+import { usableImport } from "@/lib/import/validation";
 import { recordDiagnosticEvent } from "@/lib/diagnostic-log";
 import { describeChanges } from "@/lib/training/library";
 import { ImportReviewNotes } from "@/components/import-review-notes";
@@ -82,8 +83,8 @@ export default function PlansPage() {
       setPreview({ imported, targetId: chosen, handle });
       setStage("review"); window.scrollTo(0, 0);
       setName(chosen ? data?.plans.find((plan) => plan.id === chosen)?.name ?? imported.name : imported.name);
-      setMessage("Training imported. Review the summary before using it.");
-    } catch (cause) { setStage("choose"); setMessage(cause instanceof Error ? cause.message : "Could not read the workbook."); }
+      setMessage(!usableImport(imported) ? "Import needs review. This training cannot be activated." : "Workbook read successfully. Review the summary before using it.");
+    } catch (cause) { setPreview(null); setStage("choose"); setMessage(`${cause instanceof Error ? cause.message : "Could not read the workbook."} Open a supported .xlsx training workbook and try again. Existing plans and History are unchanged.`); }
     finally { setBusy(false); }
   }
   async function selectExcel(refreshId?: string) {
@@ -117,7 +118,7 @@ export default function PlansPage() {
       const migration = Boolean(refreshId && old?.source.kind === "google" && old.source.authMode !== "oauth");
       setPreview({ imported, targetId: chosen, migration }); setName(old?.name ?? imported.name);
       setStage("review"); window.scrollTo(0, 0);
-      setMessage(migration ? "Legacy plan matched. Review and reconnect without losing its local history." : "Training imported. Review it before using it.");
+      setMessage(migration ? "Legacy plan matched. Review and reconnect without losing its local history." : !usableImport(imported) ? "Import needs review. This training cannot be activated." : "Spreadsheet read successfully. Review it before using it.");
     } catch (cause) { setStage("google"); setMessage(cause instanceof Error ? cause.message : "Could not import Google Sheet."); }
     finally { setBusy(false); }
   }
@@ -127,7 +128,7 @@ export default function PlansPage() {
       setBusy(true); setStage("importing"); setMessage("Refreshing spreadsheet…"); window.scrollTo(0, 0);
       try { const { imported } = await refreshGoogleSheet(plan.source.spreadsheetId, plan.sourceFingerprint, plan.source.sourceProof);
         recordParsedLoads(imported);
-        setPreview({ imported, targetId: plan.id }); setName(plan.name); setStage("review"); window.scrollTo(0, 0); setMessage("Updated training ready for review."); }
+        setPreview({ imported, targetId: plan.id }); setName(plan.name); setStage("review"); window.scrollTo(0, 0); setMessage(usableImport(imported) ? "Updated training available for review." : "Import needs review. Existing training and History are unchanged."); }
       catch (cause) { setStage("library"); setMessage(cause instanceof Error ? cause.message : "Could not refresh spreadsheet."); }
       finally { setBusy(false); }
       return;
@@ -141,7 +142,7 @@ export default function PlansPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   async function commitPreview(updateTargetId?: string) {
-    if (!preview || preview.imported.warnings.some((warning) => warning.severity === "activationBlocker")) return;
+    if (!preview || !preview.imported.workouts.length || preview.imported.warnings.some((warning) => warning.severity === "activationBlocker")) return;
     setBusy(true);
     try {
       const oldPlan = updateTargetId ? data?.plans.find((item) => item.id === updateTargetId) : undefined;
@@ -166,7 +167,7 @@ export default function PlansPage() {
     if (removePlan(plan.id)) { await Promise.allSettled([removeFileHandle(plan.id), removeConnectorKey(plan.id)]); setMessage(`${plan.name} removed. Completed local sessions remain in History.`); }
   }
   const active = data.plans.find((plan) => plan.id === data.activePlanId);
-  const activationBlocked = preview?.imported.warnings.some((warning) => warning.severity === "activationBlocker") ?? false;
+  const activationBlocked = Boolean(preview && !usableImport(preview.imported));
   const syncBlocked = preview?.imported.warnings.some((warning) => warning.severity === "syncBlocker") ?? false;
   return <div className={`page-stack plans-page stage-${stage}`}>
     <div className="page-heading"><p className="eyebrow">YOUR TRAINING</p><h1>{stage === "library" ? "Training plans" : stage === "choose" ? "Add training" : stage === "google" ? "Google Sheets" : stage === "importing" ? "Importing training" : "Import review"}<span className="dot-accent">.</span></h1>
@@ -188,7 +189,7 @@ export default function PlansPage() {
       <details className="review-warnings"><summary>How to add a training</summary><p>Connect Google, copy your training Sheet URL, paste it here, and tap Import training.</p></details>
     </section>}
     {stage === "importing" && <section className="import-progress" role="status" aria-live="polite"><span className="import-spinner" aria-hidden="true" /><h2>Reading your training…</h2><p>{message}</p><ol><li>Opening source</li><li>Identifying workouts</li><li>Checking structure</li></ol></section>}
-    {stage === "review" && preview && <section className="review-card import-review"><p className="eyebrow">IMPORT REVIEW</p><h2>Training ready</h2><p className="quiet-note">{preview.imported.workouts.map((workout) => workout.title).join(" · ")}</p><div className="review-stats"><span><strong>{preview.imported.workouts.length}</strong> workouts</span><span><strong>{preview.imported.workouts.flatMap((workout) => workout.blocks).filter((block) => block.kind === "exercise").length}</strong> exercises</span><span><strong>{preview.imported.legacyCompletions.length}</strong> previous workouts</span></div>
+    {stage === "review" && preview && <section className="review-card import-review"><p className="eyebrow">IMPORT REVIEW</p><h2>{activationBlocked ? "Import needs review" : "Training ready"}</h2><p className="quiet-note">{preview.imported.workouts.map((workout) => workout.title).join(" · ")}</p><div className="review-stats"><span><strong>{preview.imported.workouts.length}</strong> workouts</span><span><strong>{preview.imported.workouts.flatMap((workout) => workout.blocks).filter((block) => block.kind === "exercise").length}</strong> exercises</span><span><strong>{preview.imported.legacyCompletions.length}</strong> previous workouts</span></div>
       <details className="review-warnings"><summary>Review exercise plan loads</summary><p className="quiet-note">These values come from the source. A new workout starts with your last locally used load when available; the plan values stay separate.</p>{preview.imported.workouts.map((workout) => <div key={workout.id}><strong>{workout.title}</strong>{workout.blocks.filter((block) => block.kind === "exercise").map((block) => block.kind === "exercise" ? <p key={block.id}>{block.name}: <strong>{block.defaultLoad ?? "No plan load"}</strong></p> : null)}</div>)}</details>
       {activationBlocked && <p className="alert" role="alert">Workout content could not be identified safely. Activation is blocked.</p>}
       {syncBlocked && !activationBlocked && <p className="context-note">Training is available locally; source sync needs mapping review.</p>}

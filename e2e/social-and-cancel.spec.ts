@@ -1,3 +1,4 @@
+import { saveLoad } from "./load-editor-helpers";
 import { expect, test, type Page } from "@playwright/test";
 
 const workout = { id: "A", title: "Workout A", description: "", restNote: "2 min rest", blocks: [
@@ -33,7 +34,7 @@ test("List and Focus share the compact header; cancellation keeps or discards on
   expect(size?.height).toBeGreaterThanOrEqual(44);
   expect(size?.height).toBeLessThanOrEqual(50);
   await page.getByRole("button", { name: "List", exact: true }).click();
-  await page.getByRole("textbox", { name: "Actual load for Squat" }).fill("22 kg");
+  await saveLoad(page.getByRole("textbox", { name: "Actual load for Squat" }), "22 kg");
   await page.getByRole("checkbox", { name: "Complete Squat" }).click();
   await page.locator(".exercise-card").filter({ hasText: "Row" }).locator("summary", { hasText: "More" }).click();
   await page.getByRole("button", { name: "Skip today" }).click();

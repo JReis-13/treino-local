@@ -1,9 +1,11 @@
 import type { ImportedTraining, TrainingData, TrainingPlanRecord } from "@/types/training";
 import { preserveWorkoutLineage } from "@/lib/training/identity";
+import { assertUsableImport } from "@/lib/import/validation";
 
 function id(): string { return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 
 export function addTraining(data: TrainingData, imported: ImportedTraining, name?: string, now = new Date().toISOString(), planId = id()): TrainingData {
+  assertUsableImport(imported);
   const plan: TrainingPlanRecord = {
     id: planId, name: name?.trim() || imported.name, source: imported.source, sourceFingerprint: imported.sourceFingerprint,
     version: 1, importedAt: now, updatedAt: now, workouts: preserveWorkoutLineage([], imported.workouts),
@@ -13,6 +15,7 @@ export function addTraining(data: TrainingData, imported: ImportedTraining, name
 }
 
 export function refreshTraining(data: TrainingData, planId: string, imported: ImportedTraining, now = new Date().toISOString()): TrainingData {
+  assertUsableImport(imported);
   const old = data.plans.find((plan) => plan.id === planId);
   if (!old) throw new Error("Training plan not found.");
   const oldSpreadsheetId = old.source.kind === "google" ? old.source.spreadsheetId : undefined;

@@ -32,7 +32,7 @@ export function ExerciseDetail({ block, session, actualLoad, previousLoad, curre
       <div className="detail-sheet-top"><h2 id="exercise-detail-title">{block.name}</h2><button ref={closeRef} type="button" aria-label="Close exercise details" onClick={onClose}>×</button></div>
       <div className="detail-active-controls">
         {(block.defaultLoad || currentPlanLoad || previousLoad) && <div className="detail-loads">{currentPlanLoad && <div><small>Current plan</small><strong>{currentPlanLoad}</strong></div>}{planChanged && block.defaultLoad !== currentPlanLoad && block.defaultLoad && <div><small>Plan when started</small><strong>{block.defaultLoad}</strong></div>}{previousLoad && <div><small>Last used</small><strong>{previousLoad}</strong></div>}</div>}
-        {block.section !== "Warm-up" && <LoadInput variant="detail" name={block.name} value={actualLoad} onLoad={onLoad} ariaLabel={`Actual load for ${block.name} in details`} />}
+        {block.section !== "Warm-up" && <LoadInput sessionId={session.id} blockId={block.id} variant="detail" name={block.name} value={actualLoad} onLoad={onLoad} ariaLabel={`Actual load for ${block.name} in details`} />}
         {block.section !== "Warm-up" && currentPlanLoad && actualLoad?.trim() !== currentPlanLoad.trim() && <button type="button" className="inline-action" onClick={() => onLoad(currentPlanLoad)}>Use current plan load for today</button>}
         <button type="button" className={`primary-button detail-complete ${completed ? "detail-undo" : ""}`} onClick={onComplete}>{completed ? "Undo completion" : "Mark complete"}</button>
       </div>
