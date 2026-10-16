@@ -438,3 +438,10 @@ button,a,summary{-webkit-tap-highlight-color:transparent}
 .social-updating{font-size:11px;color:var(--muted)}.friend-directory-link{justify-content:space-between;min-height:58px}.friend-directory-link>span:first-child{display:flex;flex-direction:column;gap:4px}.friend-directory-link>span:last-child{color:var(--teal);font-size:20px}.friends-directory .secondary-button{align-self:flex-start}
 @media(max-width:370px){.bottom-nav .nav-item{min-width:0;padding-inline:1px}.current-training-hero .hero-source-count{padding-right:0}.source-review-actions{flex-direction:column}.source-review-actions button{width:100%}}
 .empty-session-choice{display:flex;align-items:center;gap:12px;min-height:48px;font-size:14px;line-height:1.4}.empty-session-choice input{width:22px;height:22px;flex-shrink:0}.summary-badge{white-space:normal;text-align:center;overflow-wrap:anywhere}.import-note{padding:12px 0;border-top:1px solid var(--line)}.import-note>details{margin:8px 0}.import-exercise-review{border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff}.import-exercise-review>div{margin-bottom:12px}.bottom-nav .nav-item{font-size:12px;color:#52635e}.bottom-nav .nav-item.active{color:var(--teal)}
+
+/* Explicit combined action remains readable at 320px without shrinking its target. */
+.exercise-head:has(.completion-toggle.has-pending-load){flex-wrap:wrap}
+.completion-toggle.has-pending-load{width:100%;min-height:44px;flex-direction:row;justify-content:flex-start;gap:10px}
+.completion-toggle.has-pending-load .complete-dot{margin-left:0}
+.completion-toggle.has-pending-load>span:last-child{font-size:13px;max-width:none;text-align:left}
+.workout-menu>a{display:block;min-height:44px;padding:12px;font-weight:700}

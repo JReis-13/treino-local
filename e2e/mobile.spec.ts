@@ -68,7 +68,7 @@ test("mobile first launch, workout actions, reload, back/forward and history", a
   await page.getByRole("link", { name: /Finish workout/ }).tap();
   await expect(page.getByRole("heading", { name: "Review your session." })).toBeVisible();
   await page.getByRole("button", { name: /Save workout/ }).tap();
-  await expect(page.getByRole("heading", { name: /Workout completed/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Session saved/ })).toBeVisible();
   await page.getByRole("link", { name: "Not now" }).tap();
   await expect(page.getByRole("heading", { name: /History/ })).toBeVisible();
   await expect(page.getByText(/1\/11 done/)).toBeVisible();
@@ -168,7 +168,7 @@ test("production PWA keeps the imported workout usable offline", async ({ page, 
   await expect(page.getByRole("progressbar", { name: "Workout progress" })).toHaveAttribute("aria-valuenow", "1");
   await page.getByRole("link", { name: /Finish workout/ }).tap();
   await page.getByRole("button", { name: /Save workout/ }).tap();
-  await expect(page.getByRole("heading", { name: /Workout completed/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Session saved/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Share workout" })).toBeVisible();
   await expect(page.getByLabel("Choose workout photo")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Download card|Save image/i })).toHaveCount(0);
@@ -190,7 +190,7 @@ test("saved workout shares edited text, then can be shared again from History", 
   await page.getByRole("checkbox", { name: /Complete Agachamento goblet/ }).tap();
   await page.getByRole("link", { name: /Finish workout/ }).tap();
   await page.getByRole("button", { name: /Save workout/ }).tap();
-  await expect(page.getByRole("heading", { name: /Workout completed/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Session saved/ })).toBeVisible();
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2")!).sessions.filter((item: { status: string }) => item.status === "completed").length);
   expect(saved).toBe(1);
   await expect(page.getByLabel("Choose workout photo")).toHaveCount(0);

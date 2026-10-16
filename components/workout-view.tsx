@@ -12,6 +12,7 @@ import { ExerciseDetail } from "@/components/exercise-detail";
 import { suggestedRest } from "@/lib/training/rest-timer";
 import { currentFocusId, remainingExerciseOrder, sessionExerciseOrder } from "@/lib/training/queue";
 import { exerciseNote } from "@/lib/training/exercise-notes";
+import { CompletionControl } from "@/components/completion-control";
 import { LoadInput } from "@/components/load-input";
 import { ExerciseSupportTabs } from "@/components/exercise-support-tabs";
 import { useDialogFocus } from "@/components/use-dialog-focus";
@@ -20,14 +21,14 @@ function BlockCard({ sessionId, block, index, completed, skipped, actualLoad, pr
   sessionId: string;
   block: WorkoutBlock; index: number; completed: boolean; skipped: boolean; actualLoad?: string; previousLoad?: string; currentPlanLoad?: string; planChanged?: boolean;
   note?: string; restSuggestion?: { seconds: number; label: string }; timerActive: boolean;
-  onComplete: () => void; onLoad: (value: string) => boolean; onDetails: (opener: HTMLElement) => void; onNotes: (opener: HTMLElement) => void;
+  onComplete: (load?: string) => boolean; onLoad: (value: string) => boolean; onDetails: (opener: HTMLElement) => void; onNotes: (opener: HTMLElement) => void;
   onStartRest: () => void; onLater: () => void; onSkip: (opener: HTMLElement) => void; onUndoSkip: () => void;
 }) {
   const [showOptionalLoad, setShowOptionalLoad] = useState(false);
   const pending = useSyncExternalStore(subscribeLoadDrafts, loadDrafts, serverLoadDrafts)[draftKey(sessionId, block.id)];
   const hasLoad = block.kind === "exercise" && (Boolean(block.defaultLoad || currentPlanLoad || previousLoad || actualLoad?.trim() || pending) || showOptionalLoad);
   return <article id={`exercise-${block.id}`} tabIndex={-1} className={`exercise-card ${completed ? "is-complete" : ""} ${skipped ? "is-skipped" : ""}`}>
-    <div className="exercise-head">{!skipped && <button type="button" className="completion-toggle" role="checkbox" aria-checked={completed} aria-label={`${completed ? "Reopen" : "Complete"} ${block.kind === "exercise" ? block.name : block.heading}`} onClick={onComplete}><span className={`complete-dot ${completed ? "on" : ""}`} aria-hidden="true">{completed ? "✓" : ""}</span><span>{completed ? "Undo" : "Done"}</span></button>}<div className="exercise-heading"><span className="exercise-number">{String(index + 1).padStart(2, "0")}</span><h3>{block.kind === "exercise" ? block.name : block.heading}</h3>{block.kind === "exercise" && <p className="exercise-prescription">{block.prescription || "See source plan"}</p>}{skipped && <span className="skipped-feedback">Skipped today</span>}</div></div>
+    <div className="exercise-head">{!skipped && <CompletionControl sessionId={sessionId} blockId={block.id} completed={completed} onComplete={onComplete} name={block.kind === "exercise" ? block.name : block.heading} checkbox className="completion-toggle" />}<div className="exercise-heading"><span className="exercise-number">{String(index + 1).padStart(2, "0")}</span><h3>{block.kind === "exercise" ? block.name : block.heading}</h3>{block.kind === "exercise" && <p className="exercise-prescription">{block.prescription || "See source plan"}</p>}{skipped && <span className="skipped-feedback">Skipped today</span>}</div></div>
     {block.kind === "exercise" ? <>
       {(block.defaultLoad || currentPlanLoad || previousLoad) && <div className="load-reference">{currentPlanLoad && <div><span>Current plan</span><strong>{currentPlanLoad}</strong></div>}{planChanged && block.defaultLoad !== currentPlanLoad && block.defaultLoad && <div><span>Plan when started</span><strong>{block.defaultLoad}</strong></div>}{previousLoad && <div><span>Last used</span><strong>{previousLoad}</strong></div>}</div>}
       {!skipped && block.section !== "Warm-up" && (hasLoad ? <LoadInput sessionId={sessionId} blockId={block.id} name={block.name} value={actualLoad} onLoad={onLoad} /> : <button type="button" className="add-load-button" onClick={() => setShowOptionalLoad(true)}>+ Record a load</button>)}
@@ -51,18 +52,20 @@ function ElapsedTime({ startedAt }: { startedAt: string }) {
   return <span className="elapsed-time">◷ {minutes} min elapsed</span>;
 }
 
-function WorkoutHeader({ title, count, total, skipped, startedAt, focusMode, onList, onFocus, canFocus, onCancel, exercises }: {
+function WorkoutHeader({ title, count, total, skipped, startedAt, focusMode, onList, onFocus, canFocus, onCancel, exercises, onSelect }: {
   title: string; count: number; total: number; skipped: number; startedAt: string; focusMode: boolean;
   onList: () => void; onFocus: () => void; canFocus: boolean; onCancel: (opener: HTMLElement) => void;
-  exercises: WorkoutBlock[];
+  exercises: WorkoutBlock[]; onSelect: (id: string) => void;
 }) {
   return <header className="active-workout-header"><div className="focus-workout-header"><Link className="back-link" href="/" aria-label="Back home">←</Link><div><h1>{title}</h1><p><span>{count}/{total} completed{skipped ? ` · ${skipped} skipped` : ""}</span><ElapsedTime startedAt={startedAt} /></p></div><details className="workout-overflow"><summary aria-label="Workout options">⋯</summary><div className="workout-menu">
-    {!focusMode && exercises.length > 1 && <label className="list-jump"><span>Jump to exercise</span><select value="" onChange={(event) => {
+    {exercises.length > 1 && <label className="list-jump"><span>Jump to exercise</span><select value="" onChange={(event) => {
+      onSelect(event.target.value);
       const card = document.getElementById(`exercise-${event.target.value}`);
       if (card) card.style.scrollMarginTop = `${(event.currentTarget.closest("header")?.getBoundingClientRect().height ?? 173) + 12}px`;
       event.currentTarget.closest("details")?.removeAttribute("open");
       card?.focus({ preventScroll: true }); card?.scrollIntoView({ block: "start" });
     }}><option value="" disabled>Jump to exercise…</option>{exercises.map((block, index) => <option key={block.id} value={block.id}>{index + 1}. {block.kind === "exercise" ? block.name : block.heading}</option>)}</select></label>}
+    <Link href="/finish/">Review session →</Link>
     <button type="button" onClick={(event) => { const menu = event.currentTarget.closest("details"); menu?.removeAttribute("open"); onCancel(menu?.querySelector("summary") ?? event.currentTarget); }}>Cancel workout</button></div></details></div>
     <div className="progress-track" role="progressbar" aria-label="Workout progress" aria-valuenow={count} aria-valuemin={0} aria-valuemax={total}><span style={{ width: `${total ? count / total * 100 : 0}%` }} /></div>
     <div className="workout-mode" role="group" aria-label="Workout view"><button type="button" aria-pressed={!focusMode} onClick={onList}>List</button><button type="button" aria-pressed={focusMode} onClick={onFocus} disabled={!canFocus}>Focus</button></div>
@@ -80,6 +83,7 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
   const [laterUndo, setLaterUndo] = useState<{ sessionId: string; queueOrder: string[]; focusBlockId?: string } | null>(null);
   const [recentComplete, setRecentComplete] = useState<string | null>(null);
   const [reviewBlockId, setReviewBlockId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string>();
   const [optionalLoadId, setOptionalLoadId] = useState<string | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const cancelSheet = useRef<HTMLElement>(null);
@@ -138,7 +142,7 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
   const focusRestSuggestion = focusBlock?.kind === "exercise" && focusBlock.section !== "Warm-up" ? restSuggestion : undefined;
   const recentBlock = blocks.find((block) => block.id === recentComplete);
   const recentRestSuggestion = recentBlock?.kind === "exercise" && recentBlock.section !== "Warm-up" ? restSuggestion : undefined;
-  function openDetail(blockId: string, launchVideo: boolean, opener: HTMLElement, launchNotes = false) { setDetailOpener(opener); setDetail({ blockId, launchVideo, launchNotes }); }
+  function openDetail(blockId: string, launchVideo: boolean, opener: HTMLElement, launchNotes = false) { setSelectedId(blockId); setDetailOpener(opener); setDetail({ blockId, launchVideo, launchNotes }); }
   function closeDetail() { setDetail(null); window.requestAnimationFrame(() => detailOpener?.focus()); }
 
   function doLater(blockId: string) {
@@ -149,20 +153,22 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
     setReviewBlockId(null);
   }
 
-  function complete(blockId: string, wasComplete: boolean) {
-    if (!ownSession) return;
-    updateBlock(ownSession.id, blockId, { completed: !wasComplete });
+  function complete(blockId: string, wasComplete: boolean, actualLoad?: string) {
+    if (!ownSession) return false;
+    if (!updateBlock(ownSession.id, blockId, { completed: !wasComplete, ...(actualLoad !== undefined ? { actualLoad } : {}) })) return false;
     setRecentComplete(wasComplete ? null : blockId);
     setReviewBlockId(null);
+    return true;
   }
 
   function navigateFocus(blockId: string) {
     if (!ownSession) return;
+    setSelectedId(blockId);
     setRecentComplete(null);
     if (remaining.includes(blockId)) {
       setReviewBlockId(null);
       setFocus(ownSession.id, true, blockId);
-    } else setReviewBlockId(blockId);
+    } else { setFocus(ownSession.id, true); setReviewBlockId(blockId); }
   }
 
   function askSkip(blockId: string, opener: HTMLElement) { skipOpener.current = opener; setSkipTarget(blockId); }
@@ -170,13 +176,14 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
 
   function begin() {
     const session = start(plan!.id, workout!.id);
+    if (session) setQueryId(session.workoutId);
     if (session && session.workoutId !== workout!.id) router.push(`/workout/?id=${encodeURIComponent(session.workoutId)}`);
   }
 
-  if (!ownSession) return <div className="page-stack"><Link className="back-link" href="/">← Home</Link><div className="plan-preview"><p className="eyebrow">{plan.name}</p><h1>{workout.title}</h1><p>{workout.description}</p><div className="preview-stats"><span><strong>{workout.blocks.length}</strong> blocks</span><span><strong>{workout.duration || "Flexible"}</strong> duration</span></div><button type="button" className="primary-button" onClick={begin}>{inProgress ? `Resume ${inProgress.workoutSnapshot.title}` : `Start ${workout.title}`} <span>→</span></button></div>{error && <div className="alert" role="alert">{error}</div>}<p className="quiet-note">Your progress saves automatically on this device.</p></div>;
+  if (!ownSession) return <div className="page-stack"><Link className="back-link" href="/">← Home</Link><div className="plan-preview"><p className="eyebrow">{plan.name}</p><h1>{workout.title}</h1><p>{workout.description}</p><div className="preview-stats"><span><strong>{workout.blocks.length}</strong> blocks</span><span><strong>{workout.duration || "Flexible"}</strong> duration</span></div>{inProgress && <p role="status">{inProgress.workoutSnapshot.title} is still in progress. Resume it to finish or explicitly cancel it before starting {workout.title}. Your progress is kept.</p>}<button type="button" className="primary-button" onClick={begin}>{inProgress ? `Resume ${inProgress.workoutSnapshot.title}` : `Start ${workout.title}`} <span>→</span></button>{inProgress && <Link className="secondary-button" href="/finish/">Review active session →</Link>}</div>{error && <div className="alert" role="alert">{error}</div>}<p className="quiet-note">Your progress saves automatically on this device.</p></div>;
 
-  return <div className={`page-stack workout-page ${ownSession.focusMode ? "focus-page" : ""} ${readyToFinish ? "sticky-finish-ready" : ""}`}>
-    <WorkoutHeader title={ownSession.workoutSnapshot.title} count={count} total={blocks.length} skipped={skippedCount} startedAt={ownSession.startedAt} focusMode={Boolean(ownSession.focusMode)} canFocus={exerciseOrder.length > 0} exercises={blocks.filter((block) => block.kind === "exercise")} onList={() => { setReviewBlockId(null); if (window.history.state?.treinoFocus) window.history.back(); else setFocus(ownSession.id, false); }} onFocus={() => setFocus(ownSession.id, true)} onCancel={(opener) => { cancelReturn.current = opener; setCancelOpen(true); }} />
+  return <div onFocusCapture={(event) => { const card = (event.target as HTMLElement).closest<HTMLElement>(".exercise-card"); if (card) setSelectedId(card.id.slice("exercise-".length)); }} className={`page-stack workout-page ${ownSession.focusMode ? "focus-page" : ""} ${readyToFinish ? "sticky-finish-ready" : ""}`}>
+    <WorkoutHeader title={ownSession.workoutSnapshot.title} count={count} total={blocks.length} skipped={skippedCount} startedAt={ownSession.startedAt} focusMode={Boolean(ownSession.focusMode)} canFocus={exerciseOrder.length > 0} exercises={blocks.filter((block) => block.kind === "exercise")} onList={() => { setSelectedId(displayedFocusId); setReviewBlockId(null); if (window.history.state?.treinoFocus) window.history.back(); else setFocus(ownSession.id, false); }} onSelect={(id) => { setSelectedId(id); if (ownSession.focusMode) navigateFocus(id); }} onFocus={() => { if (ownSession.focusMode) return; if (selectedId && selectedId !== displayedFocusId) navigateFocus(selectedId); else setFocus(ownSession.id, true); }} onCancel={(opener) => { cancelReturn.current = opener; setCancelOpen(true); }} />
     {error && <div className="alert" role="alert">{error}</div>}
     {planChanged && <p className="context-note">This workout started before your plan was updated. Today’s loads stay as you entered them; Current plan shows the latest import.</p>}
     {laterUndo?.sessionId === ownSession.id && <div className="queue-feedback" role="status">Moved to later <button type="button" onClick={() => { restoreQueue(ownSession.id, laterUndo.queueOrder, laterUndo.focusBlockId); setLaterUndo(null); }}>Undo</button></div>}
@@ -194,7 +201,7 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
         {focusRestSuggestion && <p className="focus-rest">Rest: {focusRestSuggestion.label}</p>}
         {focusState?.completed ? <div className="focus-state is-completed" role="status"><strong>✓ Completed</strong><div><button type="button" onClick={() => { complete(focusBlock.id, true); setFocus(ownSession.id, true, focusBlock.id); }}>Undo</button>{focusRestSuggestion && !data.restTimer && <button type="button" onClick={() => startRestTimer(ownSession.id, focusRestSuggestion.seconds)}>Start {Math.floor(focusRestSuggestion.seconds / 60)}:{String(focusRestSuggestion.seconds % 60).padStart(2, "0")} rest</button>}</div></div>
           : focusState?.skipped ? <div className="focus-state is-skipped" role="status"><strong>Skipped today</strong><button type="button" onClick={() => { skipBlock(ownSession.id, focusBlock.id, false); setReviewBlockId(null); }}>Undo skip</button></div>
-          : <button type="button" className="primary-button focus-complete" onClick={() => complete(focusBlock.id, false)}>Mark complete</button>}
+          : <CompletionControl sessionId={ownSession.id} blockId={focusBlock.id} completed={false} className="primary-button focus-complete" onComplete={(load) => complete(focusBlock.id, false, load)} />}
         <ExerciseSupportTabs key={`support-${focusBlock.id}`} block={focusBlock} session={ownSession} contextVisible />
         {!focusState?.completed && !focusState?.skipped && <details key={focusBlock.id} className="focus-more"><summary>More actions</summary><div className="focus-secondary"><button type="button" onClick={() => doLater(focusBlock.id)}>Do later</button><button type="button" onClick={(event) => askSkip(focusBlock.id, event.currentTarget)}>Skip today</button></div></details>}
         <div className="focus-navigation"><button type="button" disabled={focusIndex <= 0} onClick={() => navigateFocus(exerciseOrder[focusIndex - 1])}>← Previous</button><span>{focusIndex + 1} / {exerciseOrder.length}</span><button type="button" disabled={focusIndex >= exerciseOrder.length - 1} onClick={() => navigateFocus(exerciseOrder[focusIndex + 1])}>Next →</button></div>
@@ -208,7 +215,7 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
         note={block.kind === "exercise" ? exerciseNote(data, plan.id, block.name) : undefined}
         restSuggestion={block.kind === "exercise" && block.section !== "Warm-up" ? restSuggestion : undefined}
         timerActive={data.restTimer?.sessionId === ownSession.id}
-        onComplete={() => complete(block.id, false)}
+        onComplete={(load) => complete(block.id, false, load)}
         onLoad={(actualLoad) => updateBlock(ownSession.id, block.id, { actualLoad })}
         onDetails={(opener) => openDetail(block.id, false, opener)}
         onNotes={(opener) => openDetail(block.id, false, opener, true)}
@@ -218,7 +225,7 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
       const state = ownSession.blocks.find((item) => item.blockId === block.id);
       return <BlockCard sessionId={ownSession.id} key={block.id} block={block} index={blocks.findIndex((item) => item.id === block.id)} completed={state?.completed ?? false} skipped={state?.skipped ?? false} actualLoad={state?.actualLoad} currentPlanLoad={currentPlanLoad(block)} planChanged={planChanged}
         previousLoad={block.kind === "exercise" ? lastUsedLoad(data, plan.id, block.id) : undefined} note={block.kind === "exercise" ? exerciseNote(data, plan.id, block.name) : undefined} restSuggestion={block.kind === "exercise" && block.section !== "Warm-up" ? restSuggestion : undefined}
-        timerActive={data.restTimer?.sessionId === ownSession.id} onComplete={() => complete(block.id, state?.completed ?? false)}
+        timerActive={data.restTimer?.sessionId === ownSession.id} onComplete={(load) => complete(block.id, state?.completed ?? false, load)}
         onLoad={(actualLoad) => updateBlock(ownSession.id, block.id, { actualLoad })} onDetails={(opener) => openDetail(block.id, false, opener)} onNotes={(opener) => openDetail(block.id, false, opener, true)}
         onStartRest={() => startRestTimer(ownSession.id, restSuggestion!.seconds)} onLater={() => doLater(block.id)} onSkip={(opener) => askSkip(block.id, opener)} onUndoSkip={() => skipBlock(ownSession.id, block.id, false)} />;
     })}</div></section>}
@@ -235,6 +242,6 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
     </div>}
     {skipTarget && <div className="dialog-backdrop"><section className="decision-sheet" role="dialog" aria-modal="true" aria-labelledby="skip-title" onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeSkip(); } else if (event.key === "Tab" && event.shiftKey && document.activeElement === skipConfirm.current) { event.preventDefault(); skipCancel.current?.focus(); } else if (event.key === "Tab" && !event.shiftKey && document.activeElement === skipCancel.current) { event.preventDefault(); skipConfirm.current?.focus(); } }}><p className="eyebrow">THIS SESSION ONLY</p><h2 id="skip-title">Skip {blocks.find((block) => block.id === skipTarget && block.kind === "exercise")?.kind === "exercise" ? (blocks.find((block) => block.id === skipTarget) as { name: string }).name : "this exercise"} today?</h2><p>It stays in your plan and returns next workout.</p><button ref={skipConfirm} type="button" className="primary-button" onClick={() => { skipBlock(ownSession.id, skipTarget, true); closeSkip(); setRecentComplete(null); }}>Skip today</button><button ref={skipCancel} type="button" className="secondary-button" autoFocus onClick={closeSkip}>Cancel</button></section></div>}
     {cancelOpen && <div className="dialog-backdrop"><section ref={cancelSheet} className="decision-sheet" role="dialog" aria-modal="true" aria-labelledby="cancel-workout-title" onKeyDown={(event) => { if (event.key === "Escape") setCancelOpen(false); }}><p className="eyebrow">DISCARD DRAFT</p><h2 id="cancel-workout-title">Cancel this workout?</h2><p>Your progress in this workout will be discarded. Your training plan and previous workout history will not change.</p><button type="button" className="secondary-button" onClick={() => setCancelOpen(false)}>Keep workout</button><button type="button" className="text-button" onClick={() => { if (cancel(ownSession.id)) { setCancelOpen(false); router.push("/"); } }}>Cancel workout</button></section></div>}
-    {detail && (() => { const block = blocks.find((item) => item.id === detail.blockId); const state = ownSession.blocks.find((item) => item.blockId === detail.blockId); return block?.kind === "exercise" ? <ExerciseDetail key={block.id} block={block} session={ownSession} actualLoad={state?.actualLoad} previousLoad={lastUsedLoad(data, plan.id, block.id)} currentPlanLoad={currentPlanLoad(block)} planChanged={planChanged} completed={state?.completed ?? false} launchVideo={detail.launchVideo} launchNotes={detail.launchNotes} onLoad={(actualLoad) => updateBlock(ownSession.id, block.id, { actualLoad })} onComplete={() => updateBlock(ownSession.id, block.id, { completed: !state?.completed })} onClose={closeDetail} /> : null; })()}
+    {detail && (() => { const block = blocks.find((item) => item.id === detail.blockId); const state = ownSession.blocks.find((item) => item.blockId === detail.blockId); return block?.kind === "exercise" ? <ExerciseDetail key={block.id} block={block} session={ownSession} actualLoad={state?.actualLoad} previousLoad={lastUsedLoad(data, plan.id, block.id)} currentPlanLoad={currentPlanLoad(block)} planChanged={planChanged} completed={state?.completed ?? false} launchVideo={detail.launchVideo} launchNotes={detail.launchNotes} onLoad={(actualLoad) => updateBlock(ownSession.id, block.id, { actualLoad })} onComplete={(load) => complete(block.id, state?.completed ?? false, load)} onClose={closeDetail} /> : null; })()}
   </div>;
 }

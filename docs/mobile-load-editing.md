@@ -2,6 +2,20 @@
 
 Baseline `2f3e101`, reviewed 2026-10-13. No real phone storage, source workbook or production database was modified.
 
+## Workout interaction refinement (2026-10-16)
+
+Reviewed baseline `73871e17`. All five reported gaps were present in the current implementation:
+
+- Completion bypassed the separate load draft. List, Focus and Details now label a valid pending edit **Save load & complete**, committing load and completion together through the existing local persistence callback. Invalid drafts disable completion; a failed write retains the draft and current exercise. Standalone Save load remains. A per-session/logical-exercise lock prevents concurrent save/completion writes; repeated click events are ignored. Composites are passed intact, never reduced to numbers.
+- List jump only scrolled, while Focus chose the first remaining exercise. Jump and focused card controls now remember selection for mode switches. Both mode menus offer the same exercise selector and **Review session** entry. Existing queue, Skip, Do Later and Undo semantics remain.
+- Home started the requested card through a function that could return another active workout. Cards now say Resume the active workout or View the requested workout. A different workout opens its own preview explaining the active session, with explicit Resume and Review actions; cancellation still requires the existing separate confirmation. Resuming from another workout preview also updates the locally read route target; same-route query navigation otherwise left that preview mounted.
+- The post-save page led with sharing and called partial sessions completed. It now leads with **Session saved**, honest empty/partial/full status, **Done** and **View History**, plus separately derived source status. Sharing is secondary. The account-level automatic Friends sharing/outbox remains in the provider, unchanged; rendering this page does not publish an activity.
+- An empty numeric field rejected unit suffixes. Supported complete numbers with kg/g/lb/lbs are now accepted directly (including decimal commas), with explicit units taking precedence over the prior suffix. Incomplete numbers remain drafts. Empty fields expose **Edit full expression** before typing; composite fields already use text mode.
+
+`e2e/workout-interaction.spec.ts` uses the verified synthetic audit workbook for complete interaction journeys, failure/retry, exactly one persistence write, grouped independence, offline finalization, History and future Last Used. A separate schema-valid synthetic 15-exercise plan checks exercise-ten navigation, both modes and the active-A/requested-B decision. It captures 320px and 393px layouts. Existing source/social, Add/Replace, PWA, recovery and accessibility journeys remain in the full release gate. Browser screenshots do not validate physical Android keyboards, process suspension or native sharing.
+
+Release gate for this refinement: frozen offline install, lint, typecheck and production build PASS; ordinary units 136 PASS with 2 isolated-database checks NOT RUN; workflow tests 6 PASS; read-only private workbook audits 32 PASS; complete local production browser suite 222 PASS across three phone profiles (5.0 minutes). The 320px/393px synthetic captures were visually reviewed. Live authenticated Google/social integrations and physical Android are NOT RUN; deployed build verification is recorded in the delivery report.
+
 ## Confirmed causes and behavior
 
 - History's filter lived only in component state. The selected filter and last scroll position now use tab-session storage under the current social account identity, with a separate device-local scope. Account switches load that account's preference rather than copying the previous user's filter. Restoration captures the previous scroll position before Next navigation can replace it with zero. Storage failure does not block History.
@@ -23,7 +37,7 @@ Use `tests/fixtures/mobile-audit.xlsx` as an Excel **safe copy**. It has one sup
 
 Optional regeneration: `node scripts/create-mobile-audit-fixture.mjs --render`. This authoring-only command requires the installed Codex bundled workbook SDK; it adds no application dependency. `CODEX_WORKBOOK_MODULES` can point to the verified bundled Node modules directory on another host. CI and Work audits can simply reuse the committed file. Fixed ZIP dates, stripped core metadata and normalized relationship IDs make exports repeatable on the tested SDK: two consecutive exports matched SHA-256 `003a6ba0e2353305d1d04d5dc6b62bde3f6255eccf96387f9d82a51745d2ca1e`. Preview and intermediate output stay in ignored `screenshots/mobile-load-audit/`.
 
-## Verification
+## Earlier verification (2026-10-13)
 
 Start with `corepack pnpm workflow ui --plan` / `--run`; its seed now includes load-model and real fixture-pipeline tests. Target browser cases are `e2e/load-editing.spec.ts` and `e2e/navigation-reliability.spec.ts`. They check full safe-copy import/activation, simple and composite saves, unchanged Plan, future Last Used, notes, groups, drafts across views/reload, optional blank loads, failure/retry, failed cleanup, authenticated/disconnected Friends, scoped History filters/scroll, incompatible headers and zero-workout responses. Existing source-sync, same-day, History, privacy, PWA and Focus regressions remain part of the release gate in `docs/testing.md`.
 

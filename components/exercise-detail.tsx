@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { CompletionControl } from "@/components/completion-control";
 import { LoadInput } from "@/components/load-input";
 import { ExerciseSupportTabs } from "@/components/exercise-support-tabs";
 import type { ExerciseBlock, TrainingSession } from "@/types/training";
@@ -9,7 +10,7 @@ export function ExerciseDetail({ block, session, actualLoad, previousLoad, curre
   launchVideo, launchNotes = false, onLoad, onComplete, onClose }: {
   block: ExerciseBlock; session: TrainingSession; actualLoad?: string; previousLoad?: string; currentPlanLoad?: string;
   planChanged?: boolean; completed: boolean; launchVideo: boolean; launchNotes?: boolean;
-  onLoad: (value: string) => boolean; onComplete: () => void; onClose: () => void;
+  onLoad: (value: string) => boolean; onComplete: (load?: string) => boolean; onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLElement>(null);
@@ -34,7 +35,7 @@ export function ExerciseDetail({ block, session, actualLoad, previousLoad, curre
         {(block.defaultLoad || currentPlanLoad || previousLoad) && <div className="detail-loads">{currentPlanLoad && <div><small>Current plan</small><strong>{currentPlanLoad}</strong></div>}{planChanged && block.defaultLoad !== currentPlanLoad && block.defaultLoad && <div><small>Plan when started</small><strong>{block.defaultLoad}</strong></div>}{previousLoad && <div><small>Last used</small><strong>{previousLoad}</strong></div>}</div>}
         {block.section !== "Warm-up" && <LoadInput sessionId={session.id} blockId={block.id} variant="detail" name={block.name} value={actualLoad} onLoad={onLoad} ariaLabel={`Actual load for ${block.name} in details`} />}
         {block.section !== "Warm-up" && currentPlanLoad && actualLoad?.trim() !== currentPlanLoad.trim() && <button type="button" className="inline-action" onClick={() => onLoad(currentPlanLoad)}>Use current plan load for today</button>}
-        <button type="button" className={`primary-button detail-complete ${completed ? "detail-undo" : ""}`} onClick={onComplete}>{completed ? "Undo completion" : "Mark complete"}</button>
+        <CompletionControl sessionId={session.id} blockId={block.id} completed={completed} onComplete={onComplete} className={`primary-button detail-complete ${completed ? "detail-undo" : ""}`} />
       </div>
       <ExerciseSupportTabs key={block.id} block={block} session={session} initialTab={launchNotes ? "notes" : "overview"} launchVideo={launchVideo} />
     </section>

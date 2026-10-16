@@ -20,7 +20,9 @@ test("completed and History workouts share edited text with no photo or download
     } });
   });
   await page.goto("/share/?id=s");
-  await expect(page.getByRole("heading", { name: "Workout completed." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Session saved." })).toBeVisible();
+  await expect(page.getByLabel("Local save confirmation")).toContainText("Full session");
+  await expect(page.getByRole("link", { name: "Done", exact: true })).toBeVisible();
   await expect(page.locator('input[type="file"]')).toHaveCount(0);
   await expect(page.getByText(/Add photo|Change photo|Remove photo/)).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Download card|Save image/ })).toHaveCount(0);

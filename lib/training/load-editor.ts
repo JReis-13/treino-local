@@ -7,6 +7,8 @@ export function loadEditorModel(value = "") {
 export function confirmedLoad(text: string, base: string, mode: "number" | "text"): string | undefined {
   if (mode === "text") return text.trim();
   if (!text.trim()) return "";
+  const explicit = /^\s*([+-]?\d+(?:[.,]\d+)?)(\s*(?:kg|lbs?|g))\s*$/i.exec(text);
+  if (explicit) return explicit[1].replace(",", ".") + explicit[2];
   if (!/^[+-]?\d+(?:[.,]\d+)?$/.test(text.trim())) return undefined;
   return text.trim().replace(",", ".") + loadEditorModel(base).unit;
 }

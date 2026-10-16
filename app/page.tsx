@@ -28,6 +28,7 @@ export default function HomePage() {
   const inProgress = data.sessions.find((session) => session.planId === plan.id && session.status === "inProgress");
 
   function begin(workout: TrainingWorkout) {
+    if (inProgress && inProgress.workoutId !== workout.id) { router.push(`/workout/?id=${encodeURIComponent(workout.id)}`); return; }
     const session = start(plan!.id, workout.id);
     if (session) router.push(`/workout/?id=${encodeURIComponent(session.workoutId)}`);
   }
@@ -35,7 +36,7 @@ export default function HomePage() {
     return <article className={`workout-tile ${index % 2 ? "tile-b" : "tile-a"}`} key={workout.id}>
       <div className="tile-top"><span className="tile-label">{workout.title}</span><span className="tile-index">{String(index + 1).padStart(2, "0")}</span></div>
       <div><h3>{workout.id}</h3><p>{workout.description}</p><div className="tile-meta"><span>◷ {workout.duration || "Flexible"}</span><span>{workout.blocks.filter((block) => block.kind === "exercise").length || workout.blocks.length} {workout.blocks.some((block) => block.kind === "exercise") ? "exercises" : "instruction blocks"}</span></div></div>
-      <button type="button" className="tile-button" onClick={() => begin(workout)}>{inProgress ? "Open workout" : "Start workout"}<span aria-hidden="true">↗</span></button>
+      <button type="button" className="tile-button" onClick={() => begin(workout)}>{inProgress ? inProgress.workoutId === workout.id ? `Resume ${workout.title}` : `View ${workout.title}` : "Start workout"}<span aria-hidden="true">↗</span></button>
     </article>;
   }
 

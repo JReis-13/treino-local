@@ -51,7 +51,8 @@ test("Focus completion changes only the selected grouped member across List and 
   await page.locator(".exercise-card.is-complete").getByRole("checkbox", { name: /Reopen Seated row/ }).click();
   await expect(page.locator(".exercise-card.is-complete")).toHaveCount(0);
   await page.getByRole("button", { name: "Focus", exact: true }).click();
-  await expect(page.locator(".focus-name")).toContainText("Single leg Romanian deadlift");
+  // Reopening a card selects that logical exercise for the next mode switch.
+  await expect(page.locator(".focus-name")).toHaveText("Seated row");
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2")!).sessions[0].blocks.map((block: { completed: boolean }) => block.completed)))
     .toEqual([false, false, false, false]);
 });

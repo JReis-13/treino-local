@@ -6,6 +6,8 @@ import { useApp } from "@/components/app-provider";
 import { FriendsShareStatus } from "@/components/friends-share-status";
 import { shareWorkout, type ShareResult } from "@/lib/training/share-action";
 import { defaultShareText, shareDate, shareMetrics, shareSummaryFromLegacy, shareSummaryFromSession, type WorkoutShareSummary } from "@/lib/training/share-summary";
+import { aggregateSync } from "@/lib/training/sync-state";
+import { syncLabel } from "@/lib/sync-status";
 import type { TrainingSession } from "@/types/training";
 import { legacyIsHidden } from "@/lib/training/history-delete";
 
@@ -32,10 +34,15 @@ function ShareComposer({ summary, afterSave, backHref, session }: { summary: Wor
 
   return <div className="page-stack share-page">
     <Link className="back-link" href={backHref}>← {afterSave ? "History" : "Session"}</Link>
-    <div className="page-heading"><p className="eyebrow">{afterSave ? "SAVED ON THIS DEVICE" : "FROM YOUR HISTORY"}</p><h1>{afterSave ? "Workout completed" : "Share workout"}<span className="dot-accent">.</span></h1><p className="share-summary-text">{summary.workoutName}<br />{metrics ? `${metrics} · ` : ""}{shareDate(summary.localDate)}</p></div>
+    <div className="page-heading"><p className="eyebrow">{afterSave ? "SAVED ON THIS DEVICE" : "FROM YOUR HISTORY"}</p><h1>{afterSave ? "Session saved" : "Share workout"}<span className="dot-accent">.</span></h1><p className="share-summary-text">{summary.workoutName}<br />{metrics ? `${metrics} · ` : ""}{shareDate(summary.localDate)}</p></div>
+    {afterSave && session && <section aria-label="Local save confirmation" className="review-card">
+      <p role="status"><strong>{(summary.completedExercises ?? 0) === 0 ? "No exercises completed" : session.blocks.every(block => block.completed) ? "Full session" : "Partial session"} · Saved on this device</strong></p>
+      <p className="quiet-note">Source: {syncLabel[aggregateSync(session)]}. Local saving is complete regardless of sharing or source status.</p>
+      <Link className="primary-button" href="/">Done</Link><Link className="secondary-button" href="/history/">View History →</Link>
+    </section>}
     {session && <FriendsShareStatus session={session} />}
     <label className="date-field share-message"><span>MESSAGE <small>edit before sharing</small></span><textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={3} maxLength={2000} /></label>
-    <button type="button" className="primary-button share-main-action" onClick={share} disabled={sharing}>{sharing ? "Opening share…" : "Share workout"}</button>
+    <button type="button" className="secondary-button share-main-action" onClick={share} disabled={sharing}>{sharing ? "Opening share…" : "Share workout"}</button>
     <p className="share-hint">Your phone chooses the app and recipient.</p>
     {feedback && <p className="share-feedback" role="status" aria-live="polite">{feedback}</p>}
     <Link className="share-dismiss" href={backHref}>{afterSave ? "Not now" : "Cancel"}</Link>

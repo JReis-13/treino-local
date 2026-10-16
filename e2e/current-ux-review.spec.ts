@@ -24,6 +24,7 @@ test("empty finish is truthful and requires explicit acknowledgement before one 
   await page.getByRole("checkbox", { name: /Save this session with no completed exercises/ }).check();
   await save.dblclick();
   await expect(page).toHaveURL(/\/share/);
+  await expect(page.getByLabel("Local save confirmation")).toContainText("No exercises completed");
   const records = await page.evaluate(() => JSON.parse(localStorage.getItem("treino-local:v2")!).sessions);
   expect(records).toHaveLength(1);
   expect(records[0].status).toBe("completed");

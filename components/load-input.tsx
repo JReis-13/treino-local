@@ -2,7 +2,7 @@
 
 import { useId, useState, useSyncExternalStore } from "react";
 import { confirmedLoad, loadEditorModel } from "@/lib/training/load-editor";
-import { clearLoadDraft, draftKey, loadDrafts, serverLoadDrafts, setLoadDraft, subscribeLoadDrafts } from "@/lib/training/load-drafts";
+import { acquireLoadAction, releaseLoadAction, clearLoadDraft, draftKey, loadDrafts, serverLoadDrafts, setLoadDraft, subscribeLoadDrafts } from "@/lib/training/load-drafts";
 
 export function LoadInput({ name, value, onLoad, sessionId, blockId, variant = "list", ariaLabel }: {
   name: string; value?: string; onLoad: (value: string) => boolean; sessionId: string; blockId: string;
@@ -23,14 +23,14 @@ export function LoadInput({ name, value, onLoad, sessionId, blockId, variant = "
     else setLoadDraft({ sessionId, blockId, base, text: next, mode: nextMode });
   }
   async function confirm() {
-    if (candidate === undefined || save === "saving") return;
+    if (candidate === undefined || save === "saving" || !acquireLoadAction(sessionId, blockId)) return;
     setSave("saving");
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    if (loadDrafts()[draftKey(sessionId, blockId)] !== draft) { setSave("idle"); return; }
+    if (loadDrafts()[draftKey(sessionId, blockId)] !== draft) { releaseLoadAction(sessionId, blockId); setSave("idle"); return; }
     try {
       if (!onLoad(candidate)) { setSave("failed"); return; }
       clearLoadDraft(sessionId, blockId); setSave("saved");
-    } catch { setSave("failed"); }
+    } catch { setSave("failed"); } finally { releaseLoadAction(sessionId, blockId); }
   }
   return <div className={`load-editor load-editor-${variant}`}>
     <label className={variant === "focus" ? "focus-load" : variant === "detail" ? "date-field" : "load-field"}>
@@ -40,7 +40,7 @@ export function LoadInput({ name, value, onLoad, sessionId, blockId, variant = "
         aria-invalid={Boolean(draft && candidate === undefined)} aria-label={ariaLabel ?? `Actual load for ${name}`} />
         {mode === "number" && model.unit && <span id={unitId} className="load-unit">{model.unit.trim()}</span>}</span>
     </label>
-    {draft && mode === "number" && <button type="button" className="load-text-mode" disabled={save === "saving"} onClick={() => edit(candidate ?? text, "text")}>Edit full expression</button>}
+    {(draft || !value) && mode === "number" && <button type="button" className="load-text-mode" disabled={save === "saving"} onClick={() => edit(candidate ?? text, "text")}>Edit full expression</button>}
     {draft && <>
       <small className="load-draft-status">Unsaved edit · Confirmed: {value || "No load"}</small>
       {candidate === undefined && <small role="status">Enter a complete number, using a comma or period for decimals.</small>}

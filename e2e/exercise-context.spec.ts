@@ -90,7 +90,7 @@ test("exercise detail, lazy video, local notes, timer and workout note work on a
     await page.reload();
     await expect(bar.getByText("Rest complete")).toBeVisible();
     await bar.getByRole("button", { name: "Done" }).tap();
-    await page.getByRole("button", { name: "Open workout" }).first().tap();
+    await page.getByRole("button", { name: /^Resume / }).first().tap();
     await squat.getByRole("button", { name: /Start \d+:/ }).tap();
     await expect(bar).toBeVisible();
     await page.getByRole("link", { name: /Finish workout/ }).tap();

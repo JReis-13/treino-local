@@ -126,7 +126,7 @@ test("optional empty loads retain drafts across views and explicit discard keeps
   const input = page.getByRole("textbox", { name: "Actual load for Lumen Raise", exact: true });
   await input.fill("18,5");
   await page.getByRole("button", { name: "Focus", exact: true }).click();
-  for (let index = 0; index < 4; index++) await page.getByRole("button", { name: "Next →", exact: true }).click();
+  await expect(page.locator(".focus-name")).toHaveText("Lumen Raise");
   await expect(input).toHaveValue("18,5");
   await page.getByRole("button", { name: "List", exact: true }).click();
   await expect(input).toHaveValue("18,5");

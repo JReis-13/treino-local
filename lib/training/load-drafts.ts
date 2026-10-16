@@ -46,3 +46,12 @@ export function pruneLoadDrafts(active: Array<{ id: string; blockIds: string[]; 
         confirmedLoad(draft.text, draft.base, draft.mode) !== (session.confirmed[draft.blockId] ?? "")))));
   if (Object.keys(next).length !== Object.keys(current).length) write(next);
 }
+
+// Shared across List, Focus and Details; a standalone save cannot race completion.
+const actions = new Set<string>();
+export function acquireLoadAction(sessionId: string, blockId: string) {
+  const key = draftKey(sessionId, blockId);
+  if (actions.has(key)) return false;
+  actions.add(key); return true;
+}
+export function releaseLoadAction(sessionId: string, blockId: string) { actions.delete(draftKey(sessionId, blockId)); }
