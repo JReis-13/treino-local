@@ -1,6 +1,7 @@
 import { durationMinutes, isLocalDate, localDateString } from "@/lib/dates";
 import type { TrainingData, TrainingSession } from "@/types/training";
 import { legacyIsHidden } from "@/lib/training/history-delete";
+import { resolveLoadHistory, type LoadMatchReason } from "@/lib/training/loads";
 import { matchingLocalSession } from "@/lib/training/history-match";
 
 export type StatsRange = "4w" | "3m" | "6m" | "all";
@@ -61,12 +62,28 @@ export function numericLoad(value: string): { amount: number; unit: string } | u
   return Number.isFinite(amount) ? { amount, unit: (match[2] ?? "").toLowerCase() } : undefined;
 }
 
-export function loadProgression(entries: StatsEntry[], blockId: string) {
-  const points = entries.flatMap((entry) => {
-    const state = entry.session?.blocks.find((block) => block.blockId === blockId && block.completed && block.actualLoad?.trim());
-    const numeric = state?.actualLoad ? numericLoad(state.actualLoad) : undefined;
-    return state && numeric ? [{ date: entry.date, completedAt: entry.session?.completedAt ?? "", ...numeric }] : [];
-  }).sort((a, b) => a.date.localeCompare(b.date) || a.completedAt.localeCompare(b.completedAt));
-  const units = new Set(points.map((point) => point.unit));
-  return { points: units.size <= 1 ? points : [], mixedUnits: units.size > 1 };
+export function loadProgression(entries: StatsEntry[], blockId: string, data?: TrainingData, planId?: string) {
+  let historyReason: LoadMatchReason = "NO_HISTORY";
+  let history: Array<{ sessionId: string; date: string; completedAt: string; load: string }>;
+  if (data && planId) {
+    const candidates = data.plans.find(plan => plan.id === planId)?.workouts.flatMap(workout =>
+      workout.blocks.flatMap(block => block.kind === "exercise" && block.id === blockId ? [{ workout, block }] : [])) ?? [];
+    const resolved = candidates.length === 1 ? resolveLoadHistory(data, planId, candidates[0].workout, candidates[0].block) :
+      { matches: [], reason: "AMBIGUOUS_EXERCISE" as const };
+    historyReason = resolved.reason;
+    const visible = new Set(entries.map(entry => entry.session?.id));
+    history = resolved.matches.filter(item => visible.has(item.session.id)).map(item => ({ sessionId: item.session.id,
+      date: item.session.localDate!, completedAt: item.session.completedAt ?? "", load: item.load }));
+    if (!history.length && resolved.matches.length) historyReason = "NO_HISTORY";
+  } else history = entries.flatMap(entry => {
+    const state = entry.session?.blocks.find(block => block.blockId === blockId && block.completed && block.actualLoad?.trim());
+    return state?.actualLoad ? [{ sessionId: entry.session!.id, date: entry.date, completedAt: entry.session?.completedAt ?? "", load: state.actualLoad }] : [];
+  });
+  const points = history.flatMap(item => {
+    const numeric = numericLoad(item.load);
+    return numeric ? [{ date: item.date, completedAt: item.completedAt, ...numeric }] : [];
+  }).sort((a,b) => a.date.localeCompare(b.date) || a.completedAt.localeCompare(b.completedAt));
+  const units = new Set(points.map(point => point.unit));
+  return { points: units.size <= 1 ? points : [], mixedUnits: units.size > 1, history, historyReason,
+    nonNumericCount: history.filter(item => !numericLoad(item.load)).length };
 }

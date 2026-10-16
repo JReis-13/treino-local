@@ -104,3 +104,24 @@ test("statistics distinguish imported dates from timed, load-bearing local sessi
   assert.equal(numericLoad("15kg (17.5kg no final)"), undefined);
   assert.equal(filteredEntries(data, "plan", "B", "4w", "2026-10-03").length, 0);
 });
+
+test("Stats uses verified lineage for numeric, composite, empty and ambiguous load history", () => {
+ let data=startTrainingSession(base(),"plan","A",new Date("2026-10-01T08:00:00Z"),"numeric").data;
+ data=updateTrainingBlock(data,"numeric","A-squat",{completed:true,actualLoad:"8kg"});
+ data=finishTrainingSession(data,"numeric","2026-10-01",new Date("2026-10-01T08:40:00Z"));
+ data=startTrainingSession(data,"plan","A",new Date("2026-10-02T08:00:00Z"),"composite").data;
+ data=updateTrainingBlock(data,"composite","A-squat",{completed:true,actualLoad:"2x8kg"});
+ data=finishTrainingSession(data,"composite","2026-10-02",new Date("2026-10-02T08:40:00Z"));
+ const entries=filteredEntries(data,"plan","all","all","2026-10-03");
+ const result=loadProgression(entries,"A-squat",data,"plan");
+ assert.deepEqual(result.points.map(item=>item.amount),[8]);
+ assert.equal(result.nonNumericCount,1);
+ assert.deepEqual(result.history.map(item=>item.load),["2x8kg","8kg"]);
+ const empty=loadProgression([],"A-squat",data,"plan");
+ assert.equal(empty.history.length,0);
+ const ambiguous=structuredClone(data);
+ const exercise=ambiguous.sessions[0].workoutSnapshot.blocks[0];
+ ambiguous.sessions[0].workoutSnapshot.blocks.push({...exercise,id:"duplicate"});
+ assert.equal(loadProgression(entries,"A-squat",ambiguous,"plan").nonNumericCount,0);
+ assert.equal(loadProgression(entries,"A-squat",ambiguous,"plan").history.length,1);
+});

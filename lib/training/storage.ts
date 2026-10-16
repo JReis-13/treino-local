@@ -88,6 +88,13 @@ function validSession(value: unknown): value is TrainingSession {
     (value.completionAttempted === undefined || typeof value.completionAttempted === "boolean") &&
     (value.sourceReconciliation === undefined || ["removed", "conflict"].includes(String(value.sourceReconciliation))) &&
     (value.loadCorrectionPending === undefined || typeof value.loadCorrectionPending === "boolean") &&
+    (value.excelSync === undefined || (record(value.excelSync) &&
+      typeof value.excelSync.exportId === "string" && /^[a-f0-9]{64}$/.test(value.excelSync.exportId) &&
+      Number.isInteger(value.excelSync.planVersion) && typeof value.excelSync.preparedAt === "string" &&
+      (value.excelSync.verifiedAt === undefined || typeof value.excelSync.verifiedAt === "string") &&
+      Array.isArray(value.excelSync.loads) && value.excelSync.loads.length <= 200 && value.excelSync.loads.every((item: unknown) =>
+        record(item) && typeof item.blockId === "string" && typeof item.expected === "string" &&
+        typeof item.sourceSessionId === "string" && typeof item.verified === "boolean"))) &&
     (value.replacedAt === undefined || (typeof value.replacedAt === "string" && Number.isFinite(Date.parse(value.replacedAt)))) &&
     (value.sessionNote === undefined || (typeof value.sessionNote === "string" && value.sessionNote.length <= 500)) &&
     (value.completionReceipt === undefined || (record(value.completionReceipt) &&

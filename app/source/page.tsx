@@ -12,6 +12,8 @@ import { loadFileHandle, saveFileHandle } from "@/lib/import/file-handles";
 import { snapshotFromXlsx } from "@/lib/import/snapshot";
 import { parseTrainingSnapshot } from "@/lib/import/template-parser";
 import { plannedCompletionSlot, sessionsWaitingForSource } from "@/lib/sync/logic";
+import { applyExcelSync, excelPreparedPatches, verifyExcelCopy } from "@/lib/sync/excel-state";
+import { completionState, loadState } from "@/lib/training/sync-state";
 import { prepareXlsxSync } from "@/lib/sync/xlsx";
 import { activePlan } from "@/lib/training/session";
 import { changedLoads, sameSourceLoadAssociation } from "@/lib/training/loads";
@@ -36,8 +38,13 @@ function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && a.every((byte, index) => byte === b[index]);
 }
 
+async function workbookId(bytes: Uint8Array) {
+  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
+  return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, "0")).join("");
+}
+
 export default function SourcePage() {
-  const { data, error, updateSource, setSyncStatus, setSessionSync, applySourceLoads } = useApp();
+  const { data, error, commitExcelSync, setSyncStatus, setSessionSync, applySourceLoads } = useApp();
   const inputRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<SelectedFile | null>(null);
   const [busy, setBusy] = useState(false);
@@ -64,7 +71,6 @@ export default function SourcePage() {
       if (!handle || !alive) return;
       const file = await handle.getFile();
       // Validation is also callable from explicit reconnect; the saved handle is checked on plan change.
-      // eslint-disable-next-line react-hooks/immutability
       if (alive) await validateExcel(file, handle as DirectHandle, plan);
     }).catch(() => { if (alive) setMessage("Saved file access expired. Reconnect the workbook when you want to sync."); });
     return () => { alive = false; };
@@ -89,29 +95,13 @@ export default function SourcePage() {
       }
       if (imported.source.kind !== "excel" || imported.source.template !== currentPlan.source.template) throw new Error("This is a different workbook template.");
       const mode = handle ? "direct" : "copy";
+      const result = verifyExcelCopy(currentPlan, data!.sessions, imported, await workbookId(bytes));
+      if (!commitExcelSync(currentPlan.id, result.patches, imported, { filename: file.name, mode }))
+        throw new Error("Could not save workbook verification on this device. Reconnect the copy to retry; local sessions remain safe.");
       setSelected({ bytes, filename: file.name, handle, mode });
-      updateSource(currentPlan.id, { ...currentPlan.source, filename: file.name, mode });
-      applySourceLoads(currentPlan.id, imported);
-      if (handle) await saveFileHandle(currentPlan.id, handle).catch(() => setMessage("Connected, but this browser could not remember the handle. Reconnect after reopening the app."));
-      for (const session of pending) {
-        const verifiedDate = session.preparedCompletionSlot && imported.legacyCompletions.find((entry) =>
-          entry.workoutId === session.workoutId && entry.date === session.localDate &&
-          entry.sourceSlot === session.preparedCompletionSlot);
-        if (verifiedDate) {
-          setSessionSync(session.id, { completionSyncStatus: "synced", preparedCompletionSlot: undefined,
-            completionReceipt: { sourceKind: "excel", sourceId: file.name, workoutId: session.workoutId,
-              slot: verifiedDate.sourceSlot, syncedAt: new Date().toISOString() },
-            syncMessage: "Saved workbook copy was reconnected and its date verified." });
-        }
-        const loads = session.loadCorrectionPending ? session.blocks.filter((state) => state.completed && state.actualLoad?.trim())
-          .map((state) => ({ blockId: state.blockId, load: state.actualLoad!.trim() })) : changedLoads(session);
-        if (session.loadSyncStatus !== "synced" && loads.length && loads.every((change) =>
-          sameSourceLoadAssociation(session, imported.workouts.find((item) => item.id === session.workoutId), change.blockId) &&
-          imported.workouts.find((item) => item.id === session.workoutId)?.blocks.some((block) =>
-          block.kind === "exercise" && block.id === change.blockId && block.defaultLoad === change.load)))
-          setSessionSync(session.id, { loadSyncStatus: "synced", loadCorrectionPending: false, syncMessage: "Saved workbook copy was reconnected and loads verified." });
-      }
-      setMessage(`${file.name} is compatible. ${mode === "direct" ? "This selected file can be updated directly after permission is granted." : "Safe-copy mode is ready."}`);
+      if (handle) await saveFileHandle(currentPlan.id, handle).catch(() => {});
+      const remaining = sessionsWaitingForSource(applyExcelSync(data!, currentPlan.id, result.patches).sessions, currentPlan.id);
+      setMessage(`${result.dates} date(s) and ${result.loads} load update(s) checked against workbook values. ${result.historicalLoads ? "The workbook uses later recorded loads; earlier expressions stay in local History. " : ""}${remaining.length ? remaining.some(session => ["partial", "conflict", "failed"].includes(session.syncStatus)) ? "Some updates still need attention; see each operation below." : "Updates are saved locally; export them below." : "No local workouts are waiting for source sync."} ${handle ? "Direct file connected." : "Safe copy connected; the original file was not overwritten."}`);
     } catch (cause) { setSelected(null); setMessage(cause instanceof Error ? cause.message : "Workbook validation failed. No changes were made."); }
     finally { setBusy(false); }
   }
@@ -133,14 +123,18 @@ export default function SourcePage() {
       if (handle && await handle.queryPermission({ mode: "readwrite" }) !== "granted" &&
           await handle.requestPermission({ mode: "readwrite" }) !== "granted") throw new Error("Write permission was not granted. Reconnect or use a safe copy.");
       const sourceBytes = handle ? new Uint8Array(await (await handle.getFile()).arrayBuffer()) : selected.bytes;
-      const prepared = await prepareXlsxSync(sourceBytes, plan!, pending);
-      for (const outcome of prepared.outcomes) {
-        if (outcome.decision.kind === "duplicate" || outcome.decision.kind === "full") setSessionSync(outcome.sessionId, { completionSyncStatus: "conflict", syncMessage: outcome.decision.message });
+      const prepared = await prepareXlsxSync(sourceBytes, plan!, pending, data!.sessions);
+      if (!prepared.bytes) {
+        const imported = parseTrainingSnapshot(await snapshotFromXlsx(sourceBytes), plan!.source, plan!.name);
+        const unchangedId = await workbookId(sourceBytes);
+        const staged = applyExcelSync(data!, plan!.id, excelPreparedPatches(plan!, data!.sessions, prepared.outcomes, prepared.loadOutcomes, unchangedId));
+        const result = verifyExcelCopy(plan!, staged.sessions, imported, unchangedId);
+        if (!commitExcelSync(plan!.id, result.patches, imported)) throw new Error("Could not save verification on this device.");
+        setMessage("Workbook checked without writing. Dates and loads are listed separately below; review any remaining issues."); return;
       }
-      for (const outcome of prepared.loadOutcomes.filter((item) => item.status === "conflict"))
-        setSessionSync(outcome.sessionId, { loadSyncStatus: "conflict", syncMessage: outcome.message });
-      const written = prepared.outcomes.filter((item) => item.decision.kind === "write").map((item) => item.sessionId);
-      if (!prepared.bytes) { setMessage("No source changes were needed. Review any sync issues in History."); return; }
+      const patches = excelPreparedPatches(plan!, data!.sessions, prepared.outcomes, prepared.loadOutcomes, await workbookId(prepared.bytes));
+      if (!commitExcelSync(plan!.id, patches)) throw new Error("Could not remember the prepared updates. No workbook was downloaded or written.");
+      const staged = applyExcelSync(data!, plan!.id, patches);
       if (handle) {
         if (await handle.queryPermission({ mode: "readwrite" }) !== "granted") throw new Error("Write permission expired. Reconnect and try again.");
         const latest = new Uint8Array(await (await handle.getFile()).arrayBuffer());
@@ -148,32 +142,19 @@ export default function SourcePage() {
         const writable = await handle.createWritable();
         await writable.write(new Uint8Array(prepared.bytes)); await writable.close();
         const verified = new Uint8Array(await (await handle.getFile()).arrayBuffer());
-        await prepareXlsxSync(verified, plan!, []);
         if (!equalBytes(verified, prepared.bytes)) throw new Error("The updated file differs from the verified output. Local sessions remain safe.");
-        setSelected({ ...selected, bytes: verified });
-        for (const outcome of prepared.outcomes.filter((item) => item.decision.kind === "write"))
-          setSessionSync(outcome.sessionId, { completionSyncStatus: "synced", completionReceipt: { sourceKind: "excel",
-            sourceId: plan!.source.kind === "excel" ? plan!.source.filename : "workbook", workoutId: pending.find((item) => item.id === outcome.sessionId)!.workoutId,
-            slot: outcome.decision.kind === "write" ? outcome.decision.slot : "", syncedAt: new Date().toISOString() }, syncMessage: "Date verified in workbook." });
-        for (const outcome of prepared.loadOutcomes.filter((item) => item.status === "synced"))
-          setSessionSync(outcome.sessionId, { loadSyncStatus: "synced", loadCorrectionPending: false, syncMessage: "Load verified in workbook." });
         const imported = parseTrainingSnapshot(await snapshotFromXlsx(verified), plan!.source, plan!.name);
-        applySourceLoads(plan!.id, imported);
-        setMessage(`${written.length} date(s) and ${prepared.loadOutcomes.filter((item) => item.status === "synced").length} load(s) verified in the workbook.`);
+        const result = verifyExcelCopy(plan!, staged.sessions, imported, await workbookId(verified));
+        if (!commitExcelSync(plan!.id, result.patches, imported)) throw new Error("The file was written, but local verification could not be saved. Reconnect it to retry.");
+        setSelected({ ...selected, bytes: verified });
+        setMessage(`${result.dates} date(s) and ${result.loads} load update(s) verified in the workbook. Review any remaining load issues below.`);
       } else {
         download(prepared.bytes, selected.filename);
-        for (const outcome of prepared.outcomes.filter((item) => item.decision.kind === "write"))
-          setSessionSync(outcome.sessionId, { completionSyncStatus: "pending",
-            preparedCompletionSlot: outcome.decision.kind === "write" ? outcome.decision.slot : undefined,
-            syncMessage: "Copy prepared. Reconnect the saved copy to verify." });
-        for (const outcome of prepared.loadOutcomes.filter((item) => item.status === "synced"))
-          setSessionSync(outcome.sessionId, { loadSyncStatus: "pending", syncMessage: "Copy prepared. Reconnect the saved copy to verify." });
         setSelected(null);
-        setMessage("Updated copy downloaded. Save it, then reconnect that copy to verify its dates. Local workouts remain pending.");
+        setMessage("Updated copy generated and download requested. Save it, then reconnect that downloaded copy to verify its dates and loads. Local workouts remain safe on this device.");
       }
     } catch (cause) {
       const text = cause instanceof Error ? cause.message : "Excel sync failed.";
-      setSyncStatus(pending.map((item) => item.id), "failed", text);
       setMessage(text);
     } finally { setBusy(false); }
   }
@@ -308,9 +289,18 @@ export default function SourcePage() {
     } finally { setBusy(false); }
   }
 
+  const excelCompleted = data.sessions.filter(session => session.planId === plan.id && session.status === "completed");
+  const verifiedDates = excelCompleted.filter(session => session.completionReceipt?.sourceKind === "excel").length;
+  const verifiedLoadCells = new Set(excelCompleted.flatMap(session => session.excelSync?.loads.filter(load => load.verified)
+    .map(load => `${session.workoutId}:${load.blockId}:${load.sourceSessionId}`) ?? [])).size;
+  const historicalLoads = excelCompleted.flatMap(session => session.excelSync?.loads.filter(load => load.verified && load.sourceSessionId !== session.id) ?? []).length;
+  const waitingCopy = plan.source.kind === "excel" && pending.some(session => session.preparedCompletionSlot);
+  const loadReviewOnly = plan.source.kind === "excel" && pending.length > 0 && pending.every(session => completionState(session) === "synced" && loadState(session) === "conflict");
   const nextStep = busy ? "Checking your source. Wait for this operation to finish." : syncBlocked ?
     "Review the import mapping in Training plans before syncing. Local workouts remain saved." : !pending.length ?
-    "No updates to send. Finish a workout to create pending source updates." : plan.source.kind === "excel" && !selected ?
+    verifiedDates ? "All required source updates are verified. Connecting a file again is optional until another workout needs an update." : "No updates to send. Finish a workout to create pending source updates." : waitingCopy ?
+    "An updated copy was already generated. Reconnect that downloaded file to verify its dates before exporting again. Selecting an older file cannot recreate a date." : loadReviewOnly ?
+    "Dates are verified; load updates need review. Reconnect the latest correct downloaded copy, or review the source mapping in Training plans. A new export cannot confirm these unresolved values." : plan.source.kind === "excel" && !selected ?
     "Connect the original workbook, or your latest updated copy, to prepare these updates." : plan.source.kind === "google" && !googleConnected ?
     "Reconnect Google above, then retry these pending updates." : plan.source.kind === "google" && !plan.source.syncEnabled ?
     "Refresh this training in Training plans to restore its verified Google connection, then validate the source here." :
@@ -327,8 +317,9 @@ export default function SourcePage() {
       {plan.source.kind === "builtin" && <Link className="secondary-button" href="/plans/">Import or connect training →</Link>}
     </section>
     <input ref={inputRef} type="file" className="sr-only" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { const file = event.target.files?.[0]; if (file) void validateExcel(file); else setMessage("File selection cancelled."); event.target.value = ""; }} />
-    <section className="sync-panel"><div className="section-heading"><div><p className="eyebrow">LOCAL SESSIONS</p><h2>Waiting to sync</h2></div><span className="section-count">{pending.length} PENDING</span></div>{pending.length ? <div className="pending-list">{pending.map((session: TrainingSession) => <div key={session.id}><span className="pending-letter">{session.workoutId.slice(0, 1)}</span><span><strong>{session.workoutSnapshot.title}</strong><small>{formatLocalDate(session.localDate!)} · {session.syncMessage ?? "Stored locally"}</small></span></div>)}</div> : <p className="quiet-note">No local workouts are waiting for source sync.</p>}
-      {plan.source.kind === "excel" && <button type="button" className="primary-button" aria-describedby="source-next-step" disabled={busy || !selected || !pending.length || syncBlocked} onClick={() => void syncExcel()}>{busy ? "Checking workbook…" : selected?.mode === "direct" ? "Sync pending workouts" : "Save updated workbook copy"} →</button>}
+    {plan.source.kind === "excel" && <p className="context-note" role="status">{excelCompleted.length} session(s) saved on this device · {verifiedDates} workbook date(s) verified · {verifiedLoadCells} current load update(s) verified.{historicalLoads > 0 ? " Earlier loads remain in local History; the workbook uses later recorded values." : ""} Notes stay local.</p>}
+    <section className="sync-panel"><div className="section-heading"><div><p className="eyebrow">LOCAL SESSIONS</p><h2>{pending.length ? "Source updates" : "Source up to date"}</h2></div><span className="section-count">{pending.length} PENDING</span></div>{pending.length ? <div className="pending-list">{pending.map((session: TrainingSession) => <div key={session.id}><span className="pending-letter">{session.workoutId.slice(0, 1)}</span><span><strong>{session.workoutSnapshot.title}</strong><small>{formatLocalDate(session.localDate!)} · {plan.source.kind === "excel" ? `Date: ${completionState(session) === "synced" ? "verified" : completionState(session) === "conflict" ? "needs attention" : session.preparedCompletionSlot ? "waiting for downloaded copy" : "pending export"} · Loads: ${loadState(session) === "notApplicable" ? "no update required" : loadState(session) === "synced" ? "verified" : loadState(session) === "conflict" ? "needs attention" : session.excelSync ? "waiting for verification" : "pending export"}` : session.syncMessage ?? "Stored locally"}</small>{plan.source.kind === "excel" && session.syncMessage && <small>{session.syncMessage}</small>}</span></div>)}</div> : <p className="quiet-note">No local workouts are waiting for source sync.</p>}
+      {plan.source.kind === "excel" && <button type="button" className="primary-button" aria-describedby="source-next-step" disabled={busy || !selected || !pending.length || syncBlocked || waitingCopy || loadReviewOnly} onClick={() => void syncExcel()}>{busy ? "Checking workbook…" : selected?.mode === "direct" ? "Sync pending workouts" : "Save updated workbook copy"} →</button>}
       {plan.source.kind === "google" && plan.source.authMode === "oauth" && <button type="button" className="primary-button" aria-describedby="source-next-step" disabled={busy || !googleConnected || !plan.source.syncEnabled || !pending.length || syncBlocked} onClick={() => void syncGoogle()}>{busy ? "Checking Google Sheet…" : "Sync pending workouts"} →</button>}
       {plan.source.kind !== "builtin" && <p className="quiet-note" id="source-next-step" role="status">{nextStep}</p>}
       <p className="quiet-note">{plan.source.kind === "excel" && selected?.mode === "direct" ? "This selected file will be updated directly only after permission and readback checks." : plan.source.kind === "excel" ? "Safe-copy mode downloads a new file. Your selected file is not overwritten." : "Local sessions remain completed if Google is unavailable or sync fails."}</p></section>

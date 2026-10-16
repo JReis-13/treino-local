@@ -14,6 +14,7 @@ import { activateQueuedSocialDeletion, flushSocialOutbox, queueSocialActivity, q
 import { completedSessionForDeletion, finalizeHistoryDeletion, finalizeLegacyHistoryDeletion, keepHiddenSourceDate,
   restoreHiddenSourceDate, stageHistoryDeletion,
   stageLegacyHistoryDeletion, undoHistoryDeletion, undoLegacyHistoryDeletion } from "@/lib/training/history-delete";
+import { applyExcelSync, type ExcelPatch } from "@/lib/sync/excel-state";
 import { plannedCompletionSlot } from "@/lib/sync/logic";
 import { recordDiagnosticEvent } from "@/lib/diagnostic-log";
 import { loadDrafts, pruneLoadDrafts } from "@/lib/training/load-drafts";
@@ -52,6 +53,7 @@ interface AppContextValue {
   updateSource(planId: string, source: TrainingSource): boolean;
   setSyncStatus(sessionIds: string[], status: SourceSyncStatus, message?: string): void;
   setSessionSync(sessionId: string, patch: Partial<TrainingSession>): void;
+  commitExcelSync(planId: string, patches: ExcelPatch[], imported?: ImportedTraining, connection?: { filename: string; mode: "copy" | "direct" }): boolean;
   applySourceLoads(planId: string, imported: ImportedTraining): void;
   restoreData(restored: TrainingData): boolean;
   clearError(): void;
@@ -232,6 +234,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             reason: status === "authRequired" ? "AUTH_REQUIRED" : status === "conflict" ? "CONFLICT" : "FAILED" });
       }
     }
+  }, [commit]);
+  const commitExcelSync = useCallback((planId: string, patches: ExcelPatch[], imported?: ImportedTraining, connection?: { filename: string; mode: "copy" | "direct" }) => {
+    const previous = dataRef.current;
+    const saved = commit(current => applyExcelSync(current, planId, patches, imported, connection));
+    if (saved) for (const { sessionId, patch } of patches) for (const operation of ["completion", "load"] as const) {
+      const key = operation === "completion" ? "completionSyncStatus" : "loadSyncStatus";
+      const status = patch[key];
+      if (!status || status === previous?.sessions.find(item => item.id === sessionId)?.[key]) continue;
+      if (status === "synced") recordDiagnosticEvent("source_sync_success", { sessionId, source: "excel", operation, reason: "OK" });
+      else if (status === "conflict") recordDiagnosticEvent("source_sync_failed", { sessionId, source: "excel", operation, reason: "CONFLICT" });
+    }
+    return saved;
   }, [commit]);
   const applySourceLoads = useCallback((planId: string, imported: ImportedTraining) => {
     commit((current) => ({ ...current, plans: current.plans.map((plan) => {
@@ -510,7 +524,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     restoreSourceDate, keepSourceDateHidden, updateBlock, moveBlockLater, restoreQueue, skipBlock, setFocus, correctSessionLoad, finish,
     saveExerciseNote, startRestTimer, pauseRestTimer, resumeRestTimer, extendRestTimer, skipRestTimer,
     addPlan, refreshPlan, migrateGooglePlan,
-    setActivePlan, renamePlan, removePlan, updateSource, setSyncStatus, setSessionSync, applySourceLoads,
+    setActivePlan, renamePlan, removePlan, updateSource, setSyncStatus, setSessionSync, commitExcelSync, applySourceLoads,
     restoreData, clearError: () => setError(null) }}>{children}</AppContext.Provider>;
 }
 

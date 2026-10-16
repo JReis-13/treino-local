@@ -103,3 +103,10 @@ test("diagnostic endpoint rejects unauthenticated requests and bounded body reje
     }
   }
 });
+
+test("private Excel export evidence and workbook content identifiers are never accepted by report sanitizers", () => {
+ const proof={exportId:"b".repeat(64),loads:[{blockId:"PRIVATE_EXERCISE",expected:"99.875kg",sourceSessionId:"PRIVATE_SESSION",verified:true}]};
+ const result=sanitizeDebugReport({debugReportVersion:1,excelSync:proof,source:{kind:"excel",excelSync:proof,receipt:proof},sessions:[{excelSync:proof}]});
+ const json=JSON.stringify(result);
+ for(const secret of [proof.exportId,"PRIVATE_EXERCISE","99.875kg","PRIVATE_SESSION","excelSync"]) assert(!json.includes(secret));
+});

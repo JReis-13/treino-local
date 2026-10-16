@@ -121,13 +121,13 @@ test("Statistics chooses recorded loads while retaining explicit selection and t
     await page.screenshot({ path: info.outputPath(`stats-${width}.png`), fullPage: true });
   }
   await page.getByRole("combobox", { name: /^EXERCISE/ }).selectOption("P|b0");
-  await expect(page.getByText("No comparable numeric loads recorded for this exercise.")).toBeVisible();
+  await expect(page.getByText("No recorded loads for this exercise in this period.")).toBeVisible();
   await page.getByLabel("RANGE").selectOption("3m");
   await expect(page.getByRole("combobox", { name: /^EXERCISE/ })).toHaveValue("P|b0");
   await page.evaluate(() => { const d = JSON.parse(localStorage.getItem("treino-local:v2")!);
     d.sessions[0].blocks.forEach((b: { actualLoad?: string }) => delete b.actualLoad); localStorage.setItem("treino-local:v2", JSON.stringify(d)); });
   await page.reload();
-  await expect(page.getByText("No comparable numeric loads recorded for this exercise.")).toBeVisible();
+  await expect(page.getByText("No recorded loads for this exercise in this period.")).toBeVisible();
   await expect(page.locator(".load-summary-grid")).toHaveCount(0);
 });
 

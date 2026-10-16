@@ -1,5 +1,15 @@
 # Excel adapter decision and write safety
 
+## Safe-copy verification and current loads
+
+Excel has one current load field per logical exercise. When several pending sessions changed that field, export projects the latest completed, safely associated session value. Reconnecting verifies that value; earlier session values remain unchanged in local History. An earlier superseded load operation becomes `notApplicable` only after the later target is read back. Date receipts alone never confirm unresolved load operations.
+
+The optional local `session.excelSync` evidence records the generated workbook SHA-256, plan version, prepared targets and verified targets. It is private backup-compatible state, excluded by both diagnostic allowlists; no workbook content or hash is uploaded. Receipts use the stable local plan identity, independent of downloaded filenames. Receipt updates and current-plan load readback persist together before the UI reports success. A storage failure leaves prior state intact.
+
+Generated copies remain pending until reconnect. Reload preserves prepared slots and verified receipts; reconnecting is optional when no source operations remain. Repeated verification cannot claim one date slot for two sessions. A workbook missing a prepared/verified date cannot allocate another slot or recreate it. Stale verified loads cannot roll back the plan; intentional source edits require explicit refresh/review. Lost downloads, ambiguous mapping and deliberate source-date removal require manual review, because Excel stores no app session identifier.
+
+Source shows date/load outcomes separately and explains disabled actions. A genuine partial operation stays pending. Details and Stats share a compact dated load list for composite expressions; Stats uses the existing lineage resolver and never derives numeric weights from composites. See [synthetic lifecycle evidence](excel-sync-test-report.md).
+
 ## Current load and same-day behavior (October 2026)
 
 The supported Jonatha A load cells contain slash-separated pairs in `H26/H28/H30/H32`; parser mapping records the segment for each logical exercise. Milena's grouped loads use separate `G/H/I` fields. A changed completed exercise load is applied only to its parser-derived cell/segment. The adapter preserves neighboring segments, writes load text as inline XML to avoid Excel date formatting turning `7.5` into a date, checks all unrelated ZIP entries, reopens the copy, and verifies the parsed load. Formula cells, ambiguous groups, source drift, and unsupported blank group layouts block only that remote load update; actual loads remain in local history. The supplied workbooks are read-only test fixtures; automated writes use disposable copies.

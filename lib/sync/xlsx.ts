@@ -1,12 +1,15 @@
 import JSZip from "jszip";
+import { isLocalDate } from "@/lib/dates";
 import { inspectWorkbook } from "@/lib/excel/adapter";
 import { dateToSerial, snapshotFromXlsx, type SourceSnapshot } from "@/lib/import/snapshot";
 import { parseTrainingSnapshot } from "@/lib/import/template-parser";
 import { chooseCompletionSlot, type SyncDecision } from "@/lib/sync/logic";
-import { changedLoads, normalizeLoad, sameSourceLoadAssociation } from "@/lib/training/loads";
+import { normalizeLoad, sameSourceLoadAssociation } from "@/lib/training/loads";
 import type { TrainingPlanRecord, TrainingSession } from "@/types/training";
 
-export type XlsxSyncOutcome = { sessionId: string; decision: SyncDecision };
+import { excelLoadTargets } from "@/lib/sync/excel-state";
+
+export type XlsxSyncOutcome = { sessionId: string; decision: SyncDecision | { kind: "verified"; slot: string } };
 export type XlsxLoadOutcome = { sessionId: string; blockId: string; status: "synced" | "conflict"; message?: string };
 
 function dateValues(snapshot: SourceSnapshot, sheetName: string, slots: string[]): Array<string | null> {
@@ -14,7 +17,7 @@ function dateValues(snapshot: SourceSnapshot, sheetName: string, slots: string[]
   if (!sheet) throw new Error(`Source workout sheet ${sheetName} was removed.`);
   return slots.map((ref) => {
     const raw = sheet.cells[ref]?.raw;
-    return raw ? new Date((Number(raw) - 25569) * 86400000).toISOString().slice(0, 10) : null;
+    return raw ? isLocalDate(raw) ? raw : new Date((Number(raw) - 25569) * 86400000).toISOString().slice(0, 10) : null;
   });
 }
 
@@ -44,7 +47,7 @@ function replaceEmptyCell(xml: string, ref: string, serial: number): string {
 
 function replaceLoadCell(xml: string, ref: string, value: string): string {
   if (!/^[GHI](26|28|30|32|33|34)$/.test(ref)) throw new Error("Unsafe load cell.");
-  const pattern = new RegExp(`<(?:[A-Za-z_][\\w.-]*:)?c\\b(?=[^>]*\\br="${ref}")[^>]*(?:/>|>[\\s\\S]*?</(?:[A-Za-z_][\\w.-]*:)?c>)`, "g");
+  const pattern = new RegExp(`<(?:[A-Za-z_][\\w.-]*:)?c\\b(?=[^>]*\\br="${ref}")[^>]*?(?:/>|>[\\s\\S]*?</(?:[A-Za-z_][\\w.-]*:)?c>)`, "g");
   const matches = [...xml.matchAll(pattern)];
   if (matches.length !== 1) throw new Error(`Expected exactly one load cell ${ref}.`);
   const original = matches[0][0];
@@ -73,7 +76,7 @@ async function verifyPackage(before: JSZip, bytes: Uint8Array, changed: Map<stri
   }
 }
 
-export async function prepareXlsxSync(bytes: Uint8Array, plan: TrainingPlanRecord, sessions: TrainingSession[]): Promise<{
+export async function prepareXlsxSync(bytes: Uint8Array, plan: TrainingPlanRecord, sessions: TrainingSession[], allSessions = sessions): Promise<{
   bytes?: Uint8Array; outcomes: XlsxSyncOutcome[]; loadOutcomes: XlsxLoadOutcome[]; snapshot: SourceSnapshot;
 }> {
   if (plan.source.kind !== "excel") throw new Error("This plan is not connected to an Excel source.");
@@ -92,7 +95,7 @@ export async function prepareXlsxSync(bytes: Uint8Array, plan: TrainingPlanRecor
   const loadCells = new Map<string, string>();
   const expectedLoads = new Map<string, string>();
   for (const session of sessions) {
-    if (session.status !== "completed" || !session.localDate) continue;
+    if (session.status !== "completed" || !session.localDate || session.sourceReconciliation) continue;
     if (session.completionSyncStatus === "synced" || session.completionReceipt) continue;
     const mapping = plan.source.mappings[session.workoutId];
     if (!mapping || JSON.stringify(mapping.slots) !== JSON.stringify(parsed.source.mappings[session.workoutId]?.slots)) {
@@ -100,7 +103,11 @@ export async function prepareXlsxSync(bytes: Uint8Array, plan: TrainingPlanRecor
     }
     const current = dates.get(session.workoutId) ?? dateValues(snapshot, mapping.sheetName, mapping.slots);
     dates.set(session.workoutId, current);
-    const decision = chooseCompletionSlot(mapping, current, session.localDate, session.duplicateDateAllowed);
+    const preparedIndex = session.preparedCompletionSlot ? mapping.slots.indexOf(session.preparedCompletionSlot) : -1;
+    const decision: XlsxSyncOutcome["decision"] = session.preparedCompletionSlot ?
+      preparedIndex >= 0 && current[preparedIndex] === session.localDate ? { kind: "verified", slot: session.preparedCompletionSlot } :
+      { kind: "duplicate", message: "Reconnect the latest downloaded copy to verify the prepared date. No date was recreated." } :
+      chooseCompletionSlot(mapping, current, session.localDate, session.duplicateDateAllowed);
     outcomes.push({ sessionId: session.id, decision });
     if (decision.kind !== "write") continue;
     const sheet = snapshot.sheets.find((item) => item.name === mapping.sheetName)!;
@@ -110,20 +117,16 @@ export async function prepareXlsxSync(bytes: Uint8Array, plan: TrainingPlanRecor
     current[mapping.slots.indexOf(decision.slot)] = session.localDate;
   }
   for (const session of sessions) {
-    if (session.status !== "completed") continue;
+    if (session.status !== "completed" || session.sourceReconciliation) continue;
     if (session.loadSyncStatus === "synced" && !session.loadCorrectionPending) continue;
     const workout = parsed.workouts.find((item) => item.id === session.workoutId);
     const mapping = parsed.source.mappings[session.workoutId];
     const sheet = snapshot.sheets.find((item) => item.name === mapping?.sheetName);
-    const changes = session.loadCorrectionPending ? session.blocks.flatMap((state) => {
-      const sourceBlock = workout?.blocks.find((item) => item.kind === "exercise" && item.id === state.blockId);
-      return state.completed && sourceBlock?.kind === "exercise" && state.actualLoad?.trim() &&
-        normalizeLoad(state.actualLoad) !== normalizeLoad(sourceBlock.defaultLoad ?? "") ?
-        [{ blockId: state.blockId, load: normalizeLoad(state.actualLoad) }] : [];
-    }) : changedLoads(session);
+    const changes = excelLoadTargets(session, allSessions);
     for (const change of changes) {
       const block = workout?.blocks.find((item) => item.kind === "exercise" && item.id === change.blockId);
-      const old = session.workoutSnapshot.blocks.find((item) => item.kind === "exercise" && item.id === change.blockId);
+      const loadSession = allSessions.find(item => item.id === change.sourceSessionId) ?? session;
+      const old = loadSession.workoutSnapshot.blocks.find((item) => item.kind === "exercise" && item.id === change.blockId);
       if (!block || block.kind !== "exercise" || !block.loadSource || !sheet?.path ||
           !sameSourceLoadAssociation(session, workout, change.blockId) ||
           !/^[GHI](26|28|30|32|33|34)$/.test(block.loadSource.cell) || old?.kind !== "exercise") {
@@ -148,6 +151,11 @@ export async function prepareXlsxSync(bytes: Uint8Array, plan: TrainingPlanRecor
         }
         pieces[block.loadSource.part] = change.load;
         next = pieces.join("/");
+      }
+      if (current === next) {
+        expectedLoads.set(`${session.workoutId}:${change.blockId}`, change.load);
+        loadOutcomes.push({ sessionId: session.id, blockId: change.blockId, status: "synced" });
+        continue;
       }
       loadCells.set(key, next);
       expectedLoads.set(`${session.workoutId}:${change.blockId}`, change.load);

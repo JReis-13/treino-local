@@ -120,6 +120,9 @@ export interface TrainingSession {
   completionAttempted?: boolean;
   preparedCompletionSlot?: string;
   loadCorrectionPending?: boolean;
+  // Private, local-only workbook readback evidence. Never include in diagnostics.
+  excelSync?: { exportId: string; planVersion: number; preparedAt: string; verifiedAt?: string;
+    loads: Array<{ blockId: string; expected: string; sourceSessionId: string; verified: boolean }> };
   replacedAt?: string;
   sessionNote?: string;
 }
