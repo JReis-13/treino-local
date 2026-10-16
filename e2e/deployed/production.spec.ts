@@ -203,8 +203,8 @@ test("Excel safe-copy sync reconciles after reconnect and reload", async ({ page
     const output = await saved.path();
     expect(output).toBeTruthy();
     await page.locator('input[type="file"]').setInputFiles(output!);
-    await expect(page.getByText(/No local workouts are waiting for source sync/)).toBeVisible();
+    await expect(page.getByText("No local workouts are waiting for source sync.", { exact: true })).toBeVisible();
     await page.reload();
-    await expect(page.getByText(/No local workouts are waiting for source sync/)).toBeVisible();
+    await expect(page.getByText("No local workouts are waiting for source sync.", { exact: true })).toBeVisible();
   } finally { await fixture.cleanup(); }
 });
