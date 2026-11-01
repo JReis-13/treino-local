@@ -5,9 +5,19 @@ export function exerciseKey(name: string): string {
   return name.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("pt-BR");
 }
 
-export function exerciseNote(data: TrainingData, planId: string, name: string): string {
+export function exerciseNote(data: TrainingData, planId: string, name: string, workoutId?:string,blockId?:string): string {
   const key = exerciseKey(name);
-  const own = data.exerciseNotes.find((note) => note.planId === planId && note.exerciseKey === key);
+  if(workoutId&&blockId) {
+    const workout=data.plans.find(p=>p.id===planId)?.workouts.find(w=>w.id===workoutId),block=workout?.blocks.find(b=>b.id===blockId);
+    if(block?.kind==="exercise") {
+      const identity=`${exerciseKey(block.name)}|${exerciseKey(block.equipment??"")}`;
+      if(workout!.blocks.filter(b=>b.kind==="exercise"&&`${exerciseKey(b.name)}|${exerciseKey(b.equipment??"")}`===identity).length===1) {
+        const scoped=data.exerciseNotes.filter(n=>n.planId===planId&&n.workoutId===workoutId&&n.identity===identity).at(-1);
+        if(scoped)return scoped.text;
+      }
+    }
+  }
+  const own = data.exerciseNotes.find((note) => !note.workoutId&&note.planId === planId && note.exerciseKey === key);
   if (own) return own.text;
   const target = data.plans.find((plan) => plan.id === planId);
   if (!target || target.source.kind !== "google" || !target.source.spreadsheetId) return "";
@@ -16,7 +26,7 @@ export function exerciseNote(data: TrainingData, planId: string, name: string): 
       .map((block) => block.kind === "exercise" ? exerciseKey(block.equipment ?? "") : "")) ?? []);
   const targetVariants = variants(planId);
   if (targetVariants.size !== 1) return "";
-  const matches = data.exerciseNotes.filter((note) => note.planId !== planId && note.exerciseKey === key)
+  const matches = data.exerciseNotes.filter((note) => !note.workoutId&&note.planId !== planId && note.exerciseKey === key)
     .filter((note) => {
       const source = data.plans.find((plan) => plan.id === note.planId);
       const sourceVariants = variants(note.planId);
@@ -34,7 +44,7 @@ export function updateExerciseNote(data: TrainingData, planId: string, name: str
   const next = text.trim();
   if (next.length > 1000) throw new Error("Exercise note is too long.");
   return { ...data, exerciseNotes: [
-    ...data.exerciseNotes.filter((note) => note.planId !== planId || note.exerciseKey !== key),
+    ...data.exerciseNotes.filter((note) => note.workoutId || note.planId !== planId || note.exerciseKey !== key),
     ...(next ? [{ planId, exerciseKey: key, text: next, updatedAt: now }] : []),
   ] };
 }

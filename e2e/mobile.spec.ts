@@ -133,7 +133,7 @@ test("mobile plan switching isolates history and renders cardio instructions", a
   await page.getByRole("link", { name: "Settings", exact: true }).tap();
   await page.getByRole("link", { name: /Training plans/ }).tap();
   await page.getByRole("article").filter({ hasText: "TREINO 4 MILENA" }).getByRole("button", { name: "Use this training" }).tap();
-  await expect(page.getByText("3 WORKOUTS")).toBeVisible();
+  await expect(page.getByText("3 WORKOUT TYPES", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Start workout" }).last().tap();
   await expect(page.getByRole("heading", { name: "Workout Cardio" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Semana 1" })).toBeVisible();

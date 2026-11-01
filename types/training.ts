@@ -38,6 +38,17 @@ export interface ExerciseBlock {
   groupId?: string;
   note?: string;
   sourceCell?: string;
+  sourceNotes?: ExcelAnnotation[];
+}
+
+export interface ExcelAnnotation {
+  id: string; format: "legacy" | "threaded"; sheet: string; cell: string; part: string;
+  text: string; author?: string; timestamp?: string; parentId?: string; workbookId?: string;
+  shared?: boolean; previousTexts?: string[];
+}
+export interface ExcelNoteContribution {
+  id: string; sheet: string; cell: string; identity: string; text: string; createdAt: string; updatedAt: string;
+  format: "legacy" | "threaded";
 }
 
 export interface InstructionBlock {
@@ -78,6 +89,7 @@ export interface TrainingPlanRecord {
   importedAt: string;
   updatedAt: string;
   sourceFingerprint?: string;
+  excelAnnotations?: ExcelAnnotation[];
   workouts: TrainingWorkout[];
   importWarnings: ImportWarning[];
   legacyCompletions: LegacyCompletion[];
@@ -132,6 +144,10 @@ export interface ExerciseNote {
   exerciseKey: string;
   text: string;
   updatedAt: string;
+  id?: string; workoutId?: string; identity?: string; createdAt?: string;
+  history?: Array<{ text: string; updatedAt: string }>;
+  exported?: { text: string; updatedAt: string; generatedAt: string };
+  conflicts?: string[];
 }
 
 export interface RestTimer {
@@ -163,4 +179,6 @@ export interface ImportedTraining {
   workouts: TrainingWorkout[];
   warnings: ImportWarning[];
   legacyCompletions: LegacyCompletion[];
+  excelAnnotations?: ExcelAnnotation[];
+  noteContributions?: ExcelNoteContribution[];
 }

@@ -3,6 +3,7 @@ import { completionState, loadState, withSyncStatus } from "@/lib/training/sync-
 import { sessionsWaitingForSource } from "@/lib/sync/logic";
 import type { ImportedTraining, TrainingData, TrainingPlanRecord, TrainingSession } from "@/types/training";
 import type { XlsxSyncOutcome, XlsxLoadOutcome } from "@/lib/sync/xlsx";
+import { reconcileNotes } from "@/lib/training/annotation-notes";
 
 export type ExcelPatch = { sessionId: string; patch: Partial<TrainingSession> };
 
@@ -127,7 +128,7 @@ export function verifyExcelCopy(plan: TrainingPlanRecord, sessions: TrainingSess
 export function applyExcelSync(data: TrainingData, planId: string, patches: ExcelPatch[], imported?: ImportedTraining,
   connection?: { filename: string; mode: "copy" | "direct" }): TrainingData {
   if (data.plans.find(plan => plan.id === planId)?.source.kind !== "excel") throw new Error("Excel verification requires an Excel source.");
-  return { ...data, sessions: data.sessions.map(session => {
+  const next={ ...data, sessions: data.sessions.map(session => {
     const patch = patches.find(item => item.sessionId === session.id && session.planId === planId)?.patch;
     return patch ? withSyncStatus(session, patch) : session;
   }), plans: data.plans.map(plan => plan.id !== planId || plan.source.kind !== "excel" ? plan : {
@@ -135,7 +136,8 @@ export function applyExcelSync(data: TrainingData, planId: string, patches: Exce
     ...(imported ? { sourceFingerprint: imported.sourceFingerprint, workouts: plan.workouts.map(workout => ({ ...workout,
       blocks: workout.blocks.map(block => {
         const match = imported.workouts.find(item => item.id === workout.id)?.blocks.find(item => item.id === block.id);
-        return block.kind === "exercise" && match?.kind === "exercise" ? { ...block, defaultLoad: match.defaultLoad, loadSource: match.loadSource } : block;
+        return block.kind === "exercise" && match?.kind === "exercise" ? { ...block, defaultLoad: match.defaultLoad, loadSource: match.loadSource, sourceNotes:match.sourceNotes } : block;
       }) })) } : {}),
   }) };
+  return imported?reconcileNotes(next,planId,imported,data.plans.find(p=>p.id===planId)):next;
 }

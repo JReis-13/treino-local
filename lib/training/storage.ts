@@ -11,6 +11,11 @@ export const emptyTrainingData = (): TrainingData => ({ schemaVersion: 5, plans:
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+function validAnnotation(v:unknown):boolean {
+  return record(v)&&["legacy","threaded"].includes(String(v.format))&&["id","sheet","cell","part","text"].every(k=>typeof v[k]==="string")&&
+    ["author","timestamp","parentId","workbookId"].every(k=>v[k]===undefined||typeof v[k]==="string")&&
+    (v.previousTexts===undefined||(Array.isArray(v.previousTexts)&&v.previousTexts.every(t=>typeof t==="string")));
+}
 
 function validBlock(value: unknown): value is WorkoutBlock {
   return record(value) && typeof value.id === "string" && typeof value.section === "string" &&
@@ -21,12 +26,14 @@ function validBlock(value: unknown): value is WorkoutBlock {
         (value.loadSource.part === undefined || (Number.isInteger(value.loadSource.part) &&
           Number(value.loadSource.part) >= 0 && Number(value.loadSource.part) < Number(value.loadSource.parts ?? 1))) &&
         (value.loadSource.parts === undefined || [2, 3].includes(Number(value.loadSource.parts))))) &&
+      (value.sourceNotes===undefined||(Array.isArray(value.sourceNotes)&&value.sourceNotes.every(validAnnotation))) &&
       (value.videoUrl === undefined || typeof value.videoUrl === "string") :
       value.kind === "instruction" && typeof value.heading === "string" && typeof value.text === "string");
 }
 
 function validPlan(value: unknown): value is TrainingPlanRecord {
   return record(value) && typeof value.id === "string" && typeof value.name === "string" &&
+    (value.excelAnnotations===undefined||(Array.isArray(value.excelAnnotations)&&value.excelAnnotations.every(validAnnotation))) &&
     Number.isInteger(value.version) && Number(value.version) > 0 &&
     typeof value.importedAt === "string" && typeof value.updatedAt === "string" &&
     validSource(value.source) &&
@@ -158,7 +165,12 @@ export function parseTrainingData(raw: string): TrainingData {
     (value.exerciseNotes !== undefined && (!Array.isArray(value.exerciseNotes) || !value.exerciseNotes.every((note: unknown) =>
       record(note) && typeof note.planId === "string" && typeof note.exerciseKey === "string" &&
       typeof note.text === "string" && note.text.length <= 1000 && typeof note.updatedAt === "string" &&
-      Number.isFinite(Date.parse(note.updatedAt))))) ||
+      Number.isFinite(Date.parse(note.updatedAt))&&
+      ["id","workoutId","identity","createdAt"].every(k=>note[k]===undefined||typeof note[k]==="string")&&
+      (note.id===undefined||(typeof note.id==="string"&&/^\{[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}\}$/i.test(note.id)&&typeof note.workoutId==="string"&&typeof note.identity==="string"&&typeof note.createdAt==="string"&&Number.isFinite(Date.parse(note.createdAt))))&&
+      (note.history===undefined||(Array.isArray(note.history)&&note.history.every(h=>record(h)&&typeof h.text==="string"&&typeof h.updatedAt==="string")))&&
+      (note.conflicts===undefined||(Array.isArray(note.conflicts)&&note.conflicts.every(t=>typeof t==="string")))&&
+      (note.exported===undefined||(record(note.exported)&&["text","updatedAt","generatedAt"].every(k=>typeof (note.exported as Record<string,unknown>)[k]==="string")))))) ||
     (value.restTimer !== undefined && (!record(value.restTimer) || typeof value.restTimer.sessionId !== "string" ||
       !Number.isInteger(value.restTimer.durationSeconds) || Number(value.restTimer.durationSeconds) < 1 || Number(value.restTimer.durationSeconds) > 3600 ||
       (value.restTimer.targetEndAt === undefined) === (value.restTimer.pausedRemainingSeconds === undefined) ||

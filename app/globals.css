@@ -445,3 +445,7 @@ button,a,summary{-webkit-tap-highlight-color:transparent}
 .completion-toggle.has-pending-load .complete-dot{margin-left:0}
 .completion-toggle.has-pending-load>span:last-child{font-size:13px;max-width:none;text-align:left}
 .workout-menu>a{display:block;min-height:44px;padding:12px;font-weight:700}
+.excel-note{padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.excel-note p{white-space:pre-wrap}
+.excel-note small{display:block;line-height:1.5}
+.excel-note button{min-height:44px}

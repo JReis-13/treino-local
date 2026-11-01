@@ -5,6 +5,7 @@ import { useEffect, useId, useState } from "react";
 import { useApp } from "@/components/app-provider";
 import { ExerciseLoadRecords } from "@/components/exercise-load-records";
 import { exerciseNote } from "@/lib/training/exercise-notes";
+import { noteIdentity, scopedNotes } from "@/lib/training/annotation-notes";
 import { comparableLoadSummary, exerciseLoadHistory } from "@/lib/training/exercise-history";
 import { parseYouTubeVideo } from "@/lib/video-url";
 import type { ExerciseBlock, TrainingSession } from "@/types/training";
@@ -21,13 +22,21 @@ function LoadTrend({ values }: { values: number[] }) {
 export function ExerciseSupportTabs({ block, session, initialTab = "overview", launchVideo = false, contextVisible = false }: {
   block: ExerciseBlock; session: TrainingSession; initialTab?: Tab; launchVideo?: boolean; contextVisible?: boolean;
 }) {
-  const { data, saveExerciseNote } = useApp();
+  const { data, saveExerciseNote, resolveExerciseNote } = useApp();
   const prefix = useId();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [videoRequested, setVideoRequested] = useState(launchVideo);
   const [videoFailed, setVideoFailed] = useState(false);
   const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
-  const currentNote = data ? exerciseNote(data, session.planId, block.name) : "";
+  const currentWorkout=data?.plans.find(p=>p.id===session.planId)?.workouts.find(w=>w.id===session.workoutId)??session.workoutSnapshot;
+  const matches=currentWorkout.blocks.filter((b):b is ExerciseBlock=>b.kind==="exercise"&&noteIdentity(b)===noteIdentity(block));
+  const instructor=matches.length===1?matches[0].sourceNotes??[]:block.sourceNotes??[];
+  const notes=data?scopedNotes(data,session.planId,matches.length===1?currentWorkout:session.workoutSnapshot,block):[];
+  const excelPlan=data?.plans.find(p=>p.id===session.planId)?.source.kind==="excel";
+  const legacy=data?.exerciseNotes.find(n=>!n.id&&n.planId===session.planId&&n.exerciseKey===block.name.normalize("NFKC").trim().replace(/\s+/g," ").toLocaleLowerCase("pt-BR"));
+  const currentNote=notes.at(-1)?.text??(data?exerciseNote(data,session.planId,block.name):"");
+  const [editingId,setEditingId]=useState<string>();
+  const [adding,setAdding]=useState(false);
   const [draft, setDraft] = useState(currentNote);
   const [noteMessage, setNoteMessage] = useState("");
   const [showAllHistory, setShowAllHistory] = useState(false);
@@ -40,7 +49,7 @@ export function ExerciseSupportTabs({ block, session, initialTab = "overview", l
     return () => { window.removeEventListener("online", update); window.removeEventListener("offline", update); };
   }, []);
   function saveNote(value: string) {
-    if (saveExerciseNote(session.planId, block.name, value)) { setDraft(value.trim()); setNoteMessage(value.trim() ? "Note saved on this device." : "Note removed."); }
+    if (saveExerciseNote(session.planId, block.name, value,{workoutId:session.workoutId,blockId:matches.length===1?matches[0].id:block.id,id:adding?undefined:editingId??notes.at(-1)?.id})) { setDraft(value.trim()); setAdding(false); setNoteMessage(value.trim() ? "Note saved on this device." : "Note removed. Previous versions remain saved."); }
     else setNoteMessage("Could not save the note. Try again.");
   }
   function handleTabKey(event: React.KeyboardEvent<HTMLButtonElement>) {
@@ -67,7 +76,14 @@ export function ExerciseSupportTabs({ block, session, initialTab = "overview", l
         {contextVisible && !video && <p className="quiet-note">No video reference in this plan. Exercise guidance is shown above.</p>}
       </>}
       {tab === "history" && <><p className="quiet-note">Verified loads from completed sessions in this training. Changing Today never rewrites them.</p>{visibleHistory.length ? <><ExerciseLoadRecords history={visibleHistory} />{history.length > 5 && <button type="button" className="inline-action" onClick={() => setShowAllHistory(!showAllHistory)}>{showAllHistory ? "Show recent only" : `Show all ${history.length} sessions`}</button>}{highest !== undefined && <div className="detail-highest"><span>Highest comparable load</span><strong>{highest}{unit ? ` ${unit}` : ""}</strong></div>}{mixedUnits && <p className="quiet-note">Recorded units differ, so no numeric high is shown.</p>}{!mixedUnits && <LoadTrend values={numeric.slice(0, 5).reverse().map((item) => item.amount)} />}</> : <><p className="detail-empty">No verified load history matches this exercise yet. Older records may still be in local History but cannot be safely assigned here.</p><Link className="inline-action" href="/history/">Review local History →</Link></>}</>}
-      {tab === "notes" && <><p className="quiet-note">This note follows the exercise in this training and stays on this device.</p><label className="date-field"><span>EXERCISE NOTE</span><textarea value={draft} onChange={(event) => { setDraft(event.target.value); setNoteMessage(""); }} maxLength={1000} rows={5} placeholder="Seat position, grip, or a reminder for next time" /></label><div className="detail-note-actions"><button type="button" className="primary-button" onClick={() => saveNote(draft)}>Save note</button>{currentNote && <button type="button" className="secondary-button" onClick={() => saveNote("")}>Remove note</button>}</div>{noteMessage && <p role="status" className="quiet-note">{noteMessage}</p>}</>}
+      {tab === "notes" && <>
+        <h3>Instructor notes</h3>{instructor.length?instructor.map(n=><article className="excel-note" key={n.id}><strong>{n.author??"Instructor"}</strong><small>From Excel · {n.sheet}!{n.cell}{n.shared?" · shared group cell":""}{n.timestamp?` · ${n.timestamp}`:""}</small><p>{n.text}</p>{!!n.previousTexts?.length&&<details><summary>Previous source versions</summary>{n.previousTexts.map((text,i)=><p key={i}>{text}</p>)}</details>}</article>):<p className="quiet-note">No instructor comments for this exercise.</p>}
+        <h3>My notes</h3><p className="quiet-note">{excelPlan?"Saved privately on this device. Excel export preserves instructor comments and adds your own contribution.":"Saved privately on this device. Excel comment export is available for locally imported Excel plans."}</p>
+        {legacy&&<details><summary>Existing local note</summary><p className="excel-note">{legacy.text}</p><p className="quiet-note">This older note is preserved. Save it below to associate it with this exercise.</p></details>}
+        {notes.filter(n=>n.text||n.history?.length).map(n=><article className="excel-note" key={n.id}><p>{n.text||"Removed locally"}</p><small>{n.updatedAt} · {n.exported?.text===n.text?"Included in a generated or imported Excel copy":"Local changes — not yet exported"}</small><button type="button" className="inline-action" onClick={()=>{setEditingId(n.id);setAdding(false);setDraft(n.text);}}>Edit this note</button>{!!n.history?.length&&<details><summary>Previous versions</summary>{n.history.map((h,i)=><p key={i}>{h.updatedAt} · {h.text||"Empty note"}</p>)}</details>}{n.conflicts?.map(text=><div className="context-note" key={text}><strong>Workbook version differs</strong><p>{text}</p><button type="button" className="secondary-button" onClick={()=>{if(resolveExerciseNote(session.planId,n.id!,text,true)){setEditingId(n.id);setDraft(text);}}}>Use workbook version</button><button type="button" className="secondary-button" onClick={()=>resolveExerciseNote(session.planId,n.id!,text,false)}>Keep my version</button></div>)}</article>)}
+        {!!notes.length&&<button type="button" className="inline-action" onClick={()=>{setAdding(true);setEditingId(undefined);setDraft("");}}>Add another note</button>}
+        <label className="date-field"><span>EXERCISE NOTE</span><textarea value={draft} onChange={(event) => { setDraft(event.target.value); setNoteMessage(""); }} maxLength={1000} rows={5} placeholder="Seat position, grip, or a reminder for next time" /></label><div className="detail-note-actions"><button type="button" className="primary-button" onClick={() => saveNote(draft)}>Save note</button>{currentNote && <button type="button" className="secondary-button" onClick={() => saveNote("")}>Remove note</button>}</div><Link href="/source/" className="inline-action">{excelPlan?"Source sync & Excel export →":"Source connection →"}</Link>{noteMessage && <p role="status" className="quiet-note">{noteMessage}</p>}
+      </>}
     </div>
   </div>;
 }

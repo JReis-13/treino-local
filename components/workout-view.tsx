@@ -212,7 +212,7 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
       const state = ownSession.blocks.find((item) => item.blockId === block.id);
       return <BlockCard sessionId={ownSession.id} key={block.id} block={block} index={blocks.findIndex((item) => item.id === block.id)} completed={false} skipped={false} actualLoad={state?.actualLoad} currentPlanLoad={currentPlanLoad(block)} planChanged={planChanged}
         previousLoad={block.kind === "exercise" ? lastUsedLoad(data, plan.id, block.id) : undefined}
-        note={block.kind === "exercise" ? exerciseNote(data, plan.id, block.name) : undefined}
+        note={block.kind === "exercise" ? exerciseNote(data, plan.id, block.name, ownSession.workoutId, block.id) : undefined}
         restSuggestion={block.kind === "exercise" && block.section !== "Warm-up" ? restSuggestion : undefined}
         timerActive={data.restTimer?.sessionId === ownSession.id}
         onComplete={(load) => complete(block.id, false, load)}
@@ -224,7 +224,7 @@ export function WorkoutView({ workoutId }: { workoutId?: string }) {
     {otherBlocks.length > 0 && <section className="exercise-section"><div className="section-heading"><div><p className="eyebrow">YOUR PLAN</p><h2>Done, skipped & guidance</h2></div></div><div className="exercise-list">{otherBlocks.map((block) => {
       const state = ownSession.blocks.find((item) => item.blockId === block.id);
       return <BlockCard sessionId={ownSession.id} key={block.id} block={block} index={blocks.findIndex((item) => item.id === block.id)} completed={state?.completed ?? false} skipped={state?.skipped ?? false} actualLoad={state?.actualLoad} currentPlanLoad={currentPlanLoad(block)} planChanged={planChanged}
-        previousLoad={block.kind === "exercise" ? lastUsedLoad(data, plan.id, block.id) : undefined} note={block.kind === "exercise" ? exerciseNote(data, plan.id, block.name) : undefined} restSuggestion={block.kind === "exercise" && block.section !== "Warm-up" ? restSuggestion : undefined}
+        previousLoad={block.kind === "exercise" ? lastUsedLoad(data, plan.id, block.id) : undefined} note={block.kind === "exercise" ? exerciseNote(data, plan.id, block.name, ownSession.workoutId, block.id) : undefined} restSuggestion={block.kind === "exercise" && block.section !== "Warm-up" ? restSuggestion : undefined}
         timerActive={data.restTimer?.sessionId === ownSession.id} onComplete={(load) => complete(block.id, state?.completed ?? false, load)}
         onLoad={(actualLoad) => updateBlock(ownSession.id, block.id, { actualLoad })} onDetails={(opener) => openDetail(block.id, false, opener)} onNotes={(opener) => openDetail(block.id, false, opener, true)}
         onStartRest={() => startRestTimer(ownSession.id, restSuggestion!.seconds)} onLater={() => doLater(block.id)} onSkip={(opener) => askSkip(block.id, opener)} onUndoSkip={() => skipBlock(ownSession.id, block.id, false)} />;

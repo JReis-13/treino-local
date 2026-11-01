@@ -30,6 +30,21 @@ function session(id: string, date: string, receiptSlot?: string): TrainingSessio
       workoutId: "B", slot: receiptSlot, syncedAt: `${date}T08:42:00Z` } } : {}) };
 }
 
+test("explicit reviewed update accepts legitimate same-Sheet exercise changes while automatic and different-Sheet paths stay strict",()=>{
+ const data=addTraining(emptyTrainingData(),source(9),undefined,undefined,"plan");
+ data.sessions.push(session("saved","2026-09-01","E5"));
+ const next=source(9);next.sourceFingerprint="abcdef12";next.workouts=[{...workout,blocks:[{...workout.blocks[0],name:"Updated exercise"}]}];
+ assert.throws(()=>refreshTraining(data,"plan",next),/identity or structure/);
+ const reviewed=refreshTraining(data,"plan",next,undefined,true);
+ assert.equal(reviewed.plans[0].workouts[0].blocks[0].kind==="exercise"&&reviewed.plans[0].workouts[0].blocks[0].name,"Updated exercise");
+ assert.equal(JSON.stringify(reviewed.sessions),JSON.stringify(data.sessions));
+ assert.equal(reviewed.plans[0].legacyCompletions.length,9);
+ const foreign=structuredClone(next);if(foreign.source.kind==="google")foreign.source.spreadsheetId="anotherSyntheticSheet123456";
+ assert.throws(()=>refreshTraining(data,"plan",foreign,undefined,true),/identity or structure/);
+ const unsafe=structuredClone(next);unsafe.warnings=[{code:"mapping",location:"A",message:"Unknown mapping",severity:"syncBlocker"}];
+ assert.throws(()=>refreshTraining(data,"plan",unsafe,undefined,true),/identity or structure/);
+});
+
 test("verified 30-to-8 source refresh archives deleted occurrences and detailed sessions without double counting", () => {
   let data = addTraining(emptyTrainingData(), source(30), undefined, "2026-10-01T00:00:00Z", "plan");
   const linked = session("linked", "2026-09-20", "E24");

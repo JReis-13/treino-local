@@ -1,5 +1,7 @@
 import JSZip from "jszip";
 import { XMLParser } from "fast-xml-parser";
+import { readAnnotations } from "@/lib/import/xlsx-annotations";
+import type { ExcelAnnotation, ExcelNoteContribution } from "@/types/training";
 
 type Node = Record<string, unknown>;
 const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_", removeNSPrefix: true,
@@ -23,6 +25,9 @@ export interface SourceSheet {
   sheetId?: number;
   path?: string;
   cells: Record<string, SourceCell>;
+  annotations?: ExcelAnnotation[];
+  noteContributions?: ExcelNoteContribution[];
+  annotationIssues?: string[];
 }
 export interface SourceSnapshot { sheets: SourceSheet[]; }
 export const cell = (sheet: SourceSheet, ref: string): SourceCell | undefined => sheet.cells[ref];
@@ -129,7 +134,11 @@ export async function snapshotFromXlsx(bytes: Uint8Array): Promise<SourceSnapsho
         cells[ref] = { ref, raw, displayed: value, rawType, numberFormat: format, formula: node.f === undefined ? undefined : String(node.f), hyperlink: hyperlinks.get(ref) };
       }
     }
-    sheets.push({ name, sheetId: Number(attribute(sheetNode, "sheetId")), path, cells });
+    const annotations=await readAnnotations(zip,name,path);
+    sheets.push({ name, sheetId: Number(attribute(sheetNode, "sheetId")), path, cells,
+      ...(annotations.annotations.length?{annotations:annotations.annotations}:{}),
+      ...(annotations.contributions.length?{noteContributions:annotations.contributions}:{}),
+      ...(annotations.issues.length?{annotationIssues:annotations.issues}:{}) });
   }
   return { sheets };
 }

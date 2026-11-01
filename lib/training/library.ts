@@ -1,6 +1,7 @@
 import type { ImportedTraining, TrainingData, TrainingPlanRecord } from "@/types/training";
 import { preserveWorkoutLineage } from "@/lib/training/identity";
 import { assertUsableImport } from "@/lib/import/validation";
+import { reconcileNotes } from "@/lib/training/annotation-notes";
 
 function id(): string { return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 
@@ -9,12 +10,15 @@ export function addTraining(data: TrainingData, imported: ImportedTraining, name
   const plan: TrainingPlanRecord = {
     id: planId, name: name?.trim() || imported.name, source: imported.source, sourceFingerprint: imported.sourceFingerprint,
     version: 1, importedAt: now, updatedAt: now, workouts: preserveWorkoutLineage([], imported.workouts),
-    importWarnings: imported.warnings, legacyCompletions: imported.legacyCompletions,
+    importWarnings: imported.warnings, legacyCompletions: imported.legacyCompletions, excelAnnotations:imported.excelAnnotations,
   };
-  return { ...data, plans: [...data.plans, plan], activePlanId: plan.id };
+  return reconcileNotes({ ...data, plans: [...data.plans, plan], activePlanId: plan.id },plan.id,imported);
 }
 
-export function refreshTraining(data: TrainingData, planId: string, imported: ImportedTraining, now = new Date().toISOString()): TrainingData {
+export function refreshTraining(data: TrainingData, planId: string, imported: ImportedTraining, now = new Date().toISOString(), reviewedSourceChange=false): TrainingData {
+  return reconcileNotes(refreshTrainingCore(data,planId,imported,now,reviewedSourceChange),planId,imported,data.plans.find(p=>p.id===planId));
+}
+function refreshTrainingCore(data: TrainingData, planId: string, imported: ImportedTraining, now:string, reviewedSourceChange:boolean): TrainingData {
   assertUsableImport(imported);
   const old = data.plans.find((plan) => plan.id === planId);
   if (!old) throw new Error("Training plan not found.");
@@ -23,7 +27,7 @@ export function refreshTraining(data: TrainingData, planId: string, imported: Im
     old.source.authMode === "oauth" && imported.source.authMode === "oauth" &&
     Boolean(old.source.spreadsheetId && old.source.spreadsheetId === imported.source.spreadsheetId &&
       imported.source.sourceProof &&
-      [imported.sourceFingerprint, imported.legacyFingerprint].includes(old.sourceFingerprint ?? "") &&
+      (reviewedSourceChange || [imported.sourceFingerprint, imported.legacyFingerprint].includes(old.sourceFingerprint ?? "")) &&
       !imported.warnings.some((warning) => ["syncBlocker", "activationBlocker"].includes(warning.severity)));
   if (old.source.kind === "google" && old.source.authMode === "oauth" &&
       imported.source.kind === "google" && imported.source.sourceProof &&

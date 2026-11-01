@@ -1,0 +1,35 @@
+# Excel comments and personal exercise notes
+
+## Investigation and scope
+
+The supplied November workbook was tested read-only: it parses as two workouts with 24 exercises and ten modern comments, with legacy compatibility renderings, VML and a person list. It produces no activation blocker. The screenshot instead shows the Google plan refresh guard rejecting a changed structure fingerprint after a reviewed exercise change. Explicit **Update this training** now permits a server-read, reviewed update for the same Google spreadsheet ID and fresh source proof. Automatic refresh/write checks, different-Sheet rejection, mapping blockers and server authorization are unchanged. Completed snapshots are not rewritten.
+
+The user-provided diagnostic was requested through the existing read-only lookup, which returned not found or expired. No report contents were available. Do not claim an Excel parser crash or infer further phone state from that lookup.
+
+## Read and mapping
+
+`lib/import/xlsx-annotations.ts` reads related legacy notes, modern roots/replies and the workbook person list. Author/date fields are preserved when present. It recognizes Excel's `tc={thread ID}` legacy compatibility author so a modern thread is displayed once. Genuine legacy comments are retained alongside native comments. Annotation formatting/metadata errors produce import warnings, not silently missing exercises. Unrelated comments stay in the workbook and plan's annotation archive; they are not assigned to arbitrary exercises.
+
+The template parser associates the current comment cell with the current exercise-name, prescription, equipment, mapped load or corresponding video field. Shared group cells are labeled shared, rather than guessed to belong to one member. Personal notes use a stable contribution GUID plus plan/workout scope and normalized exact exercise name/equipment. Export resolves that identity against the newly parsed workbook, not just the previous row. Reordering supported rows and moving comments with their exercise retain identity. Indistinguishable duplicates, unsupported inserted-row layouts, worksheet renames and removed/renamed exercises require review; export refuses ambiguous destinations.
+
+## Private state and conflicts
+
+Existing `exerciseNotes` entries remain readable. New entries add optional GUID, workout scope, identity, creation time, previous versions and generated-copy receipt. No destructive storage reset or schema-version change is required. A unique legacy name-only note can be upgraded when exporting; ambiguous older notes require saving from the intended Exercise Details. Instructor source versions are separate `sourceNotes`/`excelAnnotations`, with earlier text retained on refresh. Session notes and completed workout snapshots are unchanged.
+
+Reimport merges managed contributions by ID. A local edit is retained when the workbook still contains the last exported version. If both versions differ, both remain visible and export pauses until **Use workbook version** or **Keep my version**. Prior personal versions remain locally available. No notes, authors, manifest contents or workbook data are added to diagnostics or uploaded by the Excel workflow.
+
+## Targeted round-trip export
+
+`lib/sync/xlsx-notes.ts` patches specific OOXML parts. Existing native threads receive a genuine reply with a separate `User (Treino Local)` person. Editing updates only that app-owned contribution. Legacy notes keep the original rich text and append an attributed, GUID-delimited contribution; editing replaces that managed segment. Unannotated cells receive legacy comment/relationship/VML parts. A private custom XML manifest, related from WorkbookPart, records stable ownership and revision metadata. Removing that metadata cannot authorize overwriting somebody else's comment.
+
+Date/load exports include saved exercise notes. **Source sync → Export updated Excel with notes** also works without a completed session and always downloads a new copy. A generated-copy receipt means included in the generated output, not saved to the original file or confirmed on a phone. Local metadata is persisted before download; failed persistence prevents the download. Reconnect the latest downloaded copy before subsequent edits/exports. Direct source updates retain their existing permission, unchanged-file and readback checks.
+
+Untouched ZIP entries are compared byte-for-byte. Worksheet cell values/formulas/styles are compared before/after. The output is reopened, CRC-checked and every personal contribution read back. The existing date/load preservation guards remain separate. Microsoft documents the [threaded comment schema](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-xlsx/adb84732-9fc8-48b6-bddc-6b0bcdaad940) and [WorkbookPart custom XML relationship](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.packaging.workbookpart.customxmlparts).
+
+## Verification and limits
+
+`tests/annotation-fixture.ts` produces disposable synthetic legacy/native/mixed packages from the existing synthetic workbook. `tests/xlsx-annotations.test.ts` covers no comments, shared fields, replies, unrelated comments, multiple worksheets, repeated import/export, edits, conflicts, row moves, duplicate identities, new comment/VML parts, Unicode, malformed metadata, interrupted sessions and History preservation. An independent Python 3 XML/package inspector checks syntax, relationship targets, author/parent identities and terminal thread extension ordering. These tests need `python` on Windows or `python3` elsewhere, without adding an application dependency. `WORKBOOK_COMMENT_FIXTURE` opts into an additional read-only private-workbook test with a before/after hash check.
+
+`e2e/excel-notes.spec.ts` covers the real import → instructor visible → save personal note → export → edit → offline reload → export → clean-context reimport journey, plus reviewed Google updates and diagnostic privacy. Screenshots are captured at 320 and 393 px. Other release gates follow [testing](testing.md).
+
+Excel/LibreOffice repair-warning validation was not completed. Desktop automation was stopped at the user's request; subsequent verification is entirely headless. Package checks do not establish native application interoperability or physical Android behavior. The exporter does not create a new native thread from scratch; it uses native replies where a thread exists and legacy notes otherwise. Native app-owned replies with newly added mention/extension metadata, malformed annotations and lost ownership metadata are preserved and require review rather than destructive repair. Removing an app note retains an empty managed contribution and its local version history. Google Drive threaded comments and Google note writeback are outside this Excel feature.

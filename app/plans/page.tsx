@@ -154,7 +154,7 @@ export default function PlansPage() {
       if (updateTargetId && preview.migration && preview.imported.source.kind === "google") {
         planId = migrateGooglePlan(updateTargetId, preview.imported) ? updateTargetId : null;
         if (planId) await removeConnectorKey(planId).catch(() => {});
-      } else planId = updateTargetId ? (refreshPlan(updateTargetId, preview.imported) ? updateTargetId : null) : addPlan(preview.imported, name);
+      } else planId = updateTargetId ? (refreshPlan(updateTargetId, preview.imported,true) ? updateTargetId : null) : addPlan(preview.imported, name);
       if (!planId) throw new Error("The training could not be saved locally.");
       if (preview.handle) await saveFileHandle(planId, preview.handle).catch(() => setMessage("File handle could not be remembered. Reconnect when syncing."));
       setActivePlan(planId); setPreview(null); setMigrationId(undefined); sessionStorage.removeItem("treino-google-migration-id");

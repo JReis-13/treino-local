@@ -1,5 +1,7 @@
 # Excel adapter decision and write safety
 
+For current cell-comment import, instructor attribution, personal-note ownership and targeted round-trip export, see [Excel exercise notes](excel-notes.md).
+
 ## Safe-copy verification and current loads
 
 Excel has one current load field per logical exercise. When several pending sessions changed that field, export projects the latest completed, safely associated session value. Reconnecting verifies that value; earlier session values remain unchanged in local History. An earlier superseded load operation becomes `notApplicable` only after the later target is read back. Date receipts alone never confirm unresolved load operations.

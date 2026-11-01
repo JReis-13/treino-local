@@ -206,19 +206,41 @@ export function parseTrainingSnapshot(snapshot: SourceSnapshot, source: Training
     }
   }
   if (!workouts.length) throw new Error(`No usable workouts were found. ${layoutGuidance(snapshot)}`);
+  const excelAnnotations=snapshot.sheets.flatMap(sheet=>sheet.annotations??[]);
+  for(const sheet of snapshot.sheets) {
+    for(const issue of new Set(sheet.annotationIssues??[])) warn(warnings,issue,"Some Excel annotation metadata could not be read. Original workbook parts are preserved; review the comments in Excel.",sheet.name);
+    const workout=workouts.find(w=>w.id===sheet.name.replace(/^TREINO\s+/i,"").trim());
+    for(const annotation of sheet.annotations??[]) {
+      const row=annotation.cell.match(/\d+$/)?.[0],col=annotation.cell.replace(/\d+$/,"");
+      const rowBlocks=workout?.blocks.filter(b=>b.kind==="exercise"&&b.sourceCell===`E${row}`)??[];
+      const equipment= simple(display(sheet,"I25")).includes("equipamento")?"I":"J";
+      const videos=equipment==="I"?["J","K"]:["K","L","M"];
+      const matched=workout?.blocks.filter(b=>b.kind==="exercise"&&(b.sourceCell===annotation.cell||b.loadSource?.cell===annotation.cell||
+        (b.sourceCell===`E${row}`&&(["F",equipment].includes(col)||rowBlocks[videos.indexOf(col)]===b))));
+      if(!matched?.length) {warn(warnings,"annotation-unassigned","An Excel comment does not map uniquely to an exercise field; it remains preserved in the workbook.",`${sheet.name}!${annotation.cell}`,"info");continue;}
+      for(const block of matched) if(block.kind==="exercise") block.sourceNotes=[...(block.sourceNotes??[]),{...annotation,shared:matched.length>1}];
+    }
+  }
   const nextSource = source.kind === "builtin" ? source : { ...source, template: template ?? "unknown", mappings };
   const legacyWorkouts = workouts.map((workout) => ({ ...workout, blocks: workout.blocks.map((block) => {
     if (block.kind !== "exercise") return block;
-    const { loadSource: _loadSource, ...legacy } = block;
+    const { loadSource: _loadSource, sourceNotes: _sourceNotes, ...legacy } = block;
+    void _sourceNotes;
     void _loadSource;
     return legacy;
   }) }));
   const structureWorkouts = workouts.map((workout) => ({ ...workout, blocks: workout.blocks.map((block) => {
     if (block.kind !== "exercise") return block;
-    const { defaultLoad: _defaultLoad, ...structure } = block;
+    const { defaultLoad: _defaultLoad, sourceNotes: _sourceNotes, ...structure } = block;
+    void _sourceNotes;
     void _defaultLoad;
     return structure;
   }) }));
-  return { name, source: nextSource, sourceFingerprint: fingerprint({ workouts: structureWorkouts, mappings }),
-    legacyFingerprint: fingerprint({ workouts: legacyWorkouts, mappings }), workouts, warnings, legacyCompletions };
+  const sourceFingerprint=fingerprint({ workouts: structureWorkouts, mappings });
+  for(const annotation of excelAnnotations)annotation.workbookId??=sourceFingerprint;
+  for(const workout of workouts)for(const b of workout.blocks)if(b.kind==="exercise")for(const annotation of b.sourceNotes??[])annotation.workbookId??=sourceFingerprint;
+  return { name, source: nextSource, sourceFingerprint,
+    legacyFingerprint: fingerprint({ workouts: legacyWorkouts, mappings }), workouts, warnings, legacyCompletions,
+    ...(excelAnnotations.length?{excelAnnotations}:{}),
+    ...(snapshot.sheets.some(s=>s.noteContributions?.length)?{noteContributions:snapshot.sheets.flatMap(s=>s.noteContributions??[])}:{}) };
 }

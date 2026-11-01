@@ -15,6 +15,7 @@ import { completedSessionForDeletion, finalizeHistoryDeletion, finalizeLegacyHis
   restoreHiddenSourceDate, stageHistoryDeletion,
   stageLegacyHistoryDeletion, undoHistoryDeletion, undoLegacyHistoryDeletion } from "@/lib/training/history-delete";
 import { applyExcelSync, type ExcelPatch } from "@/lib/sync/excel-state";
+import { saveScopedNote, resolveNoteConflict, applyNoteUpdates } from "@/lib/training/annotation-notes";
 import { plannedCompletionSlot } from "@/lib/sync/logic";
 import { recordDiagnosticEvent } from "@/lib/diagnostic-log";
 import { loadDrafts, pruneLoadDrafts } from "@/lib/training/load-drafts";
@@ -38,14 +39,16 @@ interface AppContextValue {
   setFocus(sessionId: string, enabled: boolean, blockId?: string): void;
   correctSessionLoad(sessionId: string, blockId: string, load: string): boolean;
   finish(sessionId: string, localDate: string, choice?: "normal" | "add" | "replace", replaceId?: string, note?: string): TrainingSession | null;
-  saveExerciseNote(planId: string, exerciseName: string, note: string): boolean;
+  saveExerciseNote(planId: string, exerciseName: string, note: string, context?: {workoutId:string;blockId:string;id?:string}): boolean;
+  resolveExerciseNote(planId:string,id:string,text:string,useWorkbook:boolean):boolean;
+  commitNoteExport(planId:string,notes:import("@/types/training").ExerciseNote[]):boolean;
   startRestTimer(sessionId: string, seconds: number): boolean;
   pauseRestTimer(): boolean;
   resumeRestTimer(): boolean;
   extendRestTimer(seconds: number): boolean;
   skipRestTimer(): boolean;
   addPlan(imported: ImportedTraining, name?: string): string | null;
-  refreshPlan(planId: string, imported: ImportedTraining): boolean;
+  refreshPlan(planId: string, imported: ImportedTraining, reviewedSourceChange?:boolean): boolean;
   migrateGooglePlan(planId: string, imported: ImportedTraining): boolean;
   setActivePlan(planId: string): boolean;
   renamePlan(planId: string, name: string): boolean;
@@ -53,7 +56,7 @@ interface AppContextValue {
   updateSource(planId: string, source: TrainingSource): boolean;
   setSyncStatus(sessionIds: string[], status: SourceSyncStatus, message?: string): void;
   setSessionSync(sessionId: string, patch: Partial<TrainingSession>): void;
-  commitExcelSync(planId: string, patches: ExcelPatch[], imported?: ImportedTraining, connection?: { filename: string; mode: "copy" | "direct" }): boolean;
+  commitExcelSync(planId: string, patches: ExcelPatch[], imported?: ImportedTraining, connection?: { filename: string; mode: "copy" | "direct" },notes?:import("@/types/training").ExerciseNote[]): boolean;
   applySourceLoads(planId: string, imported: ImportedTraining): void;
   restoreData(restored: TrainingData): boolean;
   clearError(): void;
@@ -235,9 +238,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [commit]);
-  const commitExcelSync = useCallback((planId: string, patches: ExcelPatch[], imported?: ImportedTraining, connection?: { filename: string; mode: "copy" | "direct" }) => {
+  const commitExcelSync = useCallback((planId: string, patches: ExcelPatch[], imported?: ImportedTraining, connection?: { filename: string; mode: "copy" | "direct" },notes:import("@/types/training").ExerciseNote[]=[]) => {
     const previous = dataRef.current;
-    const saved = commit(current => applyExcelSync(current, planId, patches, imported, connection));
+    const saved = commit(current => applyNoteUpdates(applyExcelSync(current, planId, patches, imported, connection),planId,notes));
     if (saved) for (const { sessionId, patch } of patches) for (const operation of ["completion", "load"] as const) {
       const key = operation === "completion" ? "completionSyncStatus" : "loadSyncStatus";
       const status = patch[key];
@@ -262,8 +265,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }) };
     }) }));
   }, [commit]);
-  const saveExerciseNote = useCallback((planId: string, exerciseName: string, note: string) =>
-    commit((current) => updateExerciseNote(current, planId, exerciseName, note)), [commit]);
+  const saveExerciseNote = useCallback((planId: string, exerciseName: string, note: string, context?:{workoutId:string;blockId:string;id?:string}) =>
+    commit((current) => context?saveScopedNote(current,planId,context.workoutId,context.blockId,note,context.id):updateExerciseNote(current, planId, exerciseName, note)), [commit]);
+  const resolveExerciseNote=useCallback((planId:string,id:string,text:string,useWorkbook:boolean)=>commit(current=>resolveNoteConflict(current,id,planId,text,useWorkbook)),[commit]);
+  const commitNoteExport=useCallback((planId:string,notes:import("@/types/training").ExerciseNote[])=>commit(current=>applyNoteUpdates(current,planId,notes)),[commit]);
   const startRestTimer = useCallback((sessionId: string, seconds: number) =>
     commit((current) => startRest(current, sessionId, seconds)), [commit]);
   const pauseRestTimer = useCallback(() => commit((current) => pauseRest(current)), [commit]);
@@ -479,8 +484,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     recordDiagnosticEvent("exercise_load_mapping_completed", { source: imported.source.kind, reason: "OK" });
     return id;
   }, [commit]);
-  const refreshPlan = useCallback((planId: string, imported: ImportedTraining) => {
-    const saved = commit((current) => refreshTraining(current, planId, imported));
+  const refreshPlan = useCallback((planId: string, imported: ImportedTraining, reviewedSourceChange=false) => {
+    const saved = commit((current) => refreshTraining(current, planId, imported,undefined,reviewedSourceChange));
     if (saved) { recordDiagnosticEvent("plan_refreshed", { source: imported.source.kind, reason: "OK" });
       recordDiagnosticEvent("exercise_load_mapping_completed", { source: imported.source.kind, reason: "OK" }); }
     return saved;
@@ -522,7 +527,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return <AppContext.Provider value={{ data, error, start, cancel, deleteSession, undoSessionDeletion, deleteLegacy, undoLegacyDeletion,
     restoreSourceDate, keepSourceDateHidden, updateBlock, moveBlockLater, restoreQueue, skipBlock, setFocus, correctSessionLoad, finish,
-    saveExerciseNote, startRestTimer, pauseRestTimer, resumeRestTimer, extendRestTimer, skipRestTimer,
+    saveExerciseNote, resolveExerciseNote, commitNoteExport, startRestTimer, pauseRestTimer, resumeRestTimer, extendRestTimer, skipRestTimer,
     addPlan, refreshPlan, migrateGooglePlan,
     setActivePlan, renamePlan, removePlan, updateSource, setSyncStatus, setSessionSync, commitExcelSync, applySourceLoads,
     restoreData, clearError: () => setError(null) }}>{children}</AppContext.Provider>;

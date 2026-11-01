@@ -15,6 +15,7 @@ import { plannedCompletionSlot, sessionsWaitingForSource } from "@/lib/sync/logi
 import { applyExcelSync, excelPreparedPatches, verifyExcelCopy } from "@/lib/sync/excel-state";
 import { completionState, loadState } from "@/lib/training/sync-state";
 import { prepareXlsxSync } from "@/lib/sync/xlsx";
+import { exportExerciseNotes } from "@/lib/sync/xlsx-notes";
 import { activePlan } from "@/lib/training/session";
 import { changedLoads, sameSourceLoadAssociation } from "@/lib/training/loads";
 import type { TrainingSession } from "@/types/training";
@@ -44,7 +45,7 @@ async function workbookId(bytes: Uint8Array) {
 }
 
 export default function SourcePage() {
-  const { data, error, commitExcelSync, setSyncStatus, setSessionSync, applySourceLoads } = useApp();
+  const { data, error, commitExcelSync, commitNoteExport, setSyncStatus, setSessionSync, applySourceLoads } = useApp();
   const inputRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<SelectedFile | null>(null);
   const [busy, setBusy] = useState(false);
@@ -124,6 +125,8 @@ export default function SourcePage() {
           await handle.requestPermission({ mode: "readwrite" }) !== "granted") throw new Error("Write permission was not granted. Reconnect or use a safe copy.");
       const sourceBytes = handle ? new Uint8Array(await (await handle.getFile()).arrayBuffer()) : selected.bytes;
       const prepared = await prepareXlsxSync(sourceBytes, plan!, pending, data!.sessions);
+      const noteExport=await exportExerciseNotes(prepared.bytes??sourceBytes,plan!,data!);
+      if(noteExport.updates.length)prepared.bytes=noteExport.bytes;
       if (!prepared.bytes) {
         const imported = parseTrainingSnapshot(await snapshotFromXlsx(sourceBytes), plan!.source, plan!.name);
         const unchangedId = await workbookId(sourceBytes);
@@ -133,7 +136,7 @@ export default function SourcePage() {
         setMessage("Workbook checked without writing. Dates and loads are listed separately below; review any remaining issues."); return;
       }
       const patches = excelPreparedPatches(plan!, data!.sessions, prepared.outcomes, prepared.loadOutcomes, await workbookId(prepared.bytes));
-      if (!commitExcelSync(plan!.id, patches)) throw new Error("Could not remember the prepared updates. No workbook was downloaded or written.");
+      if (!commitExcelSync(plan!.id, patches,undefined,undefined,noteExport.updates)) throw new Error("Could not remember the prepared updates. No workbook was downloaded or written.");
       const staged = applyExcelSync(data!, plan!.id, patches);
       if (handle) {
         if (await handle.queryPermission({ mode: "readwrite" }) !== "granted") throw new Error("Write permission expired. Reconnect and try again.");
@@ -157,6 +160,20 @@ export default function SourcePage() {
       const text = cause instanceof Error ? cause.message : "Excel sync failed.";
       setMessage(text);
     } finally { setBusy(false); }
+  }
+
+  async function exportNotesCopy() {
+    if(!selected||!plan||!data)return;
+    setBusy(true);setMessage("Preparing exercise notes in a new Excel copy…");
+    try {
+      const bytes=selected.handle?new Uint8Array(await (await selected.handle.getFile()).arrayBuffer()):selected.bytes;
+      const result=await exportExerciseNotes(bytes,plan,data);
+      if(!result.updates.length)throw new Error("Save a personal exercise note in Exercise Details first.");
+      if(!commitNoteExport(plan.id,result.updates))throw new Error("Could not remember the exported versions. No copy was downloaded.");
+      download(result.bytes,selected.filename);
+      setMessage(`${result.updates.length} personal note(s) included in the generated Excel copy. Instructor comments are preserved. Save the downloaded file; the original was not overwritten.`);
+    } catch(cause){setMessage(cause instanceof Error?cause.message:"Could not export exercise notes. Existing notes remain saved.");}
+    finally{setBusy(false);}
   }
 
   async function validateGoogle() {
@@ -317,11 +334,12 @@ export default function SourcePage() {
       {plan.source.kind === "builtin" && <Link className="secondary-button" href="/plans/">Import or connect training →</Link>}
     </section>
     <input ref={inputRef} type="file" className="sr-only" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { const file = event.target.files?.[0]; if (file) void validateExcel(file); else setMessage("File selection cancelled."); event.target.value = ""; }} />
-    {plan.source.kind === "excel" && <p className="context-note" role="status">{excelCompleted.length} session(s) saved on this device · {verifiedDates} workbook date(s) verified · {verifiedLoadCells} current load update(s) verified.{historicalLoads > 0 ? " Earlier loads remain in local History; the workbook uses later recorded values." : ""} Notes stay local.</p>}
+    {plan.source.kind === "excel" && <p className="context-note" role="status">{excelCompleted.length} session(s) saved on this device · {verifiedDates} workbook date(s) verified · {verifiedLoadCells} current load update(s) verified.{historicalLoads > 0 ? " Earlier loads remain in local History; the workbook uses later recorded values." : ""} Session notes stay local. Exercise notes can be exported below.</p>}
     <section className="sync-panel"><div className="section-heading"><div><p className="eyebrow">LOCAL SESSIONS</p><h2>{pending.length ? "Source updates" : "Source up to date"}</h2></div><span className="section-count">{pending.length} PENDING</span></div>{pending.length ? <div className="pending-list">{pending.map((session: TrainingSession) => <div key={session.id}><span className="pending-letter">{session.workoutId.slice(0, 1)}</span><span><strong>{session.workoutSnapshot.title}</strong><small>{formatLocalDate(session.localDate!)} · {plan.source.kind === "excel" ? `Date: ${completionState(session) === "synced" ? "verified" : completionState(session) === "conflict" ? "needs attention" : session.preparedCompletionSlot ? "waiting for downloaded copy" : "pending export"} · Loads: ${loadState(session) === "notApplicable" ? "no update required" : loadState(session) === "synced" ? "verified" : loadState(session) === "conflict" ? "needs attention" : session.excelSync ? "waiting for verification" : "pending export"}` : session.syncMessage ?? "Stored locally"}</small>{plan.source.kind === "excel" && session.syncMessage && <small>{session.syncMessage}</small>}</span></div>)}</div> : <p className="quiet-note">No local workouts are waiting for source sync.</p>}
       {plan.source.kind === "excel" && <button type="button" className="primary-button" aria-describedby="source-next-step" disabled={busy || !selected || !pending.length || syncBlocked || waitingCopy || loadReviewOnly} onClick={() => void syncExcel()}>{busy ? "Checking workbook…" : selected?.mode === "direct" ? "Sync pending workouts" : "Save updated workbook copy"} →</button>}
       {plan.source.kind === "google" && plan.source.authMode === "oauth" && <button type="button" className="primary-button" aria-describedby="source-next-step" disabled={busy || !googleConnected || !plan.source.syncEnabled || !pending.length || syncBlocked} onClick={() => void syncGoogle()}>{busy ? "Checking Google Sheet…" : "Sync pending workouts"} →</button>}
       {plan.source.kind !== "builtin" && <p className="quiet-note" id="source-next-step" role="status">{nextStep}</p>}
       <p className="quiet-note">{plan.source.kind === "excel" && selected?.mode === "direct" ? "This selected file will be updated directly only after permission and readback checks." : plan.source.kind === "excel" ? "Safe-copy mode downloads a new file. Your selected file is not overwritten." : "Local sessions remain completed if Google is unavailable or sync fails."}</p></section>
+    {plan.source.kind==="excel"&&<section className="review-card"><h2>Exercise notes in Excel</h2><p>Instructor comments stay intact. Your notes are added as your own replies or attributed legacy notes. Session notes remain on this device.</p><button type="button" className="primary-button" disabled={busy||!selected} aria-describedby="notes-export-help" onClick={()=>void exportNotesCopy()}>Export updated Excel with notes →</button><p id="notes-export-help" className="quiet-note">{!selected?"Connect the latest workbook above, then export a new copy. The original file is never overwritten by this action.":"Downloads a new workbook with saved personal notes. Reconnect the latest copy before editing an already exported contribution."}</p></section>}
   </div>;
 }
