@@ -48,7 +48,8 @@ export class PwaUpdateManager {
   private disposed = false;
 
   constructor(private readonly container: ServiceWorkerContainer, private readonly reload: () => void,
-    private readonly onChange: (snapshot: UpdateSnapshot) => void = publish) {
+    private readonly onChange: (snapshot: UpdateSnapshot) => void = publish,
+    private readonly canApply:()=>boolean=()=>true) {
     this.originalController = container.controller;
     try { this.lastResult = sessionStorage.getItem("treino-local:pwa-last-result") ?? "none"; } catch { /* Optional diagnostic. */ }
     container.addEventListener("controllerchange", this.onControllerChange);
@@ -122,7 +123,7 @@ export class PwaUpdateManager {
   }
 
   async apply(): Promise<void> {
-    if (this.disposed || this.phase === "updating" || this.reloaded) return;
+    if (this.disposed || this.phase === "updating" || this.reloaded || !this.canApply()) return;
     if (!this.registration) {
       await this.start();
       if (!this.registration) return;
@@ -142,6 +143,7 @@ export class PwaUpdateManager {
       waiting = this.registration?.waiting;
       if (!waiting) { this.phase = "idle"; this.lastResult = "already current"; this.emit(); return; }
     }
+    if(!this.canApply()){this.reconcile();return;}
     this.requestedWorker = waiting;
     this.phase = "updating";
     this.lastResult = "activation requested";
@@ -164,6 +166,7 @@ export class PwaUpdateManager {
 
   private reloadOnce(): void {
     if (this.reloaded) return;
+    if(!this.canApply()){this.lastResult="reload deferred for local changes";this.emit();return;}
     this.reloaded = true;
     this.reload();
   }

@@ -449,3 +449,4 @@ button,a,summary{-webkit-tap-highlight-color:transparent}
 .excel-note p{white-space:pre-wrap}
 .excel-note small{display:block;line-height:1.5}
 .excel-note button{min-height:44px}
+.update-banner{flex-wrap:wrap}.update-banner>span{flex:1}.update-banner button{min-height:44px}.update-banner small{flex-basis:100%;font-weight:400}

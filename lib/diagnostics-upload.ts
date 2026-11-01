@@ -57,13 +57,13 @@ export function sanitizeDebugReport(input: unknown): Dict {
   if (source.debugReportVersion !== 1) throw new Error("Unsupported diagnostic report version.");
   const app = fields(source.app, { buildId, builtAt: iso, route: (v) => oneOf(v, ["/", "/settings", "/settings/", "/plans", "/plans/", "/workout", "/workout/", "/history", "/history/", "/source", "/source/", "other"]),
     installed: boolean, online: boolean, storageSchemaVersion: (v) => bounded(v, 20) });
-  const pwa = fields(source.pwa, { supported: boolean, controlled: boolean, controllerBuildId: buildId,
-    phase: (v) => oneOf(v, ["none", "idle", "checking", "waiting", "activating", "reloading", "error", "unknown"]),
+  const pwa = fields(source.pwa, { supported: boolean, controlled: boolean, controllerBuildId: buildId,waitingBuildId:buildId,activeBuildId:buildId,retainedDrafts:bounded,
+    phase: (v) => oneOf(v, ["none", "idle", "ready", "updating", "activated", "checking", "waiting", "activating", "reloading", "error", "unknown"]),
     registration: (v) => oneOf(v, ["none", "checking", "registered", "unavailable", "installing", "installed", "activating", "activated", "redundant", "waiting", "active", "controlled", "uncontrolled", "ready", "error", "idle", "updating", "unknown"]),
     installing: (v) => oneOf(v, ["none", "installing", "installed", "activating", "activated", "redundant", "unknown"]),
     waiting: (v) => oneOf(v, ["none", "waiting", "installed", "activated", "unknown"]),
     active: (v) => oneOf(v, ["none", "active", "activated", "controlled", "unknown"]),
-    lastUpdateResult: (v) => oneOf(v, ["none", "registration failed", "new controller; reloading", "another window activated update", "update check completed", "update check failed; will retry", "reloading with active update", "update check failed", "already current", "activation requested", "activation timed out", "activation request failed", "unknown"]), activeWorkout: boolean });
+    lastUpdateResult: (v) => oneOf(v, ["none", "registration failed", "new controller; reloading", "another window activated update", "update check completed", "update check failed; will retry", "reloading with active update", "update check failed", "already current", "activation requested", "activation timed out", "activation request failed", "reload deferred for local changes", "unknown"]), activeWorkout: boolean });
   const sourceState = fields(source.source, { kind: (v) => oneOf(v, ["none", "builtin", "excel", "google"]),
     completionSync: state, loadSync: state, aggregateSync: state, latestSessionSync: state,
     pendingSessions: bounded, historicalPendingSessions: bounded, receiptPresent: boolean,

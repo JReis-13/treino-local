@@ -49,8 +49,7 @@ async function safeSocialServer() {
       userReady: "unknown", autoShare: "unknown", friendCount: null };
   }
 }
-async function controllerBuildId(): Promise<string> {
-  const controller = navigator.serviceWorker?.controller;
+async function controllerBuildId(controller:ServiceWorker|null|undefined): Promise<string> {
   if (!controller) return "none";
   return new Promise((resolve) => {
     const channel = new MessageChannel();
@@ -65,8 +64,13 @@ async function controllerBuildId(): Promise<string> {
 }
 const pwaResults = new Set(["none", "registration failed", "new controller; reloading", "another window activated update",
   "update check completed", "update check failed; will retry", "reloading with active update", "update check failed",
-  "already current", "activation requested", "activation timed out", "activation request failed"]);
-function safePwa(value: string): string { return /^(none|checking|registered|unavailable|installing|installed|activating|activated|redundant|waiting|active|controlled|uncontrolled|ready|error|idle|updating)$/.test(value) ? value : "unknown"; }
+  "already current", "activation requested", "activation timed out", "activation request failed", "reload deferred for local changes"]);
+async function workerBuilds() {
+  const registration=await navigator.serviceWorker?.getRegistration?.().catch(()=>undefined);
+  const [controller,waiting,active]=await Promise.all([controllerBuildId(navigator.serviceWorker?.controller),controllerBuildId(registration?.waiting),controllerBuildId(registration?.active)]);
+  return {controller,waiting,active};
+}
+function safePwa(value: string): string { const state=value.split(" · ")[0];return /^(none|checking|registered|unavailable|installing|installed|activating|activated|redundant|waiting|active|controlled|uncontrolled|ready|error|idle|updating)$/.test(state) ? state : "unknown"; }
 const knownRoutes = new Set(["/", "/debug", "/settings", "/settings/friends", "/history", "/history/session",
   "/stats", "/plans", "/source", "/workout", "/finish", "/share", "/excel"]);
 const safeImporterWarningCodes = new Set(["completion-grid", "partial-rir", "uncertain-load", "formatted-load",
@@ -75,7 +79,7 @@ const safeImporterWarningCodes = new Set(["completion-grid", "partial-rir", "unc
 
 export async function collectDebugReport(data: TrainingData | null) {
   const [events, socialServer, controllerBuild, pushStatus, pushDevice, pushDiagnostics] = await Promise.all([
-    readDiagnosticLog(), safeSocialServer(), controllerBuildId(), getPushStatus().catch(() => null),
+    readDiagnosticLog(), safeSocialServer(), workerBuilds(), getPushStatus().catch(() => null),
     deviceSubscription().then(Boolean).catch(() => false), readPushDiagnostics()]);
   const socialLocal = readSocialDiagnostics();
   const activityAliases = new Map<string, string>();
@@ -102,9 +106,9 @@ export async function collectDebugReport(data: TrainingData | null) {
       installed: window.matchMedia("(display-mode: standalone)").matches, online: navigator.onLine,
       storageSchemaVersion: data?.schemaVersion ?? null },
     pwa: { supported: "serviceWorker" in navigator, controlled: Boolean(navigator.serviceWorker?.controller),
-      controllerBuildId: controllerBuild, phase: pwa.phase, registration: safePwa(pwa.registration),
+      controllerBuildId: controllerBuild.controller, waitingBuildId:controllerBuild.waiting, activeBuildId:controllerBuild.active, phase: pwa.phase, registration: safePwa(pwa.registration),
       installing: safePwa(pwa.installing), waiting: safePwa(pwa.waiting), active: safePwa(pwa.active),
-      lastUpdateResult: pwaResults.has(pwa.lastResult) ? pwa.lastResult : "unknown", activeWorkout: hasActiveWorkout(data) },
+      lastUpdateResult: pwaResults.has(pwa.lastResult) ? pwa.lastResult : "unknown", activeWorkout: hasActiveWorkout(data), retainedDrafts:(data?.sessions??[]).filter(s=>s.status==="inProgress").length-Number(hasActiveWorkout(data)) },
     identity: { ...safeSameDaySummary(data), activeSession: fingerprint(active?.id),
       activeSessionState: active ? "inProgress" : "none" },
     source: { kind: source, completionSync: latest?.completionSyncStatus ?? "none", loadSync: latest?.loadSyncStatus ?? "none",

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasActiveWorkout } from "../lib/training/active-workout";
+import { hasActiveWorkout, pwaUpdateBlocker } from "../lib/training/active-workout";
 import { PwaUpdateManager, updateBannerLabel, type UpdateSnapshot } from "../lib/pwa/update-manager";
 import { cancelTrainingSession, finishTrainingSession, startTrainingSession } from "../lib/training/session";
 import { emptyTrainingData } from "../lib/training/storage";
@@ -35,14 +35,14 @@ class Container extends EventTarget {
   }
   change(worker: Worker): void { this.controller = worker; this.dispatchEvent(new Event("controllerchange")); }
 }
-function setup(withController = true) {
+function setup(withController = true,canApply=()=>true) {
   const registration = new Registration();
   const container = new Container(registration);
   if (withController) container.controller = registration.active = new Worker("old");
   const snapshots: UpdateSnapshot[] = [];
   let reloads = 0;
   const manager = new PwaUpdateManager(container as unknown as ServiceWorkerContainer, () => reloads++,
-    (snapshot) => snapshots.push(snapshot));
+    (snapshot) => snapshots.push(snapshot),canApply);
   return { registration, container, manager, snapshots, reloads: () => reloads,
     phase: () => snapshots.at(-1)?.phase };
 }
@@ -163,13 +163,48 @@ function data(): TrainingData { return { ...emptyTrainingData(), plans: [plan], 
 test("only a resumable in-progress session defers updates; cancel and finish release it", () => {
   const started = startTrainingSession(data(), "plan", "workout", new Date("2026-10-04T08:00:00Z"), "session").data;
   assert.equal(hasActiveWorkout(started), true);
-  assert.equal(hasActiveWorkout({ ...started, activePlanId: undefined }), true);
+  assert.equal(hasActiveWorkout({ ...started, activePlanId: undefined }), false);
   assert.equal(hasActiveWorkout({ ...started, plans: [] }), false);
   assert.equal(hasActiveWorkout(cancelTrainingSession(started, "session")), false);
   const finished = finishTrainingSession(started, "session", "2026-10-04");
   assert.equal(hasActiveWorkout(finished), false);
   assert.equal(finished.sessions[0].status, "completed");
   assert.deepEqual(finished.plans, started.plans);
+});
+
+test("an inactive plan's saved draft cannot block the idle selected plan; switching back protects it without rewriting data",()=>{
+ const started=startTrainingSession(data(),"plan","workout",new Date("2026-10-04T08:00:00Z"),"session").data;
+ const other={...plan,id:"other"};const switched={...started,plans:[plan,other],activePlanId:"other"};
+ const snapshot=JSON.stringify(switched);
+ assert.equal(hasActiveWorkout(switched),false);
+ assert.equal(pwaUpdateBlocker(switched,"ready"),null);
+ assert.equal(hasActiveWorkout({...switched,activePlanId:"plan"}),true);
+ assert.equal(JSON.stringify(switched),snapshot);
+ assert.equal(hasActiveWorkout({...started,plans:[{...plan,workouts:[{...plan.workouts[0],id:"replacement"}]}]}),false);
+});
+
+test("local writes and failed saves block activation until durable completion; pending remote sync does not",()=>{
+ assert.equal(pwaUpdateBlocker(null,"ready"),"loading");
+ for(const state of ["loading","writing","failed"] as const)assert(pwaUpdateBlocker(data(),state));
+ assert.equal(pwaUpdateBlocker(data(),"ready"),null);
+ const completed=finishTrainingSession(startTrainingSession(data(),"plan","workout",new Date(),"S").data,"S","2026-11-01");
+ completed.sessions[0].syncStatus="pending";
+ assert.equal(pwaUpdateBlocker(completed,"ready"),null);
+});
+
+test("eligibility is checked again after asynchronous registration/update work and rapid clicks send only one activation",async()=>{
+ let safe=true;const x=setup(true,()=>safe);await x.manager.start();
+ const next=new Worker("next");x.registration.updateAction=()=>{safe=false;x.registration.waiting=next;};
+ await x.manager.apply();assert.equal(next.messages.length,0);assert.equal(x.reloads(),0);
+ safe=true;await Promise.all([x.manager.apply(),x.manager.apply()]);assert.deepEqual(next.messages,["SKIP_WAITING"]);
+ x.manager.dispose();
+});
+
+test("a workout or local save starting during activation defers reload until safe",async()=>{
+ let safe=true;const x=setup(true,()=>safe);await x.manager.start();const next=x.registration.waiting=new Worker("next");x.manager.reconcile();await x.manager.apply();
+ safe=false;x.registration.waiting=null;x.container.change(next);
+ assert.equal(x.phase(),"activated");assert.equal(x.reloads(),0);assert.equal(x.snapshots.at(-1)?.lastResult,"reload deferred for local changes");
+ safe=true;await x.manager.apply();assert.equal(x.reloads(),1);await x.manager.apply();assert.equal(x.reloads(),1);x.manager.dispose();
 });
 
 test("Home update copy depends on the live session, not selected plan or stale UI", () => {

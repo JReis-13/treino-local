@@ -110,3 +110,9 @@ test("private Excel export evidence and workbook content identifiers are never a
  const json=JSON.stringify(result);
  for(const secret of [proof.exportId,"PRIVATE_EXERCISE","99.875kg","PRIVATE_SESSION","excelSync"]) assert(!json.includes(secret));
 });
+
+test("PWA diagnostics allow real lifecycle states and bounded draft/build metadata without arbitrary data",()=>{
+ const report=sanitizeDebugReport({debugReportVersion:1,pwa:{phase:"ready",activeWorkout:false,retainedDrafts:1,waiting:"installed",active:"activated",waitingBuildId:"abcdef12-20261101T000001",activeBuildId:"https://private.invalid/secret",privateDraft:{name:"PRIVATE_WORKOUT"}}});
+ const pwa=report.pwa as Record<string,unknown>;assert.equal(pwa.phase,"ready");assert.equal(pwa.retainedDrafts,1);assert.equal(pwa.waitingBuildId,"abcdef12-20261101T000001");
+ const json=JSON.stringify(report);assert(!json.includes("PRIVATE_WORKOUT"));assert(!json.includes("private.invalid"));assert.equal(pwa.activeBuildId,undefined);
+});

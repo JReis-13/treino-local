@@ -8,7 +8,8 @@ import { normalizeLoad } from "@/lib/training/loads";
 import { completionState, loadState, withSyncStatus } from "@/lib/training/sync-state";
 import { updateExerciseNote } from "@/lib/training/exercise-notes";
 import { extendRest, pauseRest, resumeRest, skipRest, startRest } from "@/lib/training/rest-timer";
-import { trainingStorage } from "@/lib/training/storage";
+import { trainingStorage, TRAINING_STORAGE_KEY, parseTrainingData } from "@/lib/training/storage";
+import { hasActiveWorkout, pwaUpdateBlocker, type LocalWriteState } from "@/lib/training/active-workout";
 import { activateQueuedSocialDeletion, flushSocialOutbox, queueSocialActivity, queueSocialDeletion,
   reconcileQueuedSocialDeletions, refreshSocialPreference, undoQueuedSocialDeletion } from "@/lib/social/client";
 import { completedSessionForDeletion, finalizeHistoryDeletion, finalizeLegacyHistoryDeletion, keepHiddenSourceDate,
@@ -24,6 +25,8 @@ import type { ImportedTraining, SourceSyncStatus, TrainingData, TrainingPlanReco
 interface AppContextValue {
   data: TrainingData | null;
   error: string | null;
+  localWriteState:LocalWriteState;
+  canApplyPwaUpdate():boolean;
   start(planId: string, workoutId: string): TrainingSession | null;
   cancel(sessionId: string): boolean;
   deleteSession(sessionId: string): boolean;
@@ -66,6 +69,8 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<TrainingData | null>(null);
+  const [localWriteState,setLocalWriteState]=useState<LocalWriteState>("loading");
+  const writeState=useRef<LocalWriteState>("loading");
   useEffect(() => { if (data) pruneLoadDrafts(data.sessions.filter((session) => session.status === "inProgress")
     .map((session) => ({ id: session.id, blockIds: session.workoutSnapshot.blocks.map((block) => block.id),
       confirmed: Object.fromEntries(session.blocks.map((block) => [block.blockId, block.actualLoad])) }))); }, [data]);
@@ -85,6 +90,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ...(loaded.data.pendingHistoryDeletions ?? []).map((item) => item.session.id)]));
     dataRef.current = loaded.data;
     storageBlocked.current = Boolean(loaded.error);
+    writeState.current=loaded.error?"failed":"ready";setLocalWriteState(writeState.current);
     setData(loaded.data);
     if (loaded.error) setError(loaded.error);
     recordDiagnosticEvent("app_boot", { reason: loaded.error ? "STORAGE_ERROR" : "OK" });
@@ -105,18 +111,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setError("Saved data is invalid or storage is unavailable. Nothing was overwritten. See /debug for details.");
       return false;
     }
+    let next:TrainingData;
+    try { next=change(dataRef.current); }
+    catch(cause){setError(cause instanceof Error?cause.message:"Could not apply this change.");return false;}
     try {
-      const next = change(dataRef.current);
+      writeState.current="writing";setLocalWriteState("writing");
       trainingStorage.save(next);
       dataRef.current = next;
       setData(next);
       setError(null);
+      writeState.current="ready";setLocalWriteState("ready");
       return true;
     } catch (cause) {
+      writeState.current="failed";setLocalWriteState("failed");
       setError(cause instanceof Error ? cause.message : "Could not save local data.");
       return false;
     }
   }, []);
+
+  const canApplyPwaUpdate=useCallback(()=>{
+    if(pwaUpdateBlocker(dataRef.current,writeState.current)||storageBlocked.current)return false;
+    try {
+      const raw=localStorage.getItem(TRAINING_STORAGE_KEY);
+      if(raw===null) {
+        if(dataRef.current!.plans.length||dataRef.current!.sessions.length||dataRef.current!.exerciseNotes.length)throw new Error("Saved data is unavailable.");
+        return true;
+      }
+      // Read only: never overwrite another window's newer data in order to update.
+      if(hasActiveWorkout(parseTrainingData(raw)))return false;
+      return true;
+    }catch{
+      writeState.current="failed";setLocalWriteState("failed");
+      setError("Saved data could not be verified. Save or back up your changes before updating.");return false;
+    }
+  },[]);
 
   const start = useCallback((planId: string, workoutId: string) => {
     if (!dataRef.current) return null;
@@ -519,13 +547,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       trainingStorage.save(restored);
       dataRef.current = restored;
       storageBlocked.current = false;
+      writeState.current="ready";setLocalWriteState("ready");
       setData(restored);
       setError(null);
       return true;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not restore local data."); return false; }
   }, []);
 
-  return <AppContext.Provider value={{ data, error, start, cancel, deleteSession, undoSessionDeletion, deleteLegacy, undoLegacyDeletion,
+  return <AppContext.Provider value={{ data, error, localWriteState, canApplyPwaUpdate, start, cancel, deleteSession, undoSessionDeletion, deleteLegacy, undoLegacyDeletion,
     restoreSourceDate, keepSourceDateHidden, updateBlock, moveBlockLater, restoreQueue, skipBlock, setFocus, correctSessionLoad, finish,
     saveExerciseNote, resolveExerciseNote, commitNoteExport, startRestTimer, pauseRestTimer, resumeRestTimer, extendRestTimer, skipRestTimer,
     addPlan, refreshPlan, migrateGooglePlan,

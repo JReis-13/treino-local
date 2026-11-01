@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useApp } from "@/components/app-provider";
-import { hasActiveWorkout } from "@/lib/training/active-workout";
+import { pwaUpdateBlocker } from "@/lib/training/active-workout";
 import { getPwaUpdateSnapshot, PwaUpdateManager, subscribePwaUpdate, updateBannerLabel } from "@/lib/pwa/update-manager";
 
 const serverSnapshot = { phase: "idle", lastResult: "none", registration: "checking", controller: "none",
@@ -11,10 +11,12 @@ const serverSnapshot = { phase: "idle", lastResult: "none", registration: "check
 export function RegisterServiceWorker() {
   const [oldDevCache, setOldDevCache] = useState(false);
   const [online, setOnline] = useState(true);
+  const [updateMessage,setUpdateMessage]=useState("");
   const manager = useRef<PwaUpdateManager | null>(null);
   const update = useSyncExternalStore(subscribePwaUpdate, getPwaUpdateSnapshot, () => serverSnapshot);
-  const { data } = useApp();
-  const workoutInProgress = hasActiveWorkout(data);
+  const { data,localWriteState,canApplyPwaUpdate } = useApp();
+  const blocker=pwaUpdateBlocker(data,localWriteState);
+  const workoutInProgress = blocker==="active_workout";
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     if (process.env.NODE_ENV !== "production") {
@@ -27,7 +29,7 @@ export function RegisterServiceWorker() {
       }).catch(() => {});
       return;
     }
-    const instance = new PwaUpdateManager(navigator.serviceWorker, () => window.location.reload());
+    const instance = new PwaUpdateManager(navigator.serviceWorker, () => window.location.reload(),undefined,canApplyPwaUpdate);
     manager.current = instance;
     void instance.start();
     const check = () => { if (document.visibilityState === "visible") void instance.check(); };
@@ -44,14 +46,15 @@ export function RegisterServiceWorker() {
       window.removeEventListener("online", connected);
       window.removeEventListener("offline", disconnected);
     };
-  }, []);
+  }, [canApplyPwaUpdate]);
   if (oldDevCache) return <div className="update-banner" role="status"><span>Old development cache removed</span>
     <button type="button" onClick={() => window.location.reload()}>Reload</button></div>;
   if (update.phase === "idle") return null;
   const busy = update.phase === "updating";
-  const label = updateBannerLabel(update.phase, workoutInProgress, online);
+  const label = blocker==="local_write"?"Save local changes before updating":blocker==="loading"?"Checking saved data before updating…":updateBannerLabel(update.phase, workoutInProgress, online);
   return <div className="update-banner" role="status" aria-live="polite"><span>{label}</span>
-    {!workoutInProgress && <button type="button" disabled={busy || data === null}
-      onClick={() => void manager.current?.apply()}>{busy ? "Updating…" : update.phase === "error" ? "Retry" : "Update now"}</button>}
+    {!workoutInProgress && <button type="button" disabled={busy || blocker!==null}
+      onClick={() => {if(!canApplyPwaUpdate()){setUpdateMessage("Update paused. Check saved changes and any workout open in another window, then retry.");return;}setUpdateMessage("");void manager.current?.apply();}}>{busy ? "Updating…" : update.phase === "error" ? "Retry" : "Update now"}</button>}
+    {updateMessage&&<small>{updateMessage}</small>}
   </div>;
 }
