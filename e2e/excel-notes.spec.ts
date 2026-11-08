@@ -98,3 +98,25 @@ test("reviewed same-Google-Sheet update accepts a legitimate changed exercise wi
  expect(stored.plans[0].workouts[0].blocks[0].name).toBe("Updated synthetic exercise");
  expect(stored.plans[0].legacyCompletions).toHaveLength(training.legacyCompletions.length);
 });
+
+test("a stale second window cannot overwrite a note saved in the first window", async ({ page, context }) => {
+  await mock(page);
+  await importFile(page, await annotatedFixture("legacy"));
+  await page.getByRole("button", { name: "Start workout", exact: true }).click();
+  const other = await context.newPage();
+  try {
+    await mock(other);
+    const first = await openNotes(page, "Nova Press");
+    const stale = await openNotes(other, "Nova Press");
+    await first.getByRole("textbox", { name: "EXERCISE NOTE" }).fill("Saved in first window");
+    await first.getByRole("button", { name: "Save note", exact: true }).click();
+    await expect(first.getByText("Note saved on this device.", { exact: true })).toBeVisible();
+    await stale.getByRole("textbox", { name: "EXERCISE NOTE" }).fill("Unsaved second window text");
+    await stale.getByRole("button", { name: "Save note", exact: true }).click();
+    await expect(stale.getByText(/Training data changed in another window/)).toBeVisible();
+    await expect(stale.getByRole("textbox", { name: "EXERCISE NOTE" })).toHaveValue("Unsaved second window text");
+    await expect((await openNotes(other, "Nova Press")).getByRole("textbox", { name: "EXERCISE NOTE" })).toHaveValue("Saved in first window");
+  } finally {
+    await other.close();
+  }
+});

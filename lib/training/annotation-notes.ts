@@ -2,6 +2,11 @@ import { exerciseKey } from "@/lib/training/exercise-notes";
 import type { ExerciseBlock, ExerciseNote, ImportedTraining, TrainingData, TrainingWorkout } from "@/types/training";
 
 export const noteIdentity=(block:ExerciseBlock)=>`${exerciseKey(block.name)}|${exerciseKey(block.equipment??"")}`;
+export function notesForExcelExport(data: TrainingData, planId: string) {
+  const notes = data.exerciseNotes.filter(note => note.planId === planId);
+  const scopedKeys = new Set(notes.filter(note => note.id && note.workoutId && note.identity).map(note => note.exerciseKey));
+  return notes.filter(note => (note.text || note.exported) && (note.id || !scopedKeys.has(note.exerciseKey)));
+}
 export function scopedNotes(data:TrainingData,planId:string,workout:TrainingWorkout,block:ExerciseBlock) {
   const identity=noteIdentity(block);
   if(workout.blocks.filter(b=>b.kind==="exercise"&&noteIdentity(b)===identity).length!==1) return [];
@@ -29,8 +34,9 @@ export function reconcileNotes(data:TrainingData,planId:string,imported:Imported
   for(const contribution of imported.noteContributions??[]) {
     const workout=imported.workouts.find(w=>imported.source.kind!=="builtin"&&imported.source.mappings[w.id]?.sheetName===contribution.sheet);
     const candidates=workout?.blocks.filter((b):b is ExerciseBlock=>b.kind==="exercise"&&noteIdentity(b)===contribution.identity)??[];
-    if(!workout||candidates.length!==1) continue;
+    if (!workout || candidates.length !== 1 || candidates[0].sourceCell !== contribution.cell) continue;
     const existing=notes.find(n=>n.planId===planId&&n.id===contribution.id);
+    if (existing && (existing.workoutId !== workout.id || existing.identity !== contribution.identity)) continue;
     const common={id:contribution.id,planId,workoutId:workout.id,identity:contribution.identity,exerciseKey:exerciseKey(candidates[0].name),createdAt:contribution.createdAt};
     if(!existing) notes.push({...common,text:contribution.text,updatedAt:contribution.updatedAt,exported:{text:contribution.text,updatedAt:contribution.updatedAt,generatedAt:contribution.updatedAt}});
     else if(existing.text===contribution.text) notes=notes.map(n=>n!==existing?n:{...n,exported:{text:contribution.text,updatedAt:contribution.updatedAt,generatedAt:contribution.updatedAt}});

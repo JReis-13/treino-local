@@ -224,8 +224,8 @@ export function migrateV1(raw: string, now = new Date().toISOString()): Training
 }
 
 export interface TrainingStorage {
-  load(): { data: TrainingData; error?: string; migrated?: boolean };
-  save(data: TrainingData): void;
+  load(): { data: TrainingData; raw: string | null; error?: string; migrated?: boolean };
+  save(data: TrainingData, expectedRaw?: string | null): string;
 }
 
 export const trainingStorage: TrainingStorage = {
@@ -234,17 +234,24 @@ export const trainingStorage: TrainingStorage = {
       const latest = localStorage.getItem(TRAINING_STORAGE_KEY);
       if (latest !== null) {
         const data = parseTrainingData(latest);
-        if (JSON.parse(latest).schemaVersion !== 5) localStorage.setItem(TRAINING_STORAGE_KEY, JSON.stringify(data));
-        return { data, migrated: JSON.parse(latest).schemaVersion !== 5 };
+        const migrated = JSON.parse(latest).schemaVersion !== 5;
+        const raw = migrated ? trainingStorage.save(data, latest) : latest;
+        return { data, raw, migrated };
       }
       const old = localStorage.getItem(OLD_KEY);
-      if (old === null) return { data: emptyTrainingData() };
+      if (old === null) return { data: emptyTrainingData(), raw: null };
       const migrated = migrateV1(old);
-      localStorage.setItem(TRAINING_STORAGE_KEY, JSON.stringify(migrated));
-      return { data: migrated, migrated: true };
+      return { data: migrated, raw: trainingStorage.save(migrated, null), migrated: true };
     } catch (error) {
-      return { data: emptyTrainingData(), error: error instanceof Error ? error.message : "Could not access local training data." };
+      return { data: emptyTrainingData(), raw: null, error: error instanceof Error ? error.message : "Could not access local training data." };
     }
   },
-  save(data) { localStorage.setItem(TRAINING_STORAGE_KEY, JSON.stringify(data)); },
+  save(data, expectedRaw) {
+    const raw = JSON.stringify(data);
+    if (expectedRaw !== undefined && localStorage.getItem(TRAINING_STORAGE_KEY) !== expectedRaw) {
+      throw new Error("Training data changed in another window. Copy any unsaved text, reload this window and try again.");
+    }
+    localStorage.setItem(TRAINING_STORAGE_KEY, raw);
+    return raw;
+  },
 };

@@ -3,7 +3,7 @@ import { snapshotFromXlsx } from "@/lib/import/snapshot";
 import { parseTrainingSnapshot } from "@/lib/import/template-parser";
 import { MANIFEST, MAIN, THREAD, REL, arr, attr, obj, parseXml, escaped as esc, readManifest, readAnnotations, relatedPath, relPath, legacySegment } from "@/lib/import/xlsx-annotations";
 import { exerciseKey } from "@/lib/training/exercise-notes";
-import { noteIdentity } from "@/lib/training/annotation-notes";
+import { noteIdentity, notesForExcelExport } from "@/lib/training/annotation-notes";
 import type { ExcelNoteContribution, ExerciseNote, TrainingData, TrainingPlanRecord } from "@/types/training";
 
 const PERSON="{64D688BE-A83C-4E55-A949-A353A6B5D2C1}";
@@ -25,10 +25,10 @@ const ends=(text:string,tag:string,addition:string)=>{
  const pattern=new RegExp(`</((?:[\\w.-]+:)?${tag})\\s*>`);
  if(!pattern.test(text)) {
   const empty=new RegExp(`<((?:[\\w.-]+:)?${tag})\\b([^>]*?)/>`);
-  if(empty.test(text))return text.replace(empty,`<$1$2>${addition}</$1>`);
+  if(empty.test(text))return text.replace(empty, (_match, name, attributes) => `<${name}${attributes}>${addition}</${name}>`);
   throw new Error(`Unsupported ${tag} annotation structure. Original workbook unchanged.`);
  }
- return text.replace(pattern,`${addition}</$1>`);
+ return text.replace(pattern, (closing) => addition + closing);
 };
 function records(xml:string,tag:string) { return [...xml.matchAll(new RegExp(`<(?:[\\w.-]+:)?${tag}\\b[^>]*?(?:/>|>[\\s\\S]*?</(?:[\\w.-]+:)?${tag}>)`,"g"))].map(m=>m[0]); }
 function appendLegacyText(record:string,segment:string) {
@@ -36,12 +36,13 @@ function appendLegacyText(record:string,segment:string) {
   const name=record.match(/^<([\w:.-]+)/)![1];
   return record.slice(0,-2)+`><text xmlns="${MAIN}"><t xml:space="preserve">${esc(segment)}</t></text></${name}>`;
  }
- const match=record.match(/<((?:[\w.-]+:)?text)\b[^>]*>([\s\S]*?)<\/\1>/);
+ const match=record.match(/(<((?:[\w.-]+:)?text)\b[^>]*>)([\s\S]*?)(<\/\2>)/);
  if(!match) throw new Error("Unsupported legacy comment text. No comments were changed.");
- const inner=match[2], prefix=match[1].includes(":")?match[1].split(":")[0]+":":"";
+ const [, opening, name, inner, closing] = match;
+ const prefix = name.includes(":") ? name.split(":")[0] + ":" : "";
  const run=`<${prefix}r><${prefix}t xml:space="preserve">\n\n${esc(segment)}</${prefix}t></${prefix}r>`;
  const updated=/<(?:[\w.-]+:)?r\b/.test(inner)?inner:inner.replace(/<((?:[\w.-]+:)?t)\b[^>]*>[\s\S]*?<\/\1>/,value=>`<${prefix}r>${value}</${prefix}r>`);
- return record.replace(match[0],ends(match[0].replace(inner,updated),"text",run));
+ return record.replace(match[0], () => ends(opening + updated + closing, "text", run));
 }
 /** Patches only annotation XML and its explicit relationships; never serializes worksheets. */
 export async function exportExerciseNotes(bytes:Uint8Array,plan:TrainingPlanRecord,data:TrainingData) {
@@ -49,6 +50,9 @@ export async function exportExerciseNotes(bytes:Uint8Array,plan:TrainingPlanReco
  const zip=await JSZip.loadAsync(bytes,{checkCRC32:true}), before=await JSZip.loadAsync(bytes,{checkCRC32:true});
  const snapshot=await snapshotFromXlsx(bytes);
  const imported=parseTrainingSnapshot(snapshot,plan.source,plan.name);
+ if (imported.warnings.some(warning => warning.severity === "activationBlocker")) {
+  throw new Error("The selected workbook has an unresolved exercise mapping. Review it in Training plans before exporting.");
+ }
  const manifest=await readManifest(zip), saved=new Map(manifest.notes.map(n=>[n.id,n]));
  const workbookId=manifest.workbookId??`{${crypto.randomUUID().toUpperCase()}}`;
  const manifestXml=()=>`${header}<notes xmlns="urn:treino-local:exercise-notes:1" workbookId="${workbookId}">${[...saved.values()].map(n=>`<note id="${n.id}" sheet="${esc(n.sheet)}" cell="${n.cell}" identity="${esc(n.identity)}" createdAt="${esc(n.createdAt)}" updatedAt="${esc(n.updatedAt)}" format="${n.format}"><text>${esc(n.text)}</text></note>`).join("")}</notes>`;
@@ -83,12 +87,11 @@ export async function exportExerciseNotes(bytes:Uint8Array,plan:TrainingPlanReco
   await contentType(path,"application/vnd.ms-excel.person+xml");
  }
  const updates:ExerciseNote[]=[], now=new Date().toISOString();
- const candidates=data.exerciseNotes.filter(n=>n.planId===plan.id&&(n.text||n.exported));
+ const candidates=notesForExcelExport(data,plan.id);
  for(const original of candidates) {
   if(original.conflicts?.length)throw new Error("Resolve the workbook/local note conflict in Exercise Details before exporting.");
   let note=original;
   if(!note.id||!note.workoutId||!note.identity) {
-   if(data.exerciseNotes.some(n=>n.planId===plan.id&&n.id&&n.exerciseKey===note.exerciseKey))continue;
    const matches=plan.workouts.flatMap(w=>w.blocks.flatMap(b=>b.kind==="exercise"&&exerciseKey(b.name)===note.exerciseKey?[{w,b}]:[]));
    if(matches.length!==1) {
     throw new Error("A legacy local note has several possible exercises. Open its Exercise Details and save it for the intended exercise before exporting.");
@@ -107,9 +110,14 @@ export async function exportExerciseNotes(bytes:Uint8Array,plan:TrainingPlanReco
   if(annotations.issues.some(i=>i!=="annotation-persons"))throw new Error("This worksheet has unsupported or malformed annotation metadata. Review it in Excel; original comments remain unchanged.");
   const cell=match[0].sourceCell, previous=saved.get(note.id!);
   const remote=annotations.contributions.find(n=>n.id===note.id);
+  if (manifest.workbookId && note.exported && !previous) {
+   throw new Error("This workbook copy is missing a previously exported note. Connect the latest downloaded copy before exporting again.");
+  }
   if(remote&&remote.cell!==cell)throw new Error("The exported note moved to a different logical exercise. Review both versions before exporting.");
   if(previous&&(!remote||remote.text!==(note.exported?.text??note.text)))throw new Error("This workbook note was changed or removed outside the app. Refresh the workbook and resolve both versions in Exercise Details before exporting.");
-  const root=annotations.annotations.find(a=>a.cell===cell&&a.format==="threaded"&&!a.parentId);
+  const roots=annotations.annotations.filter(a=>a.cell===cell&&a.format==="threaded"&&!a.parentId);
+  if (roots.length > 1) throw new Error("This exercise cell has multiple Excel threads. Review them in Excel before exporting.");
+  const root=roots[0];
   const contribution:ExcelNoteContribution={id:note.id!,sheet:sheet.name,cell,identity:note.identity!,text:note.text,
     createdAt:note.createdAt??note.updatedAt,updatedAt:note.updatedAt,format:previous?.format??(root?"threaded":"legacy")};
   if(previous && (previous.sheet!==sheet.name || previous.identity!==contribution.identity))throw new Error("Note lineage changed; original contribution was preserved.");
@@ -122,9 +130,9 @@ export async function exportExerciseNotes(bytes:Uint8Array,plan:TrainingPlanReco
     if(!previous||attr(obj(parseXml(own).threadedComment),"personId")!==PERSON)throw new Error("Existing comment is not an app-authored reply.");
     const ownRecord=obj(parseXml(own).threadedComment);
     if((ownRecord.mentions||ownRecord.extLst)&&note.text!==remote?.text)throw new Error("This reply has additional Excel mention or extension metadata. Preserve it in Excel and add a separate personal note instead.");
-    const replacement=own.replace(/<((?:[\w.-]+:)?text)\b[^>]*>[\s\S]*?<\/\1>/,`<text xmlns="${THREAD}" xml:space="preserve">${esc(note.text)}</text>`);
-    current=current.replace(own,replacement);
-   } else current=ends(current,"ThreadedComments",`<threadedComment xmlns="${THREAD}" ref="${cell}" dT="${esc(contribution.createdAt)}" personId="${PERSON}" id="${note.id}" parentId="${esc(root.id)}"><text xml:space="preserve">${esc(note.text)}</text></threadedComment>`);
+    const replacement=own.replace(/<((?:[\w.-]+:)?text)\b[^>]*>[\s\S]*?<\/\1>/, () => `<text xmlns="${THREAD}">${esc(note.text)}</text>`);
+    current=current.replace(own, () => replacement);
+   } else current=ends(current,"ThreadedComments",`<threadedComment xmlns="${THREAD}" ref="${cell}" dT="${esc(contribution.createdAt)}" personId="${PERSON}" id="${note.id}" parentId="${esc(root.id)}"><text>${esc(note.text)}</text></threadedComment>`);
    put(root.part,current);
    // Keep Excel's compatibility rendering readable without modifying the instructor's runs.
    const rels=arr(obj(parseXml(await get(relPath(sheet.path))).Relationships).Relationship);
@@ -134,8 +142,8 @@ export async function exportExerciseNotes(bytes:Uint8Array,plan:TrainingPlanReco
     const record=records(content,"comment").find(r=>attr(obj(parseXml(r).comment),"ref")===cell);
     if(record) {
      const old=previous?esc(legacySegment(previous)):undefined;
-     const next=old&&record.includes(old)?record.replace(old,esc(legacySegment(contribution))):previous?(()=>{throw new Error("Compatibility comment changed; import the latest workbook before editing.");})():appendLegacyText(record,legacySegment(contribution));
-     content=content.replace(record,next);put(part,content);
+     const next=old&&record.includes(old)?record.replace(old, () => esc(legacySegment(contribution))):previous?(()=>{throw new Error("Compatibility comment changed; import the latest workbook before editing.");})():appendLegacyText(record,legacySegment(contribution));
+     content=content.replace(record, () => next);put(part,content);
     }
    }
   } else {
@@ -147,8 +155,8 @@ export async function exportExerciseNotes(bytes:Uint8Array,plan:TrainingPlanReco
    const record=records(current,"comment").find(r=>attr(obj(parseXml(r).comment),"ref")===cell);
    if(record) {
     const old=previous?esc(legacySegment({...previous,text:remote!.text})):undefined;
-    const next=old&&record.includes(old)?record.replace(old,esc(legacySegment(contribution))):previous?(()=>{throw new Error("Legacy note formatting changed; import the latest workbook before editing.");})():appendLegacyText(record,legacySegment(contribution));
-    current=current.replace(record,next);
+    const next=old&&record.includes(old)?record.replace(old, () => esc(legacySegment(contribution))):previous?(()=>{throw new Error("Legacy note formatting changed; import the latest workbook before editing.");})():appendLegacyText(record,legacySegment(contribution));
+    current=current.replace(record, () => next);
    } else {
     const authors=arr(obj(obj(parseXml(current).comments).authors).author);const authorIndex=authors.length;
     current=ends(current,"authors",`<author xmlns="${MAIN}">User (Treino Local)</author>`);

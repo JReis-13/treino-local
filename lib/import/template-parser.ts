@@ -2,6 +2,7 @@ import { isLocalDate } from "@/lib/dates";
 import { cell, display, serialToDate, type SourceCell, type SourceSheet, type SourceSnapshot } from "@/lib/import/snapshot";
 import type { CompletionMapping, ImportedTraining, ImportWarning, InstructionBlock, TrainingSource, TrainingWorkout } from "@/types/training";
 import { normalizeLoad } from "@/lib/training/loads";
+import { noteIdentity } from "@/lib/training/annotation-notes";
 import { layoutGuidance } from "@/lib/import/validation";
 
 const lines = (value: string): string[] => value.split(/\r?\n/).map((line) => line.trim().replace(/\s+/g, " ")).filter(Boolean);
@@ -222,6 +223,13 @@ export function parseTrainingSnapshot(snapshot: SourceSnapshot, source: Training
     }
   }
   const nextSource = source.kind === "builtin" ? source : { ...source, template: template ?? "unknown", mappings };
+  const noteContributions = snapshot.sheets.flatMap(sheet => sheet.noteContributions ?? []).filter(note => {
+    const workout = workouts.find(item => mappings[item.id]?.sheetName === note.sheet);
+    const matches = workout?.blocks.filter(block => block.kind === "exercise" && noteIdentity(block) === note.identity);
+    if (matches?.length === 1 && matches[0].sourceCell === note.cell) return true;
+    warn(warnings, "annotation-note-mapping", "A personal comment no longer matches its original exercise. It remains in Excel. Review the workbook before moving or importing that note.", `${note.sheet}!${note.cell}`);
+    return false;
+  });
   const legacyWorkouts = workouts.map((workout) => ({ ...workout, blocks: workout.blocks.map((block) => {
     if (block.kind !== "exercise") return block;
     const { loadSource: _loadSource, sourceNotes: _sourceNotes, ...legacy } = block;
@@ -242,5 +250,5 @@ export function parseTrainingSnapshot(snapshot: SourceSnapshot, source: Training
   return { name, source: nextSource, sourceFingerprint,
     legacyFingerprint: fingerprint({ workouts: legacyWorkouts, mappings }), workouts, warnings, legacyCompletions,
     ...(excelAnnotations.length?{excelAnnotations}:{}),
-    ...(snapshot.sheets.some(s=>s.noteContributions?.length)?{noteContributions:snapshot.sheets.flatMap(s=>s.noteContributions??[])}:{}) };
+    ...(noteContributions.length ? { noteContributions } : {}) };
 }

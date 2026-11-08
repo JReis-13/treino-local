@@ -22,7 +22,7 @@ function LoadTrend({ values }: { values: number[] }) {
 export function ExerciseSupportTabs({ block, session, initialTab = "overview", launchVideo = false, contextVisible = false }: {
   block: ExerciseBlock; session: TrainingSession; initialTab?: Tab; launchVideo?: boolean; contextVisible?: boolean;
 }) {
-  const { data, saveExerciseNote, resolveExerciseNote } = useApp();
+  const { data, error, saveExerciseNote, resolveExerciseNote } = useApp();
   const prefix = useId();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [videoRequested, setVideoRequested] = useState(launchVideo);
@@ -39,6 +39,10 @@ export function ExerciseSupportTabs({ block, session, initialTab = "overview", l
   const [adding,setAdding]=useState(false);
   const [draft, setDraft] = useState(currentNote);
   const [noteMessage, setNoteMessage] = useState("");
+  const [noteSaveFailed, setNoteSaveFailed] = useState(false);
+  const editedNote = notes.find(note => note.id === editingId) ?? notes.at(-1);
+  const savedText = adding ? "" : editedNote?.text ?? currentNote;
+  const canAssignNote = matches.length === 1;
   const [showAllHistory, setShowAllHistory] = useState(false);
   const video = parseYouTubeVideo(block.videoUrl);
   const history = data ? exerciseLoadHistory(data, session.planId, block.name, session.workoutId) : [];
@@ -49,7 +53,17 @@ export function ExerciseSupportTabs({ block, session, initialTab = "overview", l
     return () => { window.removeEventListener("online", update); window.removeEventListener("offline", update); };
   }, []);
   function saveNote(value: string) {
-    if (saveExerciseNote(session.planId, block.name, value,{workoutId:session.workoutId,blockId:matches.length===1?matches[0].id:block.id,id:adding?undefined:editingId??notes.at(-1)?.id})) { setDraft(value.trim()); setAdding(false); setNoteMessage(value.trim() ? "Note saved on this device." : "Note removed. Previous versions remain saved."); }
+    if (!canAssignNote || (!value.trim() && (adding || (!editedNote && !legacy)))) return;
+    const saved = saveExerciseNote(session.planId, block.name, value, {
+      workoutId: session.workoutId, blockId: matches[0].id, id: adding ? undefined : editedNote?.id,
+    });
+    setNoteSaveFailed(!saved);
+    if (saved) {
+      if (adding) setEditingId(undefined);
+      setDraft(value.trim());
+      setAdding(false);
+      setNoteMessage(value.trim() ? "Note saved on this device." : "Note removed. Previous versions remain saved.");
+    }
     else setNoteMessage("Could not save the note. Try again.");
   }
   function handleTabKey(event: React.KeyboardEvent<HTMLButtonElement>) {
@@ -78,11 +92,19 @@ export function ExerciseSupportTabs({ block, session, initialTab = "overview", l
       {tab === "history" && <><p className="quiet-note">Verified loads from completed sessions in this training. Changing Today never rewrites them.</p>{visibleHistory.length ? <><ExerciseLoadRecords history={visibleHistory} />{history.length > 5 && <button type="button" className="inline-action" onClick={() => setShowAllHistory(!showAllHistory)}>{showAllHistory ? "Show recent only" : `Show all ${history.length} sessions`}</button>}{highest !== undefined && <div className="detail-highest"><span>Highest comparable load</span><strong>{highest}{unit ? ` ${unit}` : ""}</strong></div>}{mixedUnits && <p className="quiet-note">Recorded units differ, so no numeric high is shown.</p>}{!mixedUnits && <LoadTrend values={numeric.slice(0, 5).reverse().map((item) => item.amount)} />}</> : <><p className="detail-empty">No verified load history matches this exercise yet. Older records may still be in local History but cannot be safely assigned here.</p><Link className="inline-action" href="/history/">Review local History →</Link></>}</>}
       {tab === "notes" && <>
         <h3>Instructor notes</h3>{instructor.length?instructor.map(n=><article className="excel-note" key={n.id}><strong>{n.author??"Instructor"}</strong><small>From Excel · {n.sheet}!{n.cell}{n.shared?" · shared group cell":""}{n.timestamp?` · ${n.timestamp}`:""}</small><p>{n.text}</p>{!!n.previousTexts?.length&&<details><summary>Previous source versions</summary>{n.previousTexts.map((text,i)=><p key={i}>{text}</p>)}</details>}</article>):<p className="quiet-note">No instructor comments for this exercise.</p>}
-        <h3>My notes</h3><p className="quiet-note">{excelPlan?"Saved privately on this device. Excel export preserves instructor comments and adds your own contribution.":"Saved privately on this device. Excel comment export is available for locally imported Excel plans."}</p>
+        <h3>My notes</h3><p className="quiet-note">{excelPlan ? "Save note stores your changes on this device. To put them in Excel, open Source sync and export a new workbook copy." : "Save note stores your changes on this device. Excel comment export is available for locally imported Excel plans."}</p>
         {legacy&&<details><summary>Existing local note</summary><p className="excel-note">{legacy.text}</p><p className="quiet-note">This older note is preserved. Save it below to associate it with this exercise.</p></details>}
         {notes.filter(n=>n.text||n.history?.length).map(n=><article className="excel-note" key={n.id}><p>{n.text||"Removed locally"}</p><small>{n.updatedAt} · {n.exported?.text===n.text?"Included in a generated or imported Excel copy":"Local changes — not yet exported"}</small><button type="button" className="inline-action" onClick={()=>{setEditingId(n.id);setAdding(false);setDraft(n.text);}}>Edit this note</button>{!!n.history?.length&&<details><summary>Previous versions</summary>{n.history.map((h,i)=><p key={i}>{h.updatedAt} · {h.text||"Empty note"}</p>)}</details>}{n.conflicts?.map(text=><div className="context-note" key={text}><strong>Workbook version differs</strong><p>{text}</p><button type="button" className="secondary-button" onClick={()=>{if(resolveExerciseNote(session.planId,n.id!,text,true)){setEditingId(n.id);setDraft(text);}}}>Use workbook version</button><button type="button" className="secondary-button" onClick={()=>resolveExerciseNote(session.planId,n.id!,text,false)}>Keep my version</button></div>)}</article>)}
         {!!notes.length&&<button type="button" className="inline-action" onClick={()=>{setAdding(true);setEditingId(undefined);setDraft("");}}>Add another note</button>}
-        <label className="date-field"><span>EXERCISE NOTE</span><textarea value={draft} onChange={(event) => { setDraft(event.target.value); setNoteMessage(""); }} maxLength={1000} rows={5} placeholder="Seat position, grip, or a reminder for next time" /></label><div className="detail-note-actions"><button type="button" className="primary-button" onClick={() => saveNote(draft)}>Save note</button>{currentNote && <button type="button" className="secondary-button" onClick={() => saveNote("")}>Remove note</button>}</div><Link href="/source/" className="inline-action">{excelPlan?"Source sync & Excel export →":"Source connection →"}</Link>{noteMessage && <p role="status" className="quiet-note">{noteMessage}</p>}
+        <label className="date-field"><span>EXERCISE NOTE</span><textarea value={draft} onChange={(event) => { setDraft(event.target.value); setNoteMessage(""); setNoteSaveFailed(false); }} maxLength={1000} rows={5} placeholder="Seat position, grip, or a reminder for next time" /></label>
+        {!canAssignNote && <p className="quiet-note">This exercise has no unique match in the current plan. Review the plan before saving a note here.</p>}
+        {draft.trim() !== savedText && <p className="quiet-note">Unsaved changes</p>}
+        <div className="detail-note-actions">
+          <button type="button" className="primary-button" disabled={!canAssignNote || (!draft.trim() && !savedText)} onClick={() => saveNote(draft)}>Save note</button>
+          {!adding && savedText && <button type="button" className="secondary-button" disabled={!canAssignNote} onClick={() => saveNote("")}>Remove note</button>}
+        </div>
+        <Link href="/source/" className="inline-action">{excelPlan ? "Source sync & Excel export →" : "Source connection →"}</Link>
+        {noteMessage && <p role="status" className="quiet-note">{noteSaveFailed ? error ?? noteMessage : noteMessage}</p>}
       </>}
     </div>
   </div>;

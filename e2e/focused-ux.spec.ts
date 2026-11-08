@@ -95,6 +95,7 @@ test("Friends distinguishes initial loading from background refresh and retains 
   mode = "ready"; release!();
   await expect(page.locator(".friends-directory")).toContainText("Synthetic friend");
   await page.getByRole("navigation").getByRole("link", { name: "History", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /^History/ })).toBeVisible();
   mode = "slow"; release = undefined;
   await page.getByRole("navigation").getByRole("link", { name: "Friends", exact: true }).click();
   await expect(page.locator(".friends-directory")).toContainText("Updating the list");

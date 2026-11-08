@@ -80,6 +80,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("beforeunload", protect);
   }, []);
   const dataRef = useRef<TrainingData | null>(null);
+  const savedSnapshot = useRef<string | null>(null);
   const storageBlocked = useRef(false);
   const reconciling = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +90,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!loaded.error) reconcileQueuedSocialDeletions(new Set([...loaded.data.sessions.map((session) => session.id),
       ...(loaded.data.pendingHistoryDeletions ?? []).map((item) => item.session.id)]));
     dataRef.current = loaded.data;
+    savedSnapshot.current = loaded.raw;
     storageBlocked.current = Boolean(loaded.error);
     writeState.current=loaded.error?"failed":"ready";setLocalWriteState(writeState.current);
     setData(loaded.data);
@@ -116,7 +118,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     catch(cause){setError(cause instanceof Error?cause.message:"Could not apply this change.");return false;}
     try {
       writeState.current="writing";setLocalWriteState("writing");
-      trainingStorage.save(next);
+      savedSnapshot.current = trainingStorage.save(next, savedSnapshot.current);
       dataRef.current = next;
       setData(next);
       setError(null);
@@ -544,7 +546,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const restoreData = useCallback((restored: TrainingData): boolean => {
     try {
-      trainingStorage.save(restored);
+      savedSnapshot.current = trainingStorage.save(restored);
       dataRef.current = restored;
       storageBlocked.current = false;
       writeState.current="ready";setLocalWriteState("ready");

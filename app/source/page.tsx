@@ -18,6 +18,7 @@ import { prepareXlsxSync } from "@/lib/sync/xlsx";
 import { exportExerciseNotes } from "@/lib/sync/xlsx-notes";
 import { activePlan } from "@/lib/training/session";
 import { changedLoads, sameSourceLoadAssociation } from "@/lib/training/loads";
+import { notesForExcelExport } from "@/lib/training/annotation-notes";
 import type { TrainingSession } from "@/types/training";
 
 interface DirectHandle extends FileSystemFileHandle {
@@ -25,7 +26,7 @@ interface DirectHandle extends FileSystemFileHandle {
   requestPermission(options: { mode: "readwrite" }): Promise<PermissionState>;
 }
 type PickerWindow = Window & { showOpenFilePicker?: (options: { types: Array<{ description: string; accept: Record<string, string[]> }>; multiple: boolean }) => Promise<DirectHandle[]> };
-type SelectedFile = { bytes: Uint8Array; filename: string; handle?: DirectHandle; mode: "direct" | "copy" };
+type SelectedFile = { planId: string; planVersion: number; bytes: Uint8Array; filename: string; handle?: DirectHandle; mode: "direct" | "copy" };
 
 function download(bytes: Uint8Array, filename: string) {
   const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
@@ -47,13 +48,14 @@ async function workbookId(bytes: Uint8Array) {
 export default function SourcePage() {
   const { data, error, commitExcelSync, commitNoteExport, setSyncStatus, setSessionSync, applySourceLoads } = useApp();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [selected, setSelected] = useState<SelectedFile | null>(null);
+  const [selection, setSelected] = useState<SelectedFile | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [validatedGoogle, setValidatedGoogle] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [directAvailable, setDirectAvailable] = useState(false);
   const plan = data ? activePlan(data) : undefined;
+  const selected = selection && selection.planId === plan?.id && selection.planVersion === plan.version ? selection : null;
 
   useEffect(() => {
     setDirectAvailable(Boolean(window.isSecureContext && (window as PickerWindow).showOpenFilePicker));
@@ -82,6 +84,8 @@ export default function SourcePage() {
   if (!data) return <div className="loading">Loading source connection…</div>;
   if (!plan) return <div className="empty-state"><h1>No training selected</h1><p>Import a training plan first.</p><Link className="primary-button" href="/plans/">Choose training →</Link></div>;
   const pending = sessionsWaitingForSource(data.sessions, plan.id);
+  const excelNotes = plan.source.kind === "excel" ? notesForExcelExport(data, plan.id) : [];
+  const pendingNotes = excelNotes.filter(note => note.exported?.text !== note.text).length;
   const syncBlocked = plan.importWarnings.some((warning) => warning.severity === "syncBlocker");
 
   async function validateExcel(file: File, handle?: DirectHandle, currentPlan = plan!) {
@@ -99,7 +103,7 @@ export default function SourcePage() {
       const result = verifyExcelCopy(currentPlan, data!.sessions, imported, await workbookId(bytes));
       if (!commitExcelSync(currentPlan.id, result.patches, imported, { filename: file.name, mode }))
         throw new Error("Could not save workbook verification on this device. Reconnect the copy to retry; local sessions remain safe.");
-      setSelected({ bytes, filename: file.name, handle, mode });
+      setSelected({ planId: currentPlan.id, planVersion: currentPlan.version, bytes, filename: file.name, handle, mode });
       if (handle) await saveFileHandle(currentPlan.id, handle).catch(() => {});
       const remaining = sessionsWaitingForSource(applyExcelSync(data!, currentPlan.id, result.patches).sessions, currentPlan.id);
       setMessage(`${result.dates} date(s) and ${result.loads} load update(s) checked against workbook values. ${result.historicalLoads ? "The workbook uses later recorded loads; earlier expressions stay in local History. " : ""}${remaining.length ? remaining.some(session => ["partial", "conflict", "failed"].includes(session.syncStatus)) ? "Some updates still need attention; see each operation below." : "Updates are saved locally; export them below." : "No local workouts are waiting for source sync."} ${handle ? "Direct file connected." : "Safe copy connected; the original file was not overwritten."}`);
@@ -167,11 +171,12 @@ export default function SourcePage() {
     setBusy(true);setMessage("Preparing exercise notes in a new Excel copy…");
     try {
       const bytes=selected.handle?new Uint8Array(await (await selected.handle.getFile()).arrayBuffer()):selected.bytes;
+      if (!equalBytes(bytes, selected.bytes)) throw new Error("The connected workbook changed. Reconnect it to review the latest comments before exporting.");
       const result=await exportExerciseNotes(bytes,plan,data);
       if(!result.updates.length)throw new Error("Save a personal exercise note in Exercise Details first.");
       if(!commitNoteExport(plan.id,result.updates))throw new Error("Could not remember the exported versions. No copy was downloaded.");
       download(result.bytes,selected.filename);
-      setMessage(`${result.updates.length} personal note(s) included in the generated Excel copy. Instructor comments are preserved. Save the downloaded file; the original was not overwritten.`);
+      setMessage(`${result.updates.length} personal note(s) included in a copy of ${selected.filename}. Download requested. Open the downloaded file in Excel, then connect that copy for your next export.`);
     } catch(cause){setMessage(cause instanceof Error?cause.message:"Could not export exercise notes. Existing notes remain saved.");}
     finally{setBusy(false);}
   }
@@ -340,6 +345,17 @@ export default function SourcePage() {
       {plan.source.kind === "google" && plan.source.authMode === "oauth" && <button type="button" className="primary-button" aria-describedby="source-next-step" disabled={busy || !googleConnected || !plan.source.syncEnabled || !pending.length || syncBlocked} onClick={() => void syncGoogle()}>{busy ? "Checking Google Sheet…" : "Sync pending workouts"} →</button>}
       {plan.source.kind !== "builtin" && <p className="quiet-note" id="source-next-step" role="status">{nextStep}</p>}
       <p className="quiet-note">{plan.source.kind === "excel" && selected?.mode === "direct" ? "This selected file will be updated directly only after permission and readback checks." : plan.source.kind === "excel" ? "Safe-copy mode downloads a new file. Your selected file is not overwritten." : "Local sessions remain completed if Google is unavailable or sync fails."}</p></section>
-    {plan.source.kind==="excel"&&<section className="review-card"><h2>Exercise notes in Excel</h2><p>Instructor comments stay intact. Your notes are added as your own replies or attributed legacy notes. Session notes remain on this device.</p><button type="button" className="primary-button" disabled={busy||!selected} aria-describedby="notes-export-help" onClick={()=>void exportNotesCopy()}>Export updated Excel with notes →</button><p id="notes-export-help" className="quiet-note">{!selected?"Connect the latest workbook above, then export a new copy. The original file is never overwritten by this action.":"Downloads a new workbook with saved personal notes. Reconnect the latest copy before editing an already exported contribution."}</p></section>}
+    {plan.source.kind === "excel" && <section className="review-card">
+      <h2>Exercise notes in Excel</h2>
+      <p>{excelNotes.length} saved on this device · {pendingNotes} with changes to export.</p>
+      <p>Your copy keeps instructor comments and adds your personal replies or legacy notes. Session notes stay in Treino Local.</p>
+      <button type="button" className="primary-button" disabled={busy || !selected || !excelNotes.length}
+        aria-describedby="notes-export-help" onClick={() => void exportNotesCopy()}>Export updated Excel with notes →</button>
+      <p id="notes-export-help" className="quiet-note">
+        {!excelNotes.length ? "Save a personal note in Exercise Details first." : !selected ?
+          "Connect your latest workbook above to export a new copy." :
+          `Export base: ${selected.filename}. Open the new download in Excel. Use your latest copy to retain workbook changes from earlier exports.`}
+      </p>
+    </section>}
   </div>;
 }

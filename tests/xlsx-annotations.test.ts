@@ -2,7 +2,7 @@ import { annotatedFixture } from "./annotation-fixture";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { independentlyValidate } from "./verify-annotation-package";
 import test from "node:test";
 import JSZip from "jszip";
 import { snapshotFromXlsx } from "../lib/import/snapshot";
@@ -24,34 +24,6 @@ async function setup(format:"legacy"|"threaded"|"both"="both",block="A-strength-
  let data=addTraining(emptyTrainingData(),training,"Synthetic",undefined,"P");
  data=saveScopedNote(data,"P","A",block,"My private reminder",undefined,"2026-11-01T08:00:00Z");
  return {bytes,data};
-}
-function independentlyValidate(bytes:Uint8Array) {
- const result=spawnSync(process.env.PYTHON??(process.platform==="win32"?"python":"python3"),["-c",`import sys,io,zipfile,xml.etree.ElementTree as E,posixpath
-z=zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read()))
-tc='http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments'
-people=set()
-for p in z.namelist():
- if p.endswith('.xml'):
-  r=E.fromstring(z.read(p))
-  if r.tag=='{'+tc+'}personList':
-   ids=[e.attrib['id'] for e in r if e.tag=='{'+tc+'}person']; assert len(ids)==len(set(ids));people.update(ids)
-for p in z.namelist():
- if p.endswith(('.xml','.rels','.vml')):
-  r=E.fromstring(z.read(p))
-  if p.endswith('.rels'):
-   base=posixpath.dirname(posixpath.dirname(p))
-   for x in r:
-    if x.attrib.get('TargetMode')=='External': continue
-    t=x.attrib['Target']; target=t.lstrip('/') if t.startswith('/') else posixpath.normpath(posixpath.join(base,t))
-    assert target in z.namelist(), (p,target)
-  if r.tag=='{'+tc+'}ThreadedComments':
-   entries=[e for e in r if e.tag=='{'+tc+'}threadedComment'];ids={e.attrib['id']:e for e in entries};assert len(ids)==len(entries)
-   if any(e.tag.endswith('}extLst') for e in r): assert r[-1].tag.endswith('}extLst')
-   for e in entries:
-    assert e.attrib['personId'] in people
-    if 'parentId' in e.attrib: assert e.attrib['parentId'] in ids and ids[e.attrib['parentId']].attrib.get('ref')==e.attrib.get('ref')
-print('XML and package relationships valid')`],{input:bytes,encoding:"utf8",windowsHide:true});
- assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/relationships valid/);
 }
 
 test("no comments still imports; legacy and native threads retain authors, replies and shared-cell attribution",async()=>{
@@ -82,10 +54,11 @@ for(const format of ["legacy","threaded","both"] as const)test(`${format}: impor
  assert.equal((await readManifest(await JSZip.loadAsync(repeat.bytes))).notes.length,1);
  assert.equal((await imported(repeat.bytes)).noteContributions?.length,1);
  const block=format==="legacy"?"A-strength-26-1":"A-strength-28-1";
- const edited=saveScopedNote(saved,"P","A",block,"Edited reminder",saved.exerciseNotes[0].id,"2026-11-02T08:00:00Z");
+ const editedText = "Edited reminder with literal $&, $1, $$ and $' markers";
+ const edited=saveScopedNote(saved,"P","A",block,editedText,saved.exerciseNotes[0].id,"2026-11-02T08:00:00Z");
  const updated=await exportExerciseNotes(first.bytes,edited.plans[0],edited);
  const notes=(await imported(updated.bytes)).noteContributions!;
- assert.equal(notes.length,1);assert.equal(notes[0].text,"Edited reminder");
+ assert.equal(notes.length,1);assert.equal(notes[0].text,editedText);
  assert.equal(edited.exerciseNotes[0].history?.[0].text,"My private reminder");
  const after=await JSZip.loadAsync(updated.bytes);
  const text=await after.file(format==="legacy"?"xl/comments-synthetic.xml":"xl/threadedComments/synthetic.xml")!.async("string");
@@ -242,6 +215,32 @@ test("moving an already exported note with its exercise follows the contribution
  assert.equal((await imported(output.bytes)).noteContributions?.[0].cell,"E28");
 });
 
+test("moving a managed comment alone cannot assign it to a different exercise", async () => {
+ const fixture = await setup("legacy");
+ const output = await exportExerciseNotes(fixture.bytes, fixture.data.plans[0], fixture.data);
+ const zip = await JSZip.loadAsync(output.bytes);
+ const path = "xl/comments-synthetic.xml";
+ const comments = await zip.file(path)!.async("string");
+ zip.file(path, comments.replace('ref="E26"', 'ref="E28"'));
+ const moved = await zip.generateAsync({ type: "uint8array" });
+ const parsed = await imported(moved);
+ assert.equal(parsed.noteContributions?.length ?? 0, 0);
+ assert(parsed.warnings.some(warning => warning.code === "annotation-note-mapping"));
+ const saved = applyNoteUpdates(fixture.data, "P", output.updates);
+ await assert.rejects(() => exportExerciseNotes(moved, saved.plans[0], saved), /different logical exercise/);
+});
+
+test("an older managed workbook copy cannot silently omit a newer exported contribution", async () => {
+ const { bytes, data } = await setup("legacy");
+ const first = await exportExerciseNotes(bytes, data.plans[0], data);
+ const saved = applyNoteUpdates(data, "P", first.updates);
+ const twoNotes = saveScopedNote(saved, "P", "A", "A-strength-26-1", "Second saved note");
+ const latest = await exportExerciseNotes(first.bytes, twoNotes.plans[0], twoNotes);
+ const exported = applyNoteUpdates(twoNotes, "P", latest.updates);
+ await assert.rejects(() => exportExerciseNotes(first.bytes, exported.plans[0], exported), /missing a previously exported note/);
+ assert.equal((await imported(latest.bytes)).noteContributions?.length, 2);
+});
+
 test("thread extensions stay terminal and metadata loss cannot cause duplicate owned entries",async()=>{
  const f=await setup("threaded","A-strength-28-1"),zip=await JSZip.loadAsync(f.bytes);
  for(const [part,closing] of [["xl/threadedComments/synthetic.xml","ThreadedComments"],["xl/persons/person.xml","personList"]])zip.file(part,(await zip.file(part)!.async("string")).replace(`</${closing}>`,`<extLst><ext xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" uri="synthetic-extension"><custom xmlns="urn:synthetic"/></ext></extLst></${closing}>`));
@@ -259,11 +258,28 @@ test("thread extensions stay terminal and metadata loss cannot cause duplicate o
 
 const MANIFEST_PATH="customXml/treino-exercise-notes.xml";
 
-test("actual instructor workbook remains read-only and imports its modern comment threads",{skip:!process.env.WORKBOOK_COMMENT_FIXTURE},async()=>{
+test("actual instructor workbook exports and edits a native reply without changing the original workbook",{skip:!process.env.WORKBOOK_COMMENT_FIXTURE},async()=>{
  const file=process.env.WORKBOOK_COMMENT_FIXTURE!,bytes=new Uint8Array(await readFile(file)),hash=createHash("sha256").update(bytes).digest("hex");
  const parsed=await imported(bytes);
  assert.equal(parsed.workouts.length,2);assert.equal(parsed.workouts.flatMap(w=>w.blocks.filter(b=>b.kind==="exercise")).length,24);
  assert.equal(parsed.excelAnnotations?.filter(n=>n.format==="threaded").length,10);
  assert(!parsed.warnings.some(w=>w.severity==="activationBlocker"));
+ const workout = parsed.workouts[0];
+ const exercise = workout.blocks.find(block => block.kind === "exercise" &&
+   block.sourceNotes?.some(note => note.format === "threaded" && note.cell === block.sourceCell));
+ if (exercise?.kind !== "exercise") throw new Error("Expected a mapped instructor thread");
+ let data = addTraining(emptyTrainingData(), parsed, "Instructor workbook", undefined, "P");
+ data = saveScopedNote(data, "P", workout.id, exercise.id, "Private fixture test reply $&");
+ const first = await exportExerciseNotes(bytes, data.plans[0], data);
+ independentlyValidate(first.bytes);
+ data = applyNoteUpdates(data, "P", first.updates);
+ const noteId = data.exerciseNotes[0].id;
+ data = saveScopedNote(data, "P", workout.id, exercise.id, "Edited fixture test reply $$", noteId);
+ const edited = await exportExerciseNotes(first.bytes, data.plans[0], data);
+ independentlyValidate(edited.bytes, file);
+ const result = await imported(edited.bytes);
+ assert.deepEqual(result.noteContributions?.map(note => [note.id, note.cell, note.format, note.text]),
+   [[noteId, exercise.sourceCell, "threaded", "Edited fixture test reply $$"]]);
+ assert.equal(result.excelAnnotations?.filter(note => note.format === "threaded").length, 10);
  assert.equal(createHash("sha256").update(await readFile(file)).digest("hex"),hash);
 });
